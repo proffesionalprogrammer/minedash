@@ -260,6 +260,10 @@ function showFromTray() {
 
 // ─── App Lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // Log the running version up front so the auto-update flow is debuggable
+  // from the log file alone — if the toast misfires you can grep this line to
+  // see which version actually got loaded vs. what's on the releases feed.
+  log(`[Electron] MineDash ${app.getVersion()} starting`);
   startBackend();
 
   try {
