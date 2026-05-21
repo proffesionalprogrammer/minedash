@@ -18,7 +18,12 @@ const { Auth } = msmc;
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
 const MODRINTH_API = 'https://api.modrinth.com/v2';
-const MODRINTH_HEADERS = { 'User-Agent': 'MineDash/1.0 (local launcher)' };
+// Modrinth asks for a User-Agent with contact info so they can reach the
+// project (not the end user) if it starts misbehaving. The repo URL is a
+// project-level contact — it points at the source, not the user running it.
+const MODRINTH_HEADERS = {
+  'User-Agent': 'MineDash/1.0 (+https://github.com/proffesionalprogrammer/minedash)',
+};
 
 // ─── State (set by init()) ──────────────────────────────────────────
 let DATA_DIR;
