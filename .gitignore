@@ -10,6 +10,11 @@ dist-electron/
 electron/renderer/
 frontend/dist/
 
+# CHANGELOG.md is copied from the repo root into frontend/public/ as a build
+# step (so the "What's new" popup can fetch it at runtime). Don't commit the
+# copy — the canonical version lives at the repo root.
+frontend/public/CHANGELOG.md
+
 # ─── User data (runtime state — NEVER commit) ─────────────────────────────
 # In dev mode the backend writes here. In packaged Electron it goes to
 # %AppData%\MineDash. Either way, none of this belongs in the repo.

@@ -9,6 +9,12 @@ const isDev = !app.isPackaged;
 let backendProcess = null;
 let mainWindow = null;
 let tray = null;
+// Update-poll timer is created when the window is focused and cleared when it
+// blurs / hides. Per-minute polling while the user is actively in the app gets
+// new releases in front of them within ~60s of going live; the focus gate
+// avoids waking the network every minute while MineDash is tray-hidden.
+let updatePollTimer = null;
+const UPDATE_POLL_INTERVAL_MS = 60 * 1000;
 
 // Render at 100% regardless of Windows display scaling — otherwise the UI
 // inherits the OS scale factor and overflows on 125% / 150% laptop screens.
@@ -202,6 +208,34 @@ function setupAutoUpdater() {
   autoUpdater.checkForUpdates().catch((err) => {
     log('[Updater] Initial check failed:', err?.message || String(err));
   });
+
+  // Focused-only polling. We start a 1-minute interval as soon as the window
+  // is focused and tear it down on blur/hide so a backgrounded MineDash isn't
+  // generating idle network chatter. Re-checking when focus returns picks up
+  // any release that landed during the away period.
+  const startPolling = () => {
+    if (updatePollTimer) return;
+    updatePollTimer = setInterval(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        log('[Updater] Poll failed:', err?.message || String(err));
+      });
+    }, UPDATE_POLL_INTERVAL_MS);
+  };
+  const stopPolling = () => {
+    if (!updatePollTimer) return;
+    clearInterval(updatePollTimer);
+    updatePollTimer = null;
+  };
+  if (mainWindow?.isFocused()) startPolling();
+  mainWindow?.on('focus', () => {
+    // Also do an immediate check on focus — if the user came back after lunch
+    // they shouldn't wait another full minute to find out about a release.
+    autoUpdater.checkForUpdates().catch(() => {});
+    startPolling();
+  });
+  mainWindow?.on('blur', stopPolling);
+  mainWindow?.on('hide', stopPolling);
+  mainWindow?.on('show', () => { if (mainWindow.isFocused()) startPolling(); });
 }
 
 // Renderer asks us to quit and run the installer. The installer swaps the
@@ -216,6 +250,11 @@ ipcMain.on('window-minimize',    () => mainWindow?.minimize());
 ipcMain.on('window-maximize',    () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize());
 ipcMain.on('window-close',       () => mainWindow?.close());
 ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized() ?? false);
+
+// Renderer asks what version of MineDash is running so it can display it in
+// Settings and decide whether to show the "What's new" popup. Source of truth
+// is package.json (electron-builder bakes its `version` field into the app).
+ipcMain.handle('app-get-version', () => app.getVersion());
 
 // Hide MineDash to the system tray. Called from useLaunchSession when the
 // user's "After launching" setting is 'hide' — keeping the backend alive

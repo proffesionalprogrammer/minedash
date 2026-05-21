@@ -17,10 +17,19 @@ export default function SettingsMenu({ settings, onChange, onError }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(settings || DEFAULTS);
   const [saving, setSaving] = useState(false);
+  // App version pulled from Electron via preload. In dev mode (no electronAPI)
+  // we just show "dev build" — there's no meaningful package version there.
+  const [appVersion, setAppVersion] = useState(null);
   const wrapperRef = useRef(null);
   const saveTimer = useRef(null);
 
   useEffect(() => { if (settings) setDraft(settings); }, [settings]);
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (api?.getAppVersion) {
+      api.getAppVersion().then(v => setAppVersion(v)).catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -230,6 +239,15 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   </span>
                   Only show installed versions
                 </label>
+              </div>
+
+              {/* Version footer — small gray line so the user can tell what
+                  build they're on without digging through About menus.
+                  Mirrors VS Code / Discord conventions. */}
+              <div className="border-t border-[#2D2D2D] pt-3 mt-1">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] text-center">
+                  MineDash {appVersion ? `v${appVersion}` : (window.electronAPI ? '' : 'dev build')}
+                </p>
               </div>
             </div>
           </motion.div>

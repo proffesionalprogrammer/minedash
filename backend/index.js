@@ -1071,6 +1071,53 @@ function detectModpackType(deps = {}) {
   return null;
 }
 
+// Known client-only mod filename patterns. We use these to skip mods that
+// would crash a dedicated server during `.mrpack` import. Patterns match the
+// *start* of the filename (case-insensitive) followed by a non-alphanumeric
+// boundary, so e.g. `oculus-1.7.0.jar` matches but `oculus-server-extras.jar`
+// (hypothetical, doesn't exist) wouldn't be a false negative because we still
+// catch the underscore/dot/dash boundary.
+//
+// This list isn't exhaustive — it covers the well-known offenders that show
+// up in 90% of "modpack server crash" reports. Pure-rendering / pure-UI mods
+// are the safest bets; mods with optional server-side functionality (JEI,
+// JourneyMap, etc.) are intentionally NOT in here because some packs legit
+// want them on the server side.
+const CLIENT_ONLY_MOD_PATTERNS = [
+  // Shaders / OpenGL rendering — load native client libs, no server use
+  /^(oculus|iris)([-_.]|$)/i,
+  /^(optifine|optifabric)([-_.]|$)/i,
+  /^(sodium|rubidium|embeddium|magnesium|indium|nvidium)([-_.]|$)/i,
+  /^reese[s']?[-_]sodium/i,
+  /^sodium[-_](extra|extras|options)/i,
+  /^iris[-_]flywheel/i,
+  // Pure visual / UI / animation
+  /^(modmenu|mod[-_]menu)([-_.]|$)/i,
+  /^continuity([-_.]|$)/i,
+  /^animatica([-_.]|$)/i,
+  /^lambdabettergrass/i,
+  /^lambdynamiclights/i,
+  /^(distant[-_]?horizons|distanthorizons)([-_.]|$)/i,
+  /^3dskinlayers/i,
+  /^waveycapes/i,
+  /^chat[-_]?heads/i,
+  /^particle[-_]?rain/i,
+  /^physics[-_]?mod/i,
+  /^visuality([-_.]|$)/i,
+  /^entity[-_]?culling/i,
+  /^better[-_]?clouds/i,
+  /^betterf3/i,
+  /^bobby([-_.]|$)/i,
+  /^borderless[-_]?mining/i,
+  /^citresewn/i,
+  /^particular([-_.]|$)/i,
+];
+
+function isClientOnlyModFilename(name) {
+  if (!name) return false;
+  return CLIENT_ONLY_MOD_PATTERNS.some(re => re.test(name));
+}
+
 // Reject paths that try to escape the server directory.
 function safeJoin(base, rel) {
   const normalized = path.normalize(rel).replace(/^([\\/]+)/, '');
@@ -1175,12 +1222,38 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     await fs.writeFile(path.join(serverPath, 'eula.txt'), 'eula=true\n');
     await fs.writeFile(path.join(serverPath, 'server.properties'), 'online-mode=false\nenforce-secure-profile=false\n');
 
-    // Download declared files (skip ones the index marks server-unsupported)
+    // Download declared files. The previous filter only excluded the explicit
+    // `env.server === 'unsupported'` case, but a lot of packs in the wild
+    // either:
+    //   1. Mark client-only mods as env.server: 'optional' / 'required' by
+    //      mistake, so the unsupported-only check lets them through.
+    //   2. Ship pure client mods (Oculus, Iris, Sodium, Rubidium…) inside
+    //      `overrides/mods/` with no env metadata at all — see the override
+    //      extractor below for that branch.
+    // The rule here is: if a file's env shows it's client-required and the
+    // server doesn't require it, it's a client mod — skip it. Plus we also
+    // run filenames through `isClientOnlyModFilename` as a belt-and-braces
+    // catch for packs that lied about env entirely.
     const files = Array.isArray(index.files) ? index.files : [];
+    const skippedClient = [];
     const downloadable = files.filter(f => {
       if (!f || !Array.isArray(f.downloads) || f.downloads.length === 0) return false;
-      const serverEnv = f.env && f.env.server;
-      if (serverEnv === 'unsupported') return false;
+      const env = f.env || {};
+      if (env.server === 'unsupported') return false;
+      // env.client === 'required' && env.server !== 'required' means the mod
+      // is client-side-required, not server-side-required → client-only.
+      if (env.client === 'required' && env.server !== 'required') {
+        skippedClient.push(f.path);
+        return false;
+      }
+      // Filename heuristic for the cases where env is lying or absent. Only
+      // applies under mods/ — we don't want to skip a legitimately-named file
+      // in config/ or resourcepacks/.
+      const rel = String(f.path || '').replace(/\\/g, '/');
+      if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
+        skippedClient.push(f.path);
+        return false;
+      }
       return true;
     });
 
@@ -1197,7 +1270,12 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
       }
     }
 
-    // Extract overrides/ (and server-overrides/) into the server directory
+    // Extract overrides/ (and server-overrides/) into the server directory.
+    // We deliberately ignore client-overrides/. Inside overrides/mods/ we
+    // also run the filename deny-list because that's where most "Oculus is
+    // crashing my server" reports come from — pack authors drop Oculus.jar
+    // into overrides/mods/ and the dedicated server explodes the moment it
+    // tries to load it.
     const overrideRoots = ['overrides', 'server-overrides'];
     for (const root of overrideRoots) {
       for (const entry of zip.getEntries()) {
@@ -1205,6 +1283,11 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
         if (!entry.entryName.startsWith(root + '/')) continue;
         const rel = entry.entryName.slice(root.length + 1);
         if (!rel) continue;
+        const relNorm = rel.replace(/\\/g, '/');
+        if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
+          skippedClient.push(entry.entryName);
+          continue;
+        }
         try {
           const dest = safeJoin(serverPath, rel);
           await fs.ensureDir(path.dirname(dest));
@@ -1245,6 +1328,11 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
         downloaded,
         attempted: downloadable.length,
         failed,
+        // Tell the UI which mods we deliberately skipped because they would
+        // crash a dedicated server (Oculus, Iris, Sodium and friends). Lets
+        // the user see "we did this for you, not a bug" rather than wondering
+        // why some files from the pack didn't show up.
+        skippedClientOnly: skippedClient,
       },
     });
   } catch (err) {
@@ -2827,11 +2915,23 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
     // Use downloadFromAny so we try every mirror in f.downloads[] (Modrinth lists
     // multiple) rather than giving up the moment the first CDN URL 404s, and
     // safeJoin to block traversal entries like "../../../etc/passwd".
+    // Same client-mod filtering rules as POST /api/servers/from-modpack —
+    // see that endpoint for the full rationale. The short version: env-flag
+    // check covers the common-correct case, the filename deny-list catches
+    // packs that mis-tag client mods OR ship them in overrides/mods/.
     let installed = 0;
     let failed = 0;
+    let skippedClient = 0;
     for (const file of files) {
-      if (file.env && file.env.server === 'unsupported') continue;
       if (!Array.isArray(file.downloads) || file.downloads.length === 0) { failed++; continue; }
+      const env = file.env || {};
+      if (env.server === 'unsupported') continue;
+      if (env.client === 'required' && env.server !== 'required') { skippedClient++; continue; }
+      const rel = String(file.path || '').replace(/\\/g, '/');
+      if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
+        skippedClient++;
+        continue;
+      }
 
       let destFile;
       try {
@@ -2851,6 +2951,9 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
     }
 
     // 4. Extract overrides (config files, etc.) — safeJoin to block traversal.
+    // overrides/mods/ also goes through the client-mod deny-list because the
+    // Oculus-jar-in-overrides case is the #1 cause of dedicated-server crashes
+    // after a modpack install.
     const overrideEntries = zip.getEntries().filter(e =>
       e.entryName.startsWith('overrides/') || e.entryName.startsWith('server-overrides/')
     );
@@ -2858,6 +2961,11 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
       if (entry.isDirectory) continue;
       const relativePath = entry.entryName.replace(/^(overrides|server-overrides)\//, '');
       if (!relativePath) continue;
+      const relNorm = relativePath.replace(/\\/g, '/');
+      if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
+        skippedClient++;
+        continue;
+      }
       let destFile;
       try { destFile = safeJoin(serverDir, relativePath); }
       catch { continue; }
@@ -2868,7 +2976,15 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
     // 5. Cleanup temp file
     await fs.remove(tempPath);
 
-    res.json({ message: 'Modpack installed', installed, failed, total: files.length });
+    res.json({
+      message: 'Modpack installed',
+      installed,
+      failed,
+      total: files.length,
+      // How many client-only mods we filtered out so the user gets a "we did
+      // this on purpose" signal rather than wondering why the count's short.
+      skippedClientOnly: skippedClient,
+    });
   } catch (error) {
     console.error('Modpack install error:', error);
     await fs.remove(tempPath).catch(() => {});

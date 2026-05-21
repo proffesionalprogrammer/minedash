@@ -10,6 +10,7 @@ import AccountMenu from './components/AccountMenu';
 import { useLaunchSession } from './hooks/useLaunchSession';
 import SettingsMenu from './components/SettingsMenu';
 import UpdateToast from './components/UpdateToast';
+import WhatsNewModal from './components/WhatsNewModal';
 import { AlertCircle, X, Gamepad2, Server } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -396,6 +397,7 @@ function App() {
       </AnimatePresence>
 
       <UpdateToast />
+      <WhatsNewModal />
     </div>
   );
 }

@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
+  // Renderer asks the main process for the running app version. Single source
+  // of truth (package.json via electron-builder) so renderer and updater agree.
+  getAppVersion: () => ipcRenderer.invoke('app-get-version'),
+
   windowControls: {
     minimize:        () => ipcRenderer.send('window-minimize'),
     maximize:        () => ipcRenderer.send('window-maximize'),

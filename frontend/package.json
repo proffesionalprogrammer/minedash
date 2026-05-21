@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node -e \"require('fs').copyFileSync('../CHANGELOG.md','./public/CHANGELOG.md')\" && vite",
+    "build": "node -e \"require('fs').copyFileSync('../CHANGELOG.md','./public/CHANGELOG.md')\" && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

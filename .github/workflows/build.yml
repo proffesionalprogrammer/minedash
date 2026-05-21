@@ -62,15 +62,47 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
 
+      # Pull the section for this version out of CHANGELOG.md and stash it as
+      # release-notes.md. If the section is missing (e.g. someone tagged a
+      # version they forgot to write notes for) we fall back to a placeholder
+      # so the release still publishes — just without curated notes.
+      - name: Extract release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          if (-not (Test-Path CHANGELOG.md)) {
+            Write-Output "No CHANGELOG.md present; using placeholder notes."
+            "Release $tag" | Out-File release-notes.md -Encoding utf8
+            exit 0
+          }
+          $content = Get-Content CHANGELOG.md -Raw
+          $escaped = [regex]::Escape($version)
+          # Match: `## vX.Y.Z …` up to the next `## v` heading or end of file.
+          # (?ms) = multiline + dotall; \Z = end of string.
+          $pattern = "(?ms)^## v$escaped\b[^\n]*\n(.*?)(?=^## v|\Z)"
+          $m = [regex]::Match($content, $pattern)
+          if ($m.Success) {
+            $body = $m.Groups[1].Value.Trim() -replace "^\s*---\s*$", ""
+            $body = $body.Trim()
+            if (-not $body) { $body = "Release $tag" }
+          } else {
+            Write-Output "No CHANGELOG.md section found for $tag; using placeholder."
+            $body = "Release $tag"
+          }
+          $body | Out-File release-notes.md -Encoding utf8
+          Write-Output "----- release-notes.md -----"
+          Write-Output $body
+
       # electron-builder creates the release as a draft. electron-updater
-      # ignores drafts, so we flip it to published here. Doing it inline in CI
-      # (vs. asking the user to click "Publish" on GitHub for every release)
+      # ignores drafts, so we flip it to published here AND attach the
+      # CHANGELOG-extracted notes as the release body. Doing both inline in CI
       # is the difference between "tag-and-forget" and "tag, wait, log in to
       # GitHub, click a button" — the whole point of this workflow.
-      - name: Publish draft release
+      - name: Publish draft release with notes
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release edit $tag --repo proffesionalprogrammer/minedash-releases --draft=false
+          gh release edit $tag --repo proffesionalprogrammer/minedash-releases --draft=false --notes-file release-notes.md
