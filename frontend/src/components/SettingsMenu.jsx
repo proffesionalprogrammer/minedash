@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2 } from 'lucide-react';
+import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const DEFAULTS = {
@@ -240,6 +240,19 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   Only show installed versions
                 </label>
               </div>
+
+              {/* "What's new" — re-opens the changelog popup on demand. Useful
+                  for anyone who missed it (in particular the v1.0.2 cohort —
+                  the popup itself shipped in v1.0.2, so upgrading from v1.0.1
+                  triggered the fresh-install silent-skip path). */}
+              {window.electronAPI?.getAppVersion && (
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-changelog'))}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                  <Sparkles size={14} className="text-[#00AF5C]" />
+                  What's new in this version
+                </button>
+              )}
 
               {/* Version footer — small gray line so the user can tell what
                   build they're on without digging through About menus.

@@ -1089,10 +1089,47 @@ async function syncClientMods(launchId, server, profileRoot) {
     }
   }
 
-  // Remove any JAR in the client mods folder that no longer exists on the
-  // server — except files we tagged as client-extras.
+  // Push any client-only mods the modpack importer stashed (mods we filtered
+  // out of the server because they'd crash a dedicated JVM) into the client
+  // profile, and remember them in client-extras so the cleanup below leaves
+  // them alone.
   const extras = await readClientExtras(profileRoot);
   const extrasSet = new Set(extras.files || []);
+  const stashDir = path.join(INSTANCES_DIR, server.id, '.minedash-client-mods');
+  if (await fs.pathExists(stashDir)) {
+    try {
+      const stashed = (await fs.readdir(stashDir)).filter(f => f.endsWith('.jar'));
+      const stashTotal = stashed.length;
+      let stashCurrent = 0;
+      for (const jar of stashed) {
+        stashCurrent++;
+        const src = path.join(stashDir, jar);
+        const dst = path.join(targetModsDir, jar);
+        emit(launchId, 'status', { message: `Installing client-only mods (${stashCurrent} / ${stashTotal})` });
+        emit(launchId, 'mod_sync', { name: jar });
+        try {
+          let needsCopy = true;
+          if (await fs.pathExists(dst)) {
+            const [srcStat, dstStat] = await Promise.all([fs.stat(src), fs.stat(dst)]);
+            if (srcStat.size === dstStat.size) needsCopy = false;
+          }
+          if (needsCopy) await fs.copy(src, dst, { overwrite: true });
+          extrasSet.add(jar);
+        } catch (err) {
+          emit(launchId, 'mod_skip', { name: jar, reason: err.message });
+        }
+      }
+      if (stashTotal > 0) {
+        await writeClientExtras(profileRoot, { files: Array.from(extrasSet) });
+      }
+    } catch (err) {
+      emit(launchId, 'log', { message: `[client-mods stash] read failed: ${err.message}` });
+    }
+  }
+
+  // Remove any JAR in the client mods folder that no longer exists on the
+  // server — except files we tagged as client-extras (which now includes any
+  // stashed client-only mods we just installed).
   try {
     const present = await fs.readdir(targetModsDir);
     for (const f of present) {

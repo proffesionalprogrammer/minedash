@@ -1089,7 +1089,7 @@ const CLIENT_ONLY_MOD_PATTERNS = [
   /^(optifine|optifabric)([-_.]|$)/i,
   /^(sodium|rubidium|embeddium|magnesium|indium|nvidium)([-_.]|$)/i,
   /^reese[s']?[-_]sodium/i,
-  /^sodium[-_](extra|extras|options)/i,
+  /^sodium[-_]?(extra|extras|options)/i,
   /^iris[-_]flywheel/i,
   // Pure visual / UI / animation
   /^(modmenu|mod[-_]menu)([-_.]|$)/i,
@@ -1111,11 +1111,82 @@ const CLIENT_ONLY_MOD_PATTERNS = [
   /^borderless[-_]?mining/i,
   /^citresewn/i,
   /^particular([-_.]|$)/i,
+  // Inventory/UI overlays
+  /^inventory[-_]?profiles[-_]?next/i,
+  /^invmove([-_.]|$)/i,
+  /^controlling([-_.]|$)/i,
+  /^zoomify([-_.]|$)/i,
+  /^smooth[-_]?swapping/i,
+  /^enhanced[-_]?visuals/i,
+  /^item[-_]?physic/i,
+  // Maps / minimaps — Xaero's render in-client only; the server has no use for them
+  /^xaeros?[-_]?(world)?map/i,
+  /^xaeros?[-_]?minimap/i,
+  /^journeymap([-_.]|$)/i,
+  // Skins / chat / input
+  /^customskinloader/i,
+  /^je[-_]?characters/i,
+  /^jei[-_]?characters/i,
+  // First-person / camera
+  /^firstperson([-_.]|$)/i,
+  /^first[-_]?person[-_]?model/i,
+  /^better[-_]?third[-_]?person/i,
 ];
 
 function isClientOnlyModFilename(name) {
   if (!name) return false;
-  return CLIENT_ONLY_MOD_PATTERNS.some(re => re.test(name));
+  // Strip any number of leading bracketed tags (`[Embeddium]`, `[Xaero's]`,
+  // `[????]` from localized packs, etc.) plus surrounding whitespace before
+  // matching, since our patterns are start-anchored. Without this, a jar
+  // named "[??] sodiumextras-1.0.7.jar" sneaks past the deny-list and
+  // crashes the dedicated server.
+  let cleaned = name;
+  while (true) {
+    const stripped = cleaned.replace(/^\s*\[[^\]]*\]\s*/, '');
+    if (stripped === cleaned) break;
+    cleaned = stripped;
+  }
+  return CLIENT_ONLY_MOD_PATTERNS.some(re => re.test(cleaned));
+}
+
+// Per-server stash of mods we filtered out as client-only during modpack
+// import. The launcher's syncClientMods reads from here so the user's client
+// instance ends up with the FULL modpack (server mods + the client-side bits
+// we kept out of the server) when they hit Play.
+function clientModsStashDir(serverDir) {
+  return path.join(serverDir, '.minedash-client-mods');
+}
+
+// Try every mirror in `urls[]` and save to <serverDir>/.minedash-client-mods/<basename>.
+// Swallows errors — a missing client-only mod isn't fatal to a server import.
+async function stashClientModFromUrls(serverDir, relPath, urls) {
+  try {
+    const base = path.basename(String(relPath || '').replace(/\\/g, '/'));
+    if (!base || !/\.jar$/i.test(base)) return false;
+    const dest = path.join(clientModsStashDir(serverDir), base);
+    await fs.ensureDir(path.dirname(dest));
+    await downloadFromAny(urls, dest);
+    return true;
+  } catch (e) {
+    console.warn('[client-mods stash] failed to download', relPath, '-', e.message);
+    return false;
+  }
+}
+
+// Stash a client-only mod jar that lived inside overrides/ in the .mrpack
+// (raw zip entry, no remote URL to fetch).
+async function stashClientModFromZipEntry(serverDir, entry, relPath) {
+  try {
+    const base = path.basename(String(relPath || '').replace(/\\/g, '/'));
+    if (!base || !/\.jar$/i.test(base)) return false;
+    const dest = path.join(clientModsStashDir(serverDir), base);
+    await fs.ensureDir(path.dirname(dest));
+    await fs.writeFile(dest, entry.getData());
+    return true;
+  } catch (e) {
+    console.warn('[client-mods stash] failed to extract', relPath, '-', e.message);
+    return false;
+  }
 }
 
 // Reject paths that try to escape the server directory.
@@ -1236,14 +1307,22 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     // catch for packs that lied about env entirely.
     const files = Array.isArray(index.files) ? index.files : [];
     const skippedClient = [];
+    // Stash client-only files (with download URLs) so syncClientMods can later
+    // push them into the user's client profile when they hit Play.
+    const clientOnlyFiles = [];
     const downloadable = files.filter(f => {
       if (!f || !Array.isArray(f.downloads) || f.downloads.length === 0) return false;
       const env = f.env || {};
-      if (env.server === 'unsupported') return false;
+      if (env.server === 'unsupported') {
+        // env.server=unsupported with env.client=required means it's a real client mod.
+        if (env.client === 'required') clientOnlyFiles.push(f);
+        return false;
+      }
       // env.client === 'required' && env.server !== 'required' means the mod
       // is client-side-required, not server-side-required → client-only.
       if (env.client === 'required' && env.server !== 'required') {
         skippedClient.push(f.path);
+        clientOnlyFiles.push(f);
         return false;
       }
       // Filename heuristic for the cases where env is lying or absent. Only
@@ -1252,6 +1331,7 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
       const rel = String(f.path || '').replace(/\\/g, '/');
       if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
         skippedClient.push(f.path);
+        clientOnlyFiles.push(f);
         return false;
       }
       return true;
@@ -1270,12 +1350,19 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
       }
     }
 
+    // Stash client-only mods so the launcher can later push the full modpack
+    // (server + client bits) into the user's client profile.
+    let clientStashed = 0;
+    for (const f of clientOnlyFiles) {
+      if (await stashClientModFromUrls(serverPath, f.path, f.downloads)) clientStashed++;
+    }
+
     // Extract overrides/ (and server-overrides/) into the server directory.
     // We deliberately ignore client-overrides/. Inside overrides/mods/ we
     // also run the filename deny-list because that's where most "Oculus is
     // crashing my server" reports come from — pack authors drop Oculus.jar
     // into overrides/mods/ and the dedicated server explodes the moment it
-    // tries to load it.
+    // tries to load it. Those filtered jars get stashed for the client.
     const overrideRoots = ['overrides', 'server-overrides'];
     for (const root of overrideRoots) {
       for (const entry of zip.getEntries()) {
@@ -1286,6 +1373,7 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
         const relNorm = rel.replace(/\\/g, '/');
         if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
           skippedClient.push(entry.entryName);
+          if (await stashClientModFromZipEntry(serverPath, entry, relNorm)) clientStashed++;
           continue;
         }
         try {
@@ -1296,6 +1384,17 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
           failed.push({ path: entry.entryName, error: e.message });
         }
       }
+    }
+
+    // Also extract client-overrides/mods/ jars to the stash so the launcher
+    // gets configs/mods the pack author meant only for the client side.
+    for (const entry of zip.getEntries()) {
+      if (entry.isDirectory) continue;
+      if (!entry.entryName.startsWith('client-overrides/')) continue;
+      const rel = entry.entryName.slice('client-overrides/'.length);
+      const relNorm = rel.replace(/\\/g, '/');
+      if (!relNorm.startsWith('mods/')) continue;
+      if (await stashClientModFromZipEntry(serverPath, entry, relNorm)) clientStashed++;
     }
 
     const newServer = {
@@ -1333,6 +1432,9 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
         // the user see "we did this for you, not a bug" rather than wondering
         // why some files from the pack didn't show up.
         skippedClientOnly: skippedClient,
+        // How many of those skipped mods we stashed for client-side install
+        // when the user hits Play.
+        clientModsStashed: clientStashed,
       },
     });
   } catch (err) {
@@ -1573,18 +1675,50 @@ function startProcess(id, serverConfig, serverPath) {
   const jarPath = path.join(serverPath, 'server.jar');
   const batPath = path.join(serverPath, 'run.bat');
   const shPath = path.join(serverPath, 'run.sh');
-  
+
   const hasJar = fs.existsSync(jarPath);
   const hasBat = fs.existsSync(batPath);
   const hasSh = fs.existsSync(shPath);
 
   let mcProcess;
-  
+
   activeLogs[id] = activeLogs[id] || [];
   serverStates[id] = {
     startTime: Date.now(),
     players: []
   };
+
+  // Migrate any leftover client-only mod jars out of the mods folder into the
+  // per-server stash. Runs every start so servers imported before the
+  // deny-list was updated self-heal, and so jars dropped into mods/ by hand
+  // (e.g. via the file browser) don't crash the JVM. Vanilla has no mods/.
+  if (serverConfig.type !== 'vanilla') {
+    try {
+      const modsDir = path.join(serverPath, 'mods');
+      if (fs.existsSync(modsDir)) {
+        const stashDir = path.join(serverPath, '.minedash-client-mods');
+        const moved = [];
+        for (const f of fs.readdirSync(modsDir)) {
+          if (!f.endsWith('.jar')) continue;
+          if (!isClientOnlyModFilename(f)) continue;
+          try {
+            fs.mkdirSync(stashDir, { recursive: true });
+            fs.renameSync(path.join(modsDir, f), path.join(stashDir, f));
+            moved.push(f);
+          } catch (e) {
+            console.warn(`[client-mods cleanup] couldn't move ${f}:`, e.message);
+          }
+        }
+        if (moved.length) {
+          const line = `[MineDash] Moved ${moved.length} client-only mod(s) out of mods/ to keep the dedicated server from crashing: ${moved.join(', ')}\n`;
+          activeLogs[id].push(line);
+          io.emit(`console_${id}`, line);
+        }
+      }
+    } catch (e) {
+      console.warn('[client-mods cleanup] scan failed:', e.message);
+    }
+  }
 
   const appendLog = (text) => {
     if (!activeLogs[id]) activeLogs[id] = [];
@@ -2922,14 +3056,28 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
     let installed = 0;
     let failed = 0;
     let skippedClient = 0;
+    let clientStashed = 0;
+    // Stash a client-only mod and bump the counter — silent on failure (per-mod
+    // failure shouldn't fail the whole modpack install).
+    const stash = async (file, relPath) => {
+      if (await stashClientModFromUrls(serverDir, relPath, file.downloads)) clientStashed++;
+    };
     for (const file of files) {
       if (!Array.isArray(file.downloads) || file.downloads.length === 0) { failed++; continue; }
       const env = file.env || {};
-      if (env.server === 'unsupported') continue;
-      if (env.client === 'required' && env.server !== 'required') { skippedClient++; continue; }
+      if (env.server === 'unsupported') {
+        if (env.client === 'required') await stash(file, file.path);
+        continue;
+      }
+      if (env.client === 'required' && env.server !== 'required') {
+        skippedClient++;
+        await stash(file, file.path);
+        continue;
+      }
       const rel = String(file.path || '').replace(/\\/g, '/');
       if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
         skippedClient++;
+        await stash(file, file.path);
         continue;
       }
 
@@ -2964,6 +3112,7 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
       const relNorm = relativePath.replace(/\\/g, '/');
       if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
         skippedClient++;
+        if (await stashClientModFromZipEntry(serverDir, entry, relNorm)) clientStashed++;
         continue;
       }
       let destFile;
@@ -2971,6 +3120,17 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
       catch { continue; }
       await fs.ensureDir(path.dirname(destFile));
       await fs.writeFile(destFile, entry.getData());
+    }
+
+    // Also pull anything under client-overrides/mods/ into the stash so the
+    // client gets the configs/jars the pack author meant only for that side.
+    for (const entry of zip.getEntries()) {
+      if (entry.isDirectory) continue;
+      if (!entry.entryName.startsWith('client-overrides/')) continue;
+      const rel = entry.entryName.slice('client-overrides/'.length);
+      const relNorm = rel.replace(/\\/g, '/');
+      if (!relNorm.startsWith('mods/')) continue;
+      if (await stashClientModFromZipEntry(serverDir, entry, relNorm)) clientStashed++;
     }
 
     // 5. Cleanup temp file
@@ -2984,6 +3144,8 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
       // How many client-only mods we filtered out so the user gets a "we did
       // this on purpose" signal rather than wondering why the count's short.
       skippedClientOnly: skippedClient,
+      // Of those, how many we successfully stashed for client-side install.
+      clientModsStashed: clientStashed,
     });
   } catch (error) {
     console.error('Modpack install error:', error);

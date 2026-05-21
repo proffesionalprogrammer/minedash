@@ -22,11 +22,28 @@ const LS_KEY = 'minedash:lastSeenChangelogVersion';
 // Markdown rendering is intentionally minimal — we only need to support what
 // our own CHANGELOG.md uses: ### subheadings, **bold**, paragraphs, hyphen
 // bullet lists. No need to pull in a full markdown library.
+// Resolve the current app version + its CHANGELOG section. Returns null in
+// dev mode (no electronAPI) or when the section is missing — callers should
+// treat null as "nothing to show".
+async function loadCurrentChangelog() {
+  const api = window.electronAPI;
+  if (!api?.getAppVersion) return null;
+  const v = await api.getAppVersion();
+  if (!v) return null;
+  const r = await fetch('CHANGELOG.md', { cache: 'no-cache' });
+  if (!r.ok) return null;
+  const text = await r.text();
+  const section = extractSection(text, v);
+  if (!section) return null;
+  return { version: v, body: section };
+}
+
 export default function WhatsNewModal() {
   const [open, setOpen] = useState(false);
   const [version, setVersion] = useState(null);
   const [body, setBody] = useState('');
 
+  // Auto-show after an update.
   useEffect(() => {
     const api = window.electronAPI;
     if (!api?.getAppVersion) return; // dev mode
@@ -44,20 +61,33 @@ export default function WhatsNewModal() {
           localStorage.setItem(LS_KEY, v);
           return;
         }
-        // Real update. Fetch CHANGELOG.md and pull out the section for v.
-        const r = await fetch('CHANGELOG.md', { cache: 'no-cache' });
-        if (!r.ok) return;
-        const text = await r.text();
-        const section = extractSection(text, v);
-        if (!section) return;
-        setVersion(v);
-        setBody(section);
+        const data = await loadCurrentChangelog();
+        if (cancelled || !data) return;
+        setVersion(data.version);
+        setBody(data.body);
         setOpen(true);
       } catch {
         // Don't surface errors from the popup — failing silently is fine.
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // On-demand trigger from Settings → "What's new in this version".
+  // Always opens (bypasses the lastSeen check) so the user can re-read the
+  // notes any time.
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        const data = await loadCurrentChangelog();
+        if (!data) return;
+        setVersion(data.version);
+        setBody(data.body);
+        setOpen(true);
+      } catch {}
+    };
+    window.addEventListener('minedash-show-changelog', handler);
+    return () => window.removeEventListener('minedash-show-changelog', handler);
   }, []);
 
   const dismiss = () => {

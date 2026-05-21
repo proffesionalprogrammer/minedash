@@ -2,6 +2,22 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.3 — 2026-05-22
+
+### Added
+
+- **"What's new in this version" button in Settings.** Re-opens the changelog popup on demand. If you upgraded to v1.0.2 and never saw the popup (it shipped *in* v1.0.2, so the first run silent-skipped as a "fresh install"), open Settings and click it to read the notes you missed.
+- **Modpack import now stashes client-only mods instead of dropping them.** Mods filtered out of the server during `.mrpack` import are saved to a per-server `.minedash-client-mods/` folder. When you hit Play on that server, the launcher pushes those jars into your client profile alongside the server's mods so your client ends up with the full modpack. `client-overrides/mods/` from the mrpack is also picked up.
+- **Auto self-heal at server start.** Every server start scans `mods/` for jars matching the client-only deny-list and moves them out before the JVM launches. Servers imported before v1.0.3, or jars dragged in by hand, heal themselves on the next start. The console viewer logs which jars were moved.
+
+### Fixed
+
+- **Client-only deny-list now catches mods with bracketed prefixes.** Pack authors often ship jars named `[Embeddium] sodiumextras-…jar` or `[钠／Embeddium：附属] sodiumextras-…jar`. The filename matcher now strips leading `[…]` tags (and chains of them) before testing patterns, so the deny-list catches these correctly.
+- **Deny-list expanded.** Added Zoomify, Controlling, InvMove, JECharacters, Xaero's WorldMap, InventoryProfilesNext, EnhancedVisuals, ItemPhysicLite (incl. the `Lite` / `Full` suffixed forms), Smooth Swapping, CustomSkinLoader, JourneyMap, and several first-person camera mods.
+- **`sodiumextras` and `itemphysiclite` filename patterns** no longer require a strict separator after the prefix — `sodiumextras-…` and `ItemPhysicLite_…` are now matched.
+
+---
+
 ## v1.0.2 — 2026-05-21
 
 ### Added
