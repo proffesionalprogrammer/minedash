@@ -1,0 +1,59 @@
+# ─── Dependencies ─────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Build output ─────────────────────────────────────────────────────────
+# Electron installer output (NSIS .exe + unpacked dir, can be hundreds of MB)
+dist-electron/
+
+# Vite build output. The frontend is built into electron/renderer/ before
+# packaging — that's a build artifact, not source.
+electron/renderer/
+frontend/dist/
+
+# ─── User data (runtime state — NEVER commit) ─────────────────────────────
+# In dev mode the backend writes here. In packaged Electron it goes to
+# %AppData%\MineDash. Either way, none of this belongs in the repo.
+
+# Microsoft + offline account tokens. Contains refresh tokens — committing
+# this would let anyone with repo access launch Minecraft as you.
+backend/launcher-accounts.json
+
+# Local launcher preferences (RAM slider, last loader/version, etc.)
+backend/launcher-settings.json
+backend/launcher-profiles.json
+
+# Per-server config — points at local instance dirs, useless on another machine.
+backend/servers.json
+
+# Minecraft server instances (worlds, configs, mods, plugins, logs).
+backend/instances/
+
+# Backup archives — can be huge.
+backend/backups/
+
+# Downloaded Minecraft client profiles for the launcher (assets, libraries,
+# version JSONs, downloaded mods/shaders/resourcepacks). Gigabytes.
+backend/launcher-clients/
+
+# Modrinth modpack upload staging dir.
+backend/temp_uploads/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── IDE / editor ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS junk ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Misc ────────────────────────────────────────────────────────────────
+# electron-builder cache (auto-downloaded winCodeSign etc.)
+.cache/

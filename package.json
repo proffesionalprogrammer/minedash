@@ -1,0 +1,110 @@
+{
+  "name": "minedash",
+  "version": "1.0.0",
+  "description": "MineDash — Local Minecraft Server Manager",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:frontend": "cd frontend && npm run build",
+    "build": "npm run build:frontend && electron-builder --publish=never",
+    "dev:backend": "cd backend && node index.js",
+    "dev:frontend": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "adm-zip": "^0.5.17",
+    "archiver": "^7.0.1",
+    "axios": "^1.16.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "extract-zip": "^2.0.1",
+    "fs-extra": "^11.3.4",
+    "minecraft-launcher-core": "^3.18.2",
+    "msmc": "^4.1.0",
+    "multer": "^2.1.1",
+    "node-os-utils": "^2.0.3",
+    "pidusage": "^4.0.1",
+    "socket.io": "^4.8.3"
+  },
+  "build": {
+    "appId": "com.minedash.app",
+    "productName": "MineDash",
+    "icon": "electron/assets/icon.ico",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "!electron/renderer/**",
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!node_modules/.cache/**",
+          "!instances/**",
+          "!backups/**",
+          "!servers.json",
+          "!temp_uploads/**",
+          "!*.log",
+          "!bore/**",
+          "!playit/**",
+          "!launcher-clients/**",
+          "!launcher-accounts.json",
+          "!launcher-settings.json",
+          "!node_modules/nodemon/**",
+          "!node_modules/@types/**",
+          "!node_modules/**/test/**",
+          "!node_modules/**/tests/**",
+          "!node_modules/**/*.md",
+          "!node_modules/**/*.markdown",
+          "!node_modules/**/*.map",
+          "!node_modules/**/*.d.ts",
+          "!node_modules/**/LICENSE*",
+          "!node_modules/**/license*",
+          "!node_modules/**/CHANGELOG*",
+          "!node_modules/**/changelog*",
+          "!node_modules/**/HISTORY*",
+          "!node_modules/**/.github/**",
+          "!node_modules/**/.npmignore",
+          "!node_modules/**/.travis.yml",
+          "!node_modules/**/.eslintrc*",
+          "!node_modules/**/.prettierrc*",
+          "!node_modules/**/tsconfig*.json",
+          "!node_modules/**/yarn.lock"
+        ]
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "electron/renderer",
+        "to": "renderer"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "electron/assets/icon.ico",
+      "uninstallerIcon": "electron/assets/icon.ico",
+      "installerSidebar": "electron/assets/installer-sidebar.bmp",
+      "uninstallerSidebar": "electron/assets/uninstaller-sidebar.bmp",
+      "installerHeader": "electron/assets/installer-header.bmp"
+    },
+    "publish": null
+  }
+}
