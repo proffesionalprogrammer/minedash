@@ -97,56 +97,97 @@ function fileSha1(filePath) {
   });
 }
 
-// Ask Modrinth what project a file belongs to. Returns null on miss so the
-// caller can mark `lookedUp: true` and skip the next time.
+// Ask Modrinth what project a file belongs to. Returns one of:
+//   { status: 'hit',     hit: {iconUrl, title, projectId} } — found on Modrinth
+//   { status: 'miss'   }                                   — confirmed not there (HTTP 404)
+//   { status: 'retry'  }                                   — transient (429 / 5xx / network) — caller should NOT mark lookedUp
+//
+// Distinguishing these matters because Modrinth rate-limits at 300 req/min/IP.
+// If we marked every failure as `lookedUp: true`, a brief 429 burst would
+// permanently leave a batch of mods iconless until the user manually wiped
+// `.minedash-launcher.json`.
 async function modrinthLookupByHash(sha1) {
   try {
     const vr = await fetch(`${MODRINTH_API}/version_file/${sha1}?algorithm=sha1`, {
       headers: MODRINTH_HEADERS,
     });
-    if (!vr.ok) return null;
+    if (vr.status === 404) return { status: 'miss' };
+    if (!vr.ok) return { status: 'retry' };
     const vd = await vr.json();
     const projectId = vd?.project_id;
-    if (!projectId) return null;
+    if (!projectId) return { status: 'miss' };
     const pr = await fetch(`${MODRINTH_API}/project/${projectId}`, { headers: MODRINTH_HEADERS });
-    if (!pr.ok) return { iconUrl: null, title: null, projectId };
+    if (pr.status === 404) {
+      // The version exists but its project was deleted — odd but treat as a
+      // permanent miss so we don't retry forever.
+      return { status: 'hit', hit: { iconUrl: null, title: null, projectId } };
+    }
+    if (!pr.ok) return { status: 'retry' };
     const pd = await pr.json();
     return {
-      iconUrl: pd?.icon_url || null,
-      title: pd?.title || null,
-      projectId,
+      status: 'hit',
+      hit: {
+        iconUrl: pd?.icon_url || null,
+        title: pd?.title || null,
+        projectId,
+      },
     };
   } catch {
-    return null;
+    // Network error — transient, let the caller retry next time.
+    return { status: 'retry' };
   }
 }
 
+// Run async tasks with bounded concurrency. Default 4 in flight keeps a
+// 300-mod first-load comfortably under Modrinth's 300 req/min/IP cap (each
+// file is 2 requests, so peak throughput is ~8 req/s = 480/min, but real
+// latency keeps it well below).
+async function runWithConcurrency(tasks, limit) {
+  const queue = tasks.slice();
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const job = queue.shift();
+      if (job) await job();
+    }
+  });
+  await Promise.all(workers);
+}
+
 // For any launcher-installed file without an iconUrl, hash it and ask Modrinth.
-// Persists results (including misses, marked `lookedUp: true`) to .minedash-launcher.json
-// so subsequent listings are instant. Mutates `meta` in place.
+// Persists results to .minedash-launcher.json so subsequent listings are instant.
+// Hits and confirmed misses (404) are cached with `lookedUp: true`; transient
+// failures (429/5xx/network) are NOT cached, so the next listing retries them.
+// Mutates `meta` in place. Concurrency is bounded so a big modpack doesn't
+// burst-flood Modrinth into a per-IP rate limit.
 async function enrichLauncherMeta(dir, files, meta) {
-  const tasks = [];
+  const jobs = [];
   for (const f of files) {
     const existing = meta[f];
     if (existing && (existing.iconUrl || existing.lookedUp)) continue;
-    tasks.push((async () => {
+    jobs.push(async () => {
       try {
         const sha1 = await fileSha1(path.join(dir, f));
-        const info = await modrinthLookupByHash(sha1);
-        meta[f] = {
-          ...(existing || {}),
-          iconUrl: info?.iconUrl || existing?.iconUrl || null,
-          title: info?.title || existing?.title || null,
-          projectId: info?.projectId || existing?.projectId || null,
-          lookedUp: true,
-        };
+        const res = await modrinthLookupByHash(sha1);
+        if (res.status === 'hit') {
+          meta[f] = {
+            ...(existing || {}),
+            iconUrl: res.hit.iconUrl || existing?.iconUrl || null,
+            title:   res.hit.title   || existing?.title   || null,
+            projectId: res.hit.projectId || existing?.projectId || null,
+            lookedUp: true,
+          };
+        } else if (res.status === 'miss') {
+          meta[f] = { ...(existing || {}), lookedUp: true };
+        }
+        // status === 'retry' → leave meta untouched, try again next listing.
       } catch {
-        meta[f] = { ...(existing || {}), lookedUp: true };
+        // Hashing failed (file vanished mid-listing, permission error, etc.)
+        // — not a Modrinth issue, so safe to skip without marking lookedUp.
       }
-    })());
+    });
   }
-  if (tasks.length === 0) return false;
-  await Promise.allSettled(tasks);
+  if (jobs.length === 0) return false;
+  await runWithConcurrency(jobs, 4);
   try { await fs.writeJson(path.join(dir, '.minedash-launcher.json'), meta, { spaces: 2 }); } catch {}
   return true;
 }
