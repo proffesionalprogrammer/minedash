@@ -61,3 +61,16 @@ jobs:
         run: npm run build:release
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+      # electron-builder creates the release as a draft. electron-updater
+      # ignores drafts, so we flip it to published here. Doing it inline in CI
+      # (vs. asking the user to click "Publish" on GitHub for every release)
+      # is the difference between "tag-and-forget" and "tag, wait, log in to
+      # GitHub, click a button" — the whole point of this workflow.
+      - name: Publish draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release edit $tag --repo proffesionalprogrammer/minedash-releases --draft=false
