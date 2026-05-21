@@ -1,4 +1,5 @@
 const { app, BrowserWindow, shell, ipcMain, screen, Tray, Menu } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -147,9 +148,67 @@ async function createWindow() {
 }
 
 // ─── Auto Updater ──────────────────────────────────────────────────────────────
+// Reads releases from proffesionalprogrammer/minedash-releases (public). The
+// publish config in package.json generates app-update.yml at build time so
+// electron-updater knows where to look. No GitHub token is needed at runtime
+// because the releases repo is public — only the CI workflow needs a token
+// (to *write* releases).
+//
+// Flow: on launch, check the releases feed. If a newer version exists, download
+// the installer in the background. When it's ready, emit `updater-update-downloaded`
+// to the renderer so a toast can ask the user to relaunch — quitAndInstall()
+// runs the new installer which swaps the binary and restarts.
 function setupAutoUpdater() {
-  // No-op until a GitHub release channel is configured
+  if (isDev) return;
+
+  autoUpdater.logger = {
+    info:  (m) => log('[Updater]', m),
+    warn:  (m) => log('[Updater WARN]', m),
+    error: (m) => log('[Updater ERR]', m),
+    debug: () => {},
+  };
+  autoUpdater.autoDownload = true;
+  // Don't surprise-install on quit — we wait for the user to click the toast
+  // so an in-progress task (e.g. Minecraft launching) doesn't get killed.
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on('update-available', (info) => {
+    log('[Updater] Update available:', info?.version);
+    mainWindow?.webContents.send('updater-update-available', { version: info?.version });
+  });
+  autoUpdater.on('update-not-available', () => {
+    // Quiet — checking is a background concern, no UI noise.
+  });
+  autoUpdater.on('download-progress', (p) => {
+    mainWindow?.webContents.send('updater-download-progress', {
+      percent: p?.percent || 0,
+      bytesPerSecond: p?.bytesPerSecond || 0,
+      transferred: p?.transferred || 0,
+      total: p?.total || 0,
+    });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    log('[Updater] Update downloaded:', info?.version);
+    mainWindow?.webContents.send('updater-update-downloaded', { version: info?.version });
+  });
+  autoUpdater.on('error', (err) => {
+    // Common harmless errors at runtime:
+    //  - 404 on first install when no release exists yet
+    //  - net::ERR_INTERNET_DISCONNECTED when offline
+    // Surface them in the log but don't pop UI for them.
+    log('[Updater] Error:', err?.message || String(err));
+  });
+
+  autoUpdater.checkForUpdates().catch((err) => {
+    log('[Updater] Initial check failed:', err?.message || String(err));
+  });
 }
+
+// Renderer asks us to quit and run the installer. The installer swaps the
+// binary and relaunches into the new version.
+ipcMain.on('updater-quit-and-install', () => {
+  autoUpdater.quitAndInstall();
+});
 
 
 // ─── Window Control IPC ────────────────────────────────────────────────────────

@@ -11,4 +11,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isMaximized:     () => ipcRenderer.invoke('window-is-maximized'),
     onMaximizeChange: (cb) => ipcRenderer.on('window-maximized', (_, val) => cb(val)),
   },
+
+  // Auto-updater bridge. The main process drives electron-updater; the
+  // renderer subscribes here to drive the "Update ready" toast and request
+  // the relaunch when the user clicks it.
+  updater: {
+    onUpdateAvailable:   (cb) => ipcRenderer.on('updater-update-available',   (_, info) => cb(info)),
+    onDownloadProgress:  (cb) => ipcRenderer.on('updater-download-progress',  (_, info) => cb(info)),
+    onUpdateDownloaded:  (cb) => ipcRenderer.on('updater-update-downloaded',  (_, info) => cb(info)),
+    quitAndInstall:      () => ipcRenderer.send('updater-quit-and-install'),
+  },
 });
