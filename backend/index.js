@@ -295,6 +295,57 @@ const allChildProcesses = new Set(); // Every spawned child proc, for clean shut
 // Auto-backup interval handles (serverId → NodeJS interval)
 const autoBackupIntervals = {};
 
+// TPS poll interval handles + last-known value, per server.
+const serverTpsIntervals = {};
+const serverTpsState = {}; // id -> { tps, mspt, lastUpdate, source }
+
+// Per-server-type "ask the server for its TPS" command. Vanilla and Fabric
+// have no built-in TPS reporter, but if the spark profiler mod is installed
+// `spark tps` works on either, so we try it and silently no-op if the
+// command is unknown.
+const TPS_COMMAND_BY_TYPE = {
+  paper: 'tps',
+  forge: 'forge tps',
+  neoforge: 'neoforge tps',
+  fabric: 'spark tps',
+  vanilla: 'spark tps',
+};
+
+// Parse a TPS value out of a single log line. Returns { tps, mspt } or null.
+// Handles Paper's color-coded "TPS from last 1m, 5m, 15m: §a*20.0, ..." line,
+// Forge/NeoForge's "Overall: Mean tick time: 6.337 ms. Mean TPS: 20.000",
+// and the spark mod's "TPS from last 5s, 10s, 1m, 5m, 15m: 20.0, ..." line.
+function parseTpsFromLine(line) {
+  const cleaned = line.replace(/§[0-9a-fk-orx]/gi, ''); // strip §-color codes
+  // Forge / NeoForge: "Mean tick time: 6.337 ms. Mean TPS: 20.000"
+  let m = cleaned.match(/Mean tick time:\s*(\d+\.?\d*)\s*ms\.\s*Mean TPS:\s*(\d+\.?\d*)/i);
+  if (m) return { tps: parseFloat(m[2]), mspt: parseFloat(m[1]), source: 'forge' };
+  // Paper / spark: "TPS from last ...: *?20.0, ..."
+  m = cleaned.match(/TPS from last[^:]*:\s*[*§]?\s*(\d+\.?\d*)/i);
+  if (m) return { tps: parseFloat(m[1]), mspt: null, source: 'paper' };
+  return null;
+}
+
+function startTpsPolling(id, serverType) {
+  if (serverTpsIntervals[id]) return; // already polling
+  const cmd = TPS_COMMAND_BY_TYPE[serverType] || TPS_COMMAND_BY_TYPE.vanilla;
+  const tick = () => {
+    const proc = activeProcesses[id];
+    if (!proc || !proc.stdin || proc.stdin.destroyed) return;
+    try { proc.stdin.write(cmd + '\n'); } catch (_) { /* pipe may have closed */ }
+  };
+  tick(); // fire one immediately so the card lights up fast
+  serverTpsIntervals[id] = setInterval(tick, 5000);
+}
+
+function stopTpsPolling(id) {
+  if (serverTpsIntervals[id]) {
+    clearInterval(serverTpsIntervals[id]);
+    delete serverTpsIntervals[id];
+  }
+  delete serverTpsState[id];
+}
+
 
 // ─── Crash Pattern Definitions ────────────────────────────────────────────────
 const CRASH_PATTERNS = [
@@ -1781,6 +1832,22 @@ function startProcess(id, serverConfig, serverPath) {
       serverStates[id].players = serverStates[id].players.filter(p => p !== pName);
       io.emit(`players_update_${id}`, serverStates[id].players);
     }
+
+    // Start TPS polling once the server is past startup. The "Done (...)"
+    // line is the canonical "ready" marker across vanilla / Paper / Forge.
+    if (!serverTpsIntervals[id] && /Done \(/.test(text)) {
+      startTpsPolling(id, serverConfig.type);
+    }
+
+    // Each new line may contain a TPS response we asked for. Parse + emit.
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      const parsed = parseTpsFromLine(line);
+      if (parsed) {
+        serverTpsState[id] = { ...parsed, lastUpdate: Date.now() };
+        io.emit(`server_tps_${id}`, serverTpsState[id]);
+      }
+    }
   };
 
   io.emit('server_status_change', { id, status: 'online' });
@@ -1904,6 +1971,7 @@ function startProcess(id, serverConfig, serverPath) {
     delete activeProcesses[id];
     delete serverStates[id];
     delete serverJavaPids[id];
+    stopTpsPolling(id);
     appendLog(`\n[Server process exited with code ${code}]\n`);
     io.emit('server_status_change', { id, status: 'offline' });
 
@@ -2092,6 +2160,14 @@ app.delete('/api/servers/:id', async (req, res) => {
 app.get('/api/servers/:id/logs', (req, res) => {
   const { id } = req.params;
   res.json(activeLogs[id] || []);
+});
+
+// Last-known TPS for a specific server, so the UI doesn't have to wait for
+// the next poll tick when the user switches into a server tab.
+app.get('/api/servers/:id/tps', (req, res) => {
+  const state = serverTpsState[req.params.id];
+  if (!state) return res.json({ tps: null, mspt: null, source: null, lastUpdate: null });
+  res.json(state);
 });
 
 // Stats Endpoint for a specific server (uptime, players)
