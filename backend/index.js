@@ -846,7 +846,7 @@ async function installForge(id, serverConfig, serverPath, appendLog) {
 async function installNeoForge(id, serverConfig, serverPath, appendLog) {
   try {
     appendLog(`[MineDash] Fetching latest NeoForge installer for ${serverConfig.version}...\n`);
-    const metaRes = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge');
+    const metaRes = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 15000 });
     
     // MC 1.21.1 -> Prefix 21.1.
     const parts = serverConfig.version.split('.');
@@ -871,7 +871,7 @@ async function installNeoForge(id, serverConfig, serverPath, appendLog) {
     const downloadUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${targetVersion}/neoforge-${targetVersion}-installer.jar`;
     
     const installerPath = path.join(serverPath, 'neoforge-installer.jar');
-    const response = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream' });
+    const response = await axios({ url: downloadUrl, method: 'GET', responseType: 'stream', family: 4 });
     const writer = fs.createWriteStream(installerPath);
     response.data.pipe(writer);
     
@@ -968,7 +968,9 @@ async function fetchVersionsForType(type, opts = {}) {
         return 0;
       });
     } else if (type === 'neoforge') {
-      const res = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge');
+      // maven.neoforged.net publishes AAAA records, but its IPv6 endpoints time out
+      // from many residential networks. Force IPv4 so the request doesn't hang.
+      const res = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 15000 });
       const files = res.data.files || [];
       const versionSet = new Set();
       for (const f of files) {
