@@ -2,6 +2,17 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.4 — 2026-05-22
+
+### Added
+
+- **Per-Minecraft-version Java check.** MineDash now matches the Java version it needs to the MC version you're running — 1.16 wants Java 8, 1.17 wants 16, 1.18–1.20.4 wants 17, 1.20.5–1.21.5 wants 21, 1.21.6+ wants 25. The check runs after you pick a version (not before opening the Create modal), and when you start a server with the wrong Java the same setup modal pops up with the right download link and copy for that specific MC version instead of always nagging about Java 25.
+- **Whitelist, Ops, and Banlist editor.** The Players tab now has a Lists sub-view with tabs for Whitelist, Operators, Banned, and Banned IPs. Add and remove inline. While the server is offline MineDash writes the JSON files directly; while it's running it sends the matching console command so the server stays the source of truth. Offline-mode names resolve via Mojang first and fall back to offline UUIDs, so cracked usernames work too.
+- **Console search, level filter, and jump-to-match.** The console header gained a search box (Enter / Shift+Enter to step through matches, Esc to clear), a regex toggle, INFO / WARN / ERROR chips for level filtering, and a match counter with prev/next controls. Auto-scroll pauses while a search is active so you can actually read the line you found.
+- **Differential updates.** Future MineDash updates download only the changed blocks of the installer (~5–10 MB) instead of the full ~80 MB exe every time. No change on your end — this kicks in starting with the v1.0.4 → next-version hop.
+
+---
+
 ## v1.0.3 — 2026-05-22
 
 ### Added
