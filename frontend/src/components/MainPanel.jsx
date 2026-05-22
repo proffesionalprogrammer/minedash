@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square, RefreshCw, Cpu, HardDrive, Users, Settings, Trash2, Folder, Gamepad2, MoreVertical, Server, MemoryStick, Clock, Copy, Check, AlertTriangle, Loader2, AlertCircle, Activity } from 'lucide-react';
+import { Play, Square, RefreshCw, Cpu, HardDrive, Users, Settings, Trash2, Folder, Gamepad2, MoreVertical, Server, MemoryStick, Clock, Copy, Check, AlertTriangle, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLaunchSession } from '../hooks/useLaunchSession';
 import Tooltip from './Tooltip';
@@ -77,14 +77,6 @@ function getUsageColor(percentStr) {
   return '#00AF5C';
 }
 
-// TPS is inverted vs CPU/RAM — higher is better. 20 is perfect.
-function getTpsColor(tps) {
-  if (typeof tps !== 'number' || isNaN(tps)) return null;
-  if (tps < 15) return '#FF5555';
-  if (tps < 19) return '#F59E0B';
-  return '#00AF5C';
-}
-
 // Pull a number out of strings like "23%", "512 MB", "3.4 GB". Returns NaN if none.
 function num(val) {
   if (typeof val === 'number') return val;
@@ -126,8 +118,7 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
   const [systemStats, setSystemStats] = useState({ cpu: '0%', ram: '0 MB', ramTotal: '0 MB' });
   const [serverMemStats, setServerMemStats] = useState({ ram: '0 MB', ramPercent: '0%', cpu: '0%' });
   const [toast, setToast] = useState(null);
-  const [history, setHistory] = useState({ cpu: [], ram: [], storage: [], tps: [] });
-  const [tpsState, setTpsState] = useState({ tps: null, mspt: null, source: null, lastUpdate: null });
+  const [history, setHistory] = useState({ cpu: [], ram: [], storage: [] });
   const [addressCopied, setAddressCopied] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [radminIp, setRadminIp] = useState(null);
@@ -207,31 +198,14 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
   React.useEffect(() => {
     const handleSystemStats = (data) => setSystemStats(data);
     const handleServerMem = (data) => setServerMemStats(data);
-    const handleTps = (data) => setTpsState(data);
 
     socket.on('system_stats', handleSystemStats);
     socket.on(`server_memory_${server.id}`, handleServerMem);
-    socket.on(`server_tps_${server.id}`, handleTps);
-
-    // Catch up to the last-known TPS on mount so the card isn't blank for
-    // the first 5 seconds after switching into the server view.
-    fetch(`http://localhost:3001/api/servers/${server.id}/tps`)
-      .then(r => r.json())
-      .then(d => { if (d && typeof d.tps === 'number') setTpsState(d); })
-      .catch(() => {});
-
     return () => {
       socket.off('system_stats', handleSystemStats);
       socket.off(`server_memory_${server.id}`, handleServerMem);
-      socket.off(`server_tps_${server.id}`, handleTps);
     };
   }, [socket, server.id]);
-
-  // Sample TPS into history. When offline, push 0 so the line settles.
-  React.useEffect(() => {
-    const sample = isOnline && typeof tpsState.tps === 'number' ? tpsState.tps : 0;
-    setHistory(h => ({ ...h, tps: pushHistory(h.tps, sample) }));
-  }, [tpsState.tps, isOnline]);
 
   React.useEffect(() => {
     let interval;
@@ -682,7 +656,7 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
         initial={{ opacity: 0, y: 8 }} 
         animate={{ opacity: 1, y: 0 }} 
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6 flex-shrink-0"
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 flex-shrink-0"
       >
         <StatCard
           icon={<Cpu />}
@@ -708,17 +682,6 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
           history={history.storage}
           hint="Double-click to open instance folder"
           onDoubleClick={() => fetch(`http://localhost:3001/api/servers/${server.id}/open-folder`, { method: 'POST' }).catch(() => {})}
-        />
-        <StatCard
-          icon={<Activity />}
-          label="Server TPS"
-          detail={tpsState.source
-            ? (tpsState.mspt ? `${tpsState.mspt.toFixed(1)} mspt · ${tpsState.source}` : tpsState.source)
-            : (isOnline ? (['vanilla', 'fabric'].includes(server.type) ? 'install spark mod' : 'waiting…') : 'offline')}
-          value={isOnline && typeof tpsState.tps === 'number' ? tpsState.tps.toFixed(1) : '--'}
-          secondary={isOnline && typeof tpsState.tps === 'number' ? '/ 20' : null}
-          color={getTpsColor(tpsState.tps)}
-          history={history.tps}
         />
         <StatCard
           icon={<Users />}
