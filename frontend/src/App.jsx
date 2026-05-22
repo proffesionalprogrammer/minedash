@@ -267,16 +267,15 @@ function App() {
     }
   };
 
-  const checkJavaThenCreate = async () => {
-    try {
-      const res = await fetch('http://localhost:3001/api/java-status');
-      const data = await res.json();
-      if (data.ok) setIsCreateModalOpen(true);
-      else setJavaModal({ version: data.version });
-    } catch {
-      setIsCreateModalOpen(true);
-    }
-  };
+  // Open the JavaSetupModal for a specific MC version, return a promise that
+  // resolves to true if the user chose to continue anyway, false if they
+  // cancelled. Callers (CreateServerModal pre-submit, MainPanel start) decide
+  // what to do with that signal — usually "retry with allowMismatch=true".
+  const showJavaGate = useCallback(({ installedVersion, requiredMajor, mcVersion }) => {
+    return new Promise((resolve) => {
+      setJavaModal({ installedVersion, requiredMajor, mcVersion, resolve });
+    });
+  }, []);
 
   const accountMenuProps = {
     accounts,
@@ -338,6 +337,7 @@ function App() {
                 settings={launcherSettings}
                 onProfilesChanged={fetchInstalledProfiles}
                 onBack={() => setSelectedServer(null)}
+                requestJavaGate={showJavaGate}
               />
             </motion.div>
           ) : (
@@ -352,7 +352,7 @@ function App() {
               <ServersList
                 servers={servers}
                 onSelect={setSelectedServer}
-                onCreateClick={checkJavaThenCreate}
+                onCreateClick={() => setIsCreateModalOpen(true)}
               />
             </motion.div>
           )}
@@ -362,9 +362,11 @@ function App() {
       <AnimatePresence>
         {javaModal && (
           <JavaSetupModal
-            installedVersion={javaModal.version}
-            onClose={() => setJavaModal(null)}
-            onProceedAnyway={() => { setJavaModal(null); setIsCreateModalOpen(true); }}
+            installedVersion={javaModal.installedVersion}
+            requiredMajor={javaModal.requiredMajor}
+            mcVersion={javaModal.mcVersion}
+            onClose={() => { javaModal.resolve?.(false); setJavaModal(null); }}
+            onProceedAnyway={() => { javaModal.resolve?.(true); setJavaModal(null); }}
           />
         )}
       </AnimatePresence>
@@ -375,6 +377,7 @@ function App() {
             onClose={() => setIsCreateModalOpen(false)}
             onCreate={handleCreateServer}
             existingNames={servers.map(s => s.name.toLowerCase())}
+            requestJavaGate={showJavaGate}
           />
         )}
       </AnimatePresence>

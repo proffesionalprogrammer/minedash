@@ -334,7 +334,7 @@ function VersionAutocomplete({ value, onChange, serverType }) {
 }
 
 // ─── Create Server Modal ───────────────────────────────────────
-function CreateServerModal({ onClose, onCreate, existingNames = [] }) {
+function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaGate }) {
   const [formData, setFormData] = useState({
     name: '',
     type: 'vanilla',
@@ -360,6 +360,32 @@ function CreateServerModal({ onClose, onCreate, existingNames = [] }) {
 
     setSubmitting(true);
     try {
+      // Java gate runs only now (after the user picked a version) instead of
+      // before the modal opens — so a 1.20.4 server on Java 21 doesn't get
+      // walled off by a Java-25 check it doesn't actually need.
+      if (requestJavaGate) {
+        try {
+          const res = await fetch(
+            `http://localhost:3001/api/java-status?version=${encodeURIComponent(formData.version)}`
+          );
+          const status = await res.json();
+          if (!status.ok) {
+            const proceed = await requestJavaGate({
+              installedVersion: status.version,
+              requiredMajor: status.requiredMajor,
+              mcVersion: formData.version,
+            });
+            if (!proceed) {
+              setSubmitting(false);
+              return;
+            }
+          }
+        } catch {
+          // If java-status itself fails (e.g. backend hiccup) don't block — let
+          // the start-time check catch a real mismatch later.
+        }
+      }
+
       await onCreate({
         name: formData.name.trim(),
         type: formData.type,

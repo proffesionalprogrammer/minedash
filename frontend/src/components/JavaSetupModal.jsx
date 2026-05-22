@@ -2,19 +2,27 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Download, RefreshCw, CheckCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 
-const ADOPTIUM_URL = 'https://adoptium.net/temurin/releases/?version=25&os=windows&arch=x64&package=jdk';
+const adoptiumUrl = (major) =>
+  `https://adoptium.net/temurin/releases/?version=${major}&os=windows&arch=x64&package=jdk`;
 
-export default function JavaSetupModal({ onClose, onProceedAnyway, installedVersion }) {
+export default function JavaSetupModal({
+  onClose,
+  onProceedAnyway,
+  installedVersion,
+  requiredMajor = 25,
+  mcVersion = null,
+}) {
   const [checking, setChecking] = useState(false);
   const [recheckResult, setRecheckResult] = useState(null); // null | 'ok' | 'still-missing'
 
-  const openDownload = () => window.open(ADOPTIUM_URL, '_blank');
+  const openDownload = () => window.open(adoptiumUrl(requiredMajor), '_blank');
 
   const recheck = async () => {
     setChecking(true);
     setRecheckResult(null);
     try {
-      const res = await fetch('http://localhost:3001/api/java-status');
+      const qs = mcVersion ? `?version=${encodeURIComponent(mcVersion)}` : '';
+      const res = await fetch(`http://localhost:3001/api/java-status${qs}`);
       const data = await res.json();
       if (data.ok) {
         setRecheckResult('ok');
@@ -29,8 +37,8 @@ export default function JavaSetupModal({ onClose, onProceedAnyway, installedVers
   };
 
   const versionLabel = installedVersion
-    ? `Java ${installedVersion} detected — Java 25 or newer is recommended.`
-    : 'Java 25 is recommended but was not found on this computer.';
+    ? `Java ${installedVersion} detected — Java ${requiredMajor} or newer is required${mcVersion ? ` for Minecraft ${mcVersion}` : ''}.`
+    : `Java ${requiredMajor} is required${mcVersion ? ` for Minecraft ${mcVersion}` : ''} but was not found on this computer.`;
 
   return (
     <div className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -48,7 +56,7 @@ export default function JavaSetupModal({ onClose, onProceedAnyway, installedVers
               <AlertTriangle size={22} className="text-amber-400" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white">Java 25 Recommended</h2>
+              <h2 className="text-xl font-bold text-white">Java {requiredMajor} Required</h2>
               <p className="text-[#A0A0A0] text-sm mt-0.5">{versionLabel}</p>
             </div>
           </div>
@@ -59,12 +67,21 @@ export default function JavaSetupModal({ onClose, onProceedAnyway, installedVers
 
         {/* Explanation */}
         <p className="text-[#A0A0A0] text-sm leading-relaxed mb-1">
-          Minecraft servers run on Java. We recommend{' '}
-          <span className="text-white font-bold">Java 25</span> for the best compatibility with
-          the latest Minecraft versions. Installation is free and takes about 2 minutes.
+          Minecraft servers run on Java.{' '}
+          {mcVersion ? (
+            <>
+              Minecraft <span className="text-white font-bold">{mcVersion}</span> needs{' '}
+              <span className="text-white font-bold">Java {requiredMajor}</span> or newer.
+            </>
+          ) : (
+            <>
+              We recommend <span className="text-white font-bold">Java {requiredMajor}</span> for the latest Minecraft versions.
+            </>
+          )}{' '}
+          Installation is free and takes about 2 minutes.
         </p>
         <p className="text-amber-400/80 text-xs font-bold mb-6">
-          ⚠ Your server will not work without a compatible Java version installed.
+          ⚠ Your server will not start without a compatible Java version installed.
         </p>
 
         {/* Steps */}
@@ -112,7 +129,7 @@ export default function JavaSetupModal({ onClose, onProceedAnyway, installedVers
             className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl font-bold text-sm transition-colors"
           >
             <Download size={16} />
-            Download Java 25
+            Download Java {requiredMajor}
             <ExternalLink size={13} className="opacity-60" />
           </motion.button>
 

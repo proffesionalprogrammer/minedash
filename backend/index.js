@@ -233,9 +233,49 @@ function getJavaVersion() {
   }
 }
 
+// Minimum Java major version Mojang/Paper/Fabric/Forge/NeoForge require to
+// boot a given MC version. Snapshot strings (24w..., 25w..., 1.x-rc#, 1.x-pre#)
+// fall through to the closest release bucket via the explicit checks below.
+const RECOMMENDED_JAVA_MAJOR = 25;
+function requiredJavaMajor(mcVersion) {
+  if (!mcVersion || typeof mcVersion !== 'string') return RECOMMENDED_JAVA_MAJOR;
+  const v = mcVersion.trim();
+
+  // Snapshots like 25w12a — the year tells us the era. 24w+ are 1.21.x; 25w+ are 1.21.6+/1.22.
+  const snap = v.match(/^(\d{2})w\d/);
+  if (snap) {
+    const year = parseInt(snap[1], 10);
+    if (year >= 25) return 25;
+    if (year >= 24) return 21;
+    return 17;
+  }
+
+  // Parse "1.MAJOR(.MINOR)" — pre/rc tags share the surrounding release bucket.
+  const m = v.match(/^1\.(\d+)(?:\.(\d+))?/);
+  if (!m) return RECOMMENDED_JAVA_MAJOR;
+  const major = parseInt(m[1], 10);
+  const minor = parseInt(m[2] || '0', 10);
+
+  if (major <= 16) return 8;
+  if (major === 17) return 16;
+  if (major < 20) return 17;                            // 1.18, 1.19
+  if (major === 20 && minor <= 4) return 17;            // 1.20 – 1.20.4
+  if (major === 20) return 21;                          // 1.20.5+
+  if (major === 21 && minor <= 5) return 21;            // 1.21 – 1.21.5
+  return 25;                                            // 1.21.6+ and beyond
+}
+
 app.get('/api/java-status', (req, res) => {
   const version = getJavaVersion();
-  res.json({ version, ok: version !== null && version >= 25 });
+  const requestedMc = typeof req.query.version === 'string' ? req.query.version : null;
+  const requiredMajor = requestedMc ? requiredJavaMajor(requestedMc) : RECOMMENDED_JAVA_MAJOR;
+  res.json({
+    version,
+    requiredMajor,
+    recommended: RECOMMENDED_JAVA_MAJOR,
+    mcVersion: requestedMc,
+    ok: version !== null && version >= requiredMajor,
+  });
 });
 
 // Version cache (10-minute TTL)
@@ -1944,6 +1984,25 @@ app.post('/api/servers/:id/start', async (req, res) => {
   const servers = await getServers();
   const serverConfig = servers.find(s => s.id === id);
   if (!serverConfig) return res.status(404).json({ error: 'Server not found' });
+
+  // Java version gate — surface a structured error so the frontend can route
+  // through JavaSetupModal instead of letting the JVM crash with
+  // UnsupportedClassVersionError mid-boot. `allowMismatch=true` (query or body)
+  // is the same "I know what I'm doing" escape hatch the modal exposes.
+  const allowMismatch = req.query.allowMismatch === 'true' || req.body?.allowMismatch === true;
+  if (!allowMismatch) {
+    const installedMajor = getJavaVersion();
+    const requiredMajor = requiredJavaMajor(serverConfig.version);
+    if (installedMajor !== null && installedMajor < requiredMajor) {
+      return res.status(409).json({
+        error: `Server "${serverConfig.name}" needs Java ${requiredMajor} or newer (you have Java ${installedMajor}).`,
+        code: 'java-version-mismatch',
+        installedVersion: installedMajor,
+        requiredMajor,
+        mcVersion: serverConfig.version,
+      });
+    }
+  }
 
   const serverPath = path.join(INSTANCES_DIR, id);
   await fs.ensureDir(serverPath);
