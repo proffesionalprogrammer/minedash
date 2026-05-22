@@ -846,7 +846,7 @@ async function installForge(id, serverConfig, serverPath, appendLog) {
 async function installNeoForge(id, serverConfig, serverPath, appendLog) {
   try {
     appendLog(`[MineDash] Fetching latest NeoForge installer for ${serverConfig.version}...\n`);
-    const metaRes = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 15000 });
+    const metaRes = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 60000 });
     
     // MC 1.21.1 -> Prefix 21.1.
     const parts = serverConfig.version.split('.');
@@ -970,7 +970,7 @@ async function fetchVersionsForType(type, opts = {}) {
     } else if (type === 'neoforge') {
       // maven.neoforged.net publishes AAAA records, but its IPv6 endpoints time out
       // from many residential networks. Force IPv4 so the request doesn't hang.
-      const res = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 15000 });
+      const res = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 60000 });
       const files = res.data.files || [];
       const versionSet = new Set();
       for (const f of files) {
