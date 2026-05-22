@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A local Minecraft server management desktop app. Users run it on their own PC — MineDash manages the Java processes, mods, backups, networking, and scheduled tasks. It is **not** a hosted service; every user's Minecraft server runs on their own hardware.
 
+MineDash is **also a Minecraft launcher**. `LauncherContent.jsx` / `PlaySection.jsx` own the Play view; `AccountManager.jsx` handles Microsoft device-flow sign-in and offline accounts; `backend/launcher.js` registers the `/api/launcher/*` routes and shells out to `minecraft-launcher-core` for game launch. So a typical session may involve both running a local server *and* connecting to it from the same app's launcher.
+
 ## Development Commands
 
 **Run in dev mode (normal way):**
@@ -47,7 +49,9 @@ In **dev mode**, Electron is not involved — the bat file runs the backend and 
 
 ### Backend (`backend/index.js`) — single very large file
 
-All logic lives here. Key patterns:
+All *server-management* logic lives here. The *launcher* (the client-side Minecraft side of MineDash) lives in `backend/launcher.js` and is mounted from `index.js` via `require('./launcher').register(...)` — it owns the `/api/launcher/*` routes (accounts, profiles, instances, content, settings), Microsoft device-flow + offline auth via `msmc`, and game launch via `minecraft-launcher-core`. The Azure client ID is in `AZURE_CLIENT_ID` at the top of that file.
+
+Key patterns:
 
 - **In-memory state**: `activeProcesses` (running MC server child processes), `activeLogs` (console output buffers), `serverStates` (uptime/players), `serverJavaPids` (actual JVM PIDs discovered via process-tree walk), `autoBackupIntervals`, `taskLastFireKey` (scheduled-task per-minute dedup).
 - **Persistent state**: `servers.json` — array of server config objects. Read/written via `getServers()` / `saveServers()`. Socket event `server_updated` is emitted after every save.
@@ -57,7 +61,7 @@ All logic lives here. Key patterns:
 - **CORS**: configured at the top of the file with an explicit `methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']` whitelist. **If you add a route using a method not in this list, the browser will reject it with `TypeError: Failed to fetch`.** Add the method to the whitelist before adding the route.
 - **External APIs proxied**: Modrinth (mod search/install + SHA1 hash lookup), Hangar (Paper plugin search/install), Mojang/Paper/Fabric/Forge/NeoForge version lists (10-minute cache).
 - **Java discovery**: `getJavaPath()` searches JAVA_HOME, PATH, Windows registry, common install roots, and the Minecraft launcher's bundled JRE. Returns `'java'` as a fallback (never null).
-- **Java version check**: `GET /api/java-status` runs `java -version`, parses the major version, and returns `{ version: number|null, ok: boolean }`. Currently requires Java 25+. The frontend calls this before opening the Create Server modal.
+- **Java version check**: `GET /api/java-status` runs `java -version`, parses the major version, and returns `{ version: number|null, ok: boolean }`. Currently gates on Java 25+ across the board — being upgraded to per-MC-version (`requiredJavaMajor(mcVersion)` table: 1.16→8, 1.17→16, 1.18–1.20.4→17, 1.20.5–1.21.5→21, 1.21.6+→25). Today the frontend calls this before opening the Create Server modal.
 
 ### Frontend (`frontend/src/`)
 
@@ -75,6 +79,12 @@ All logic lives here. Key patterns:
 Tab order: `console`, `players`, `activity`, `mods` (conditional), `backups`, `schedule`, `network`, `options`.
 
 The crash banner in `ConsoleViewer` communicates tab-switches to `MainPanel` via `window.dispatchEvent(new CustomEvent('minedash-switch-tab', { detail: { tab } }))`.
+
+**`PlayersViewer.jsx`** lists currently-online players (polled from `/api/servers/:id/stats`) and exposes per-row hover actions — op, deop, teleport-to-spawn, kick, ban — that send the matching console command via `POST /api/servers/:id/command`. There is no editor for offline players (whitelist / banlist) here yet.
+
+**`OptionsViewer.jsx`** owns the Options tab. `PropertiesSettings` loads the full `server.properties` file: header search bar, booleans rendered as toggles, known enums (`difficulty`, `gamemode`, `level-type`) as `CustomDropdown` (portal-rendered so it doesn't clip inside scroll containers), everything else as text inputs. A dirty-state bottom bar exposes Save and Save-and-restart.
+
+**`ModsViewer.jsx`** has a sub-view toggle for `datapacks` that mounts `ModrinthBrowser` with `projectType="datapack"`. Datapacks land in the server's `world/datapacks/` folder rather than `mods/`.
 
 ### Electron (`electron/`)
 
