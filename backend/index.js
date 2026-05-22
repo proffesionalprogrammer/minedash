@@ -1,3 +1,11 @@
+// Prefer IPv4 for every outbound HTTP call in this process (axios + native
+// fetch + http.request all use dns.lookup). Several upstream hosts publish
+// AAAA records that time out from residential networks (notably
+// maven.neoforged.net), which previously broke NeoForge install + the
+// version list. Setting this globally keeps every current and future
+// call protected.
+require('dns').setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
