@@ -49,6 +49,9 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
   const [versions, setVersions] = useState([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [versionFilter, setVersionFilter] = useState('all');
+  // When the backend refuses a client-only mod, stash the install args here and surface
+  // a confirm dialog. Resolving the promise retries the same call with force=true.
+  const [clientOnlyConfirm, setClientOnlyConfirm] = useState(null);
   const searchTimeout = useRef(null);
   const LIMIT = 20;
 
@@ -180,20 +183,27 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
         const requiredDeps = (best.dependencies || [])
           .filter(d => d.dependency_type === 'required' && d.project_id)
           .map(d => d.project_id);
+        const body = {
+          url: file.url,
+          filename: file.filename,
+          iconUrl: project.icon_url || null,
+          title: project.title || null,
+          projectId: project.project_id,
+          gameVersion: serverVersion,
+          loader: getLoader(),
+          dependencies: requiredDeps,
+          serverSide: project.server_side,
+        };
         const r = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/install-modrinth`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            url: file.url,
-            filename: file.filename,
-            iconUrl: project.icon_url || null,
-            title: project.title || null,
-            projectId: project.project_id,
-            gameVersion: serverVersion,
-            loader: getLoader(),
-            dependencies: requiredDeps,
-          }),
+          body: JSON.stringify(body),
         });
         const d = await r.json();
+        if (r.status === 409 && d.clientOnly) {
+          setClientOnlyConfirm({ title: project.title, body, version: best.version_number, projectId: project.project_id });
+          setInstalling(prev => ({...prev, [project.project_id]: false}));
+          return;
+        }
         if (!r.ok) throw new Error(d.error || 'Install failed');
         setInstalled(prev => ({...prev, [project.project_id]: true}));
         const depMsg = d.depsInstalled?.length > 0 ? ` + ${d.depsInstalled.length} dependenc${d.depsInstalled.length === 1 ? 'y' : 'ies'} auto-installed` : '';
@@ -203,6 +213,29 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       fetchInstalledFiles();
     } catch (err) { showToast(err.message, true); }
     setInstalling(prev => ({...prev, [project.project_id]: false}));
+  };
+
+  // Retry an install after the user acknowledged the client-only warning.
+  const confirmClientOnly = async () => {
+    if (!clientOnlyConfirm) return;
+    const { body, projectId, title, version } = clientOnlyConfirm;
+    setClientOnlyConfirm(null);
+    setInstalling(prev => ({...prev, [projectId]: true}));
+    try {
+      const r = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/install-modrinth`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ...body, force: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Install failed');
+      setInstalled(prev => ({...prev, [projectId]: true}));
+      const depMsg = d.depsInstalled?.length > 0 ? ` + ${d.depsInstalled.length} dep${d.depsInstalled.length === 1 ? '' : 's'} auto-installed` : '';
+      showToast(`${title} v${version} installed!${depMsg}`);
+      if (onInstalled) onInstalled();
+      fetchInstalledFiles();
+      setVersionModal(null);
+    } catch (err) { showToast(err.message, true); }
+    setInstalling(prev => ({...prev, [projectId]: false}));
   };
 
   // Open version picker (for "Change version")
@@ -229,20 +262,27 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       const requiredDeps = (version.dependencies || [])
         .filter(d => d.dependency_type === 'required' && d.project_id)
         .map(d => d.project_id);
+      const body = {
+        url: file.url,
+        filename: file.filename,
+        iconUrl: versionModal?.icon_url || null,
+        title: versionModal?.title || null,
+        projectId: versionModal?.project_id || null,
+        gameVersion: serverVersion,
+        loader: getLoader(),
+        dependencies: requiredDeps,
+        serverSide: versionModal?.server_side,
+      };
       const r = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/install-modrinth`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          url: file.url,
-          filename: file.filename,
-          iconUrl: versionModal?.icon_url || null,
-          title: versionModal?.title || null,
-          projectId: versionModal?.project_id || null,
-          gameVersion: serverVersion,
-          loader: getLoader(),
-          dependencies: requiredDeps,
-        }),
+        body: JSON.stringify(body),
       });
       const d = await r.json();
+      if (r.status === 409 && d.clientOnly) {
+        setClientOnlyConfirm({ title: versionModal?.title, body, version: version.version_number, projectId: versionModal?.project_id });
+        setInstalling(prev => ({...prev, [version.id]: false}));
+        return;
+      }
       if (!r.ok) throw new Error(d.error || 'Install failed');
       setInstalled(prev => ({...prev, [versionModal.project_id]: true}));
       const depMsg = d.depsInstalled?.length > 0 ? ` + ${d.depsInstalled.length} dep${d.depsInstalled.length === 1 ? '' : 's'} auto-installed` : '';
@@ -325,6 +365,43 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
               </div>
             </motion.div>
           </motion.div>
+          </ModalPortal>
+        )}
+      </AnimatePresence>
+
+      {/* Client-only confirm */}
+      <AnimatePresence>
+        {clientOnlyConfirm && (
+          <ModalPortal>
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+              className="fixed inset-0 bg-[#000000]/80 z-[110] flex items-center justify-center backdrop-blur-sm"
+              onClick={()=>setClientOnlyConfirm(null)}>
+              <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}}
+                transition={{type:'spring',duration:0.4,bounce:0.15}}
+                className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl w-full max-w-md shadow-2xl mx-4 p-6"
+                onClick={e=>e.stopPropagation()}>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="bg-amber-500/10 p-2 rounded-xl"><AlertCircle size={20} className="text-amber-400"/></div>
+                  <h3 className="text-lg font-bold text-[#FFFFFF]">Client-only mod</h3>
+                </div>
+                <p className="text-sm text-[#A0A0A0] mb-2 font-medium">
+                  <span className="text-[#FFFFFF] font-bold">{clientOnlyConfirm.title}</span> is marked client-only by its author.
+                </p>
+                <p className="text-sm text-[#A0A0A0] mb-6 font-medium">
+                  Installing it on a dedicated server will likely crash the whole server on startup the moment the mod tries to load a client-only class. Install anyway?
+                </p>
+                <div className="flex gap-2 border-t border-[#2D2D2D] pt-4">
+                  <button onClick={()=>setClientOnlyConfirm(null)}
+                    className="flex-1 px-4 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all">
+                    Cancel
+                  </button>
+                  <button onClick={confirmClientOnly}
+                    className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-[#111111] rounded-xl text-sm font-bold transition-all">
+                    Install anyway
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
           </ModalPortal>
         )}
       </AnimatePresence>

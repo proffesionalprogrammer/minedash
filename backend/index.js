@@ -3160,9 +3160,20 @@ async function resolveAndInstallDeps(depProjectIds, gameVersion, loader, modsPat
 // Download and install a mod from Modrinth directly into server's mods folder
 app.post('/api/servers/:serverId/mods/install-modrinth', async (req, res) => {
   const { serverId } = req.params;
-  const { url, filename, iconUrl, title, projectId, gameVersion, loader, dependencies } = req.body;
+  const { url, filename, iconUrl, title, projectId, gameVersion, loader, dependencies, serverSide, force } = req.body;
 
   if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
+
+  // Block client-only mods unless explicitly overridden. NeoForge/Forge dedicated servers
+  // crash during mod construction the moment a client-only mod touches a client-only class
+  // (e.g. net.minecraft.client.gui.screens.Screen), so a "client-only on a server" mistake
+  // takes down the entire server, not just the offending mod.
+  if (serverSide === 'unsupported' && !force) {
+    return res.status(409).json({
+      error: `${title || filename} is marked client-only by its author. Installing it on a dedicated server will likely crash on startup.`,
+      clientOnly: true,
+    });
+  }
 
   const modsPath = path.join(INSTANCES_DIR, serverId, 'mods');
   const destPath = path.join(modsPath, filename);
