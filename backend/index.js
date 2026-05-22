@@ -2128,6 +2128,177 @@ app.post('/api/servers/:id/command', async (req, res) => {
   res.json({ message: 'Command sent' });
 });
 
+// ─── Player Lists ────────────────────────────────────────────────────────────
+// whitelist.json / ops.json / banned-players.json / banned-ips.json — written
+// by the server itself when running; we either send the matching console
+// command (live) or modify the JSON file directly (offline). For offline-mode
+// player adds we ask Mojang for the UUID; if a player is unknown to Mojang we
+// fall back to the offline UUID derivation so cracked names still work.
+
+const PLAYER_LIST_FILES = {
+  whitelist: 'whitelist.json',
+  ops: 'ops.json',
+  banned: 'banned-players.json',
+  'banned-ips': 'banned-ips.json',
+};
+
+async function readPlayerListFile(serverPath, file) {
+  try {
+    const p = path.join(serverPath, file);
+    if (!(await fs.pathExists(p))) return [];
+    const txt = await fs.readFile(p, 'utf8');
+    const parsed = JSON.parse(txt);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function writePlayerListFile(serverPath, file, list) {
+  const p = path.join(serverPath, file);
+  await fs.writeFile(p, JSON.stringify(list, null, 2));
+}
+
+function offlineUuid(name) {
+  // Same derivation Minecraft uses for offline-mode players: md5 of
+  // "OfflinePlayer:<name>", with version/variant nibbles fixed to mark it as
+  // a type-3 UUID. Mirrors UUID.nameUUIDFromBytes(...) in the vanilla code.
+  const md5 = crypto.createHash('md5').update('OfflinePlayer:' + name).digest();
+  md5[6] = (md5[6] & 0x0f) | 0x30;
+  md5[8] = (md5[8] & 0x3f) | 0x80;
+  const hex = md5.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+async function resolveMojangProfile(name) {
+  try {
+    const r = await axios.get(`https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`, {
+      timeout: 5000,
+      headers: { 'User-Agent': 'MineDash/1.0' },
+    });
+    const id = r.data?.id;
+    const canonical = r.data?.name || name;
+    if (!id) return null;
+    const dashed = `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+    return { uuid: dashed, name: canonical };
+  } catch (_) {
+    return null;
+  }
+}
+
+app.get('/api/servers/:id/player-lists', async (req, res) => {
+  const serverPath = path.join(INSTANCES_DIR, req.params.id);
+  try {
+    const [whitelist, ops, banned, bannedIps] = await Promise.all([
+      readPlayerListFile(serverPath, PLAYER_LIST_FILES.whitelist),
+      readPlayerListFile(serverPath, PLAYER_LIST_FILES.ops),
+      readPlayerListFile(serverPath, PLAYER_LIST_FILES.banned),
+      readPlayerListFile(serverPath, PLAYER_LIST_FILES['banned-ips']),
+    ]);
+    res.json({ whitelist, ops, banned, bannedIps, running: !!activeProcesses[req.params.id] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/servers/:id/player-lists/:list', async (req, res) => {
+  const { id, list } = req.params;
+  const { name, reason } = req.body || {};
+  if (!PLAYER_LIST_FILES[list]) return res.status(400).json({ error: 'Unknown list' });
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name (or IP) is required' });
+  }
+  const trimmed = name.trim();
+
+  const mcProcess = activeProcesses[id];
+  if (mcProcess) {
+    // Live server: send the matching command. The server rewrites the file
+    // itself and any UUID lookups happen inside Minecraft.
+    let cmd;
+    if (list === 'whitelist') cmd = `whitelist add ${trimmed}`;
+    else if (list === 'ops') cmd = `op ${trimmed}`;
+    else if (list === 'banned') cmd = `ban ${trimmed}${reason ? ' ' + reason : ''}`;
+    else if (list === 'banned-ips') cmd = `ban-ip ${trimmed}${reason ? ' ' + reason : ''}`;
+    io.emit(`console_${id}`, `[MineDash] /${cmd}\n`);
+    mcProcess.stdin.write(cmd + '\n');
+    return res.json({ message: 'Command sent', via: 'command' });
+  }
+
+  // Offline server: modify the JSON file directly.
+  const serverPath = path.join(INSTANCES_DIR, id);
+  await fs.ensureDir(serverPath);
+  const file = PLAYER_LIST_FILES[list];
+  const current = await readPlayerListFile(serverPath, file);
+
+  let entry;
+  if (list === 'banned-ips') {
+    if (current.some(e => e.ip?.toLowerCase() === trimmed.toLowerCase())) {
+      return res.status(409).json({ error: `${trimmed} is already banned` });
+    }
+    entry = {
+      ip: trimmed,
+      created: new Date().toISOString().replace(/\.\d{3}Z$/, ' +0000'),
+      source: 'MineDash',
+      expires: 'forever',
+      reason: reason || 'Banned by an operator.',
+    };
+  } else {
+    const profile = (await resolveMojangProfile(trimmed)) || { uuid: offlineUuid(trimmed), name: trimmed };
+    if (current.some(e => e.uuid === profile.uuid || e.name?.toLowerCase() === profile.name.toLowerCase())) {
+      return res.status(409).json({ error: `${profile.name} is already on this list` });
+    }
+    if (list === 'whitelist') {
+      entry = { uuid: profile.uuid, name: profile.name };
+    } else if (list === 'ops') {
+      entry = { uuid: profile.uuid, name: profile.name, level: 4, bypassesPlayerLimit: false };
+    } else {
+      entry = {
+        uuid: profile.uuid,
+        name: profile.name,
+        created: new Date().toISOString().replace(/\.\d{3}Z$/, ' +0000'),
+        source: 'MineDash',
+        expires: 'forever',
+        reason: reason || 'Banned by an operator.',
+      };
+    }
+  }
+
+  current.push(entry);
+  await writePlayerListFile(serverPath, file, current);
+  res.json({ message: 'Entry added', via: 'file', entry });
+});
+
+app.delete('/api/servers/:id/player-lists/:list/:name', async (req, res) => {
+  const { id, list, name } = req.params;
+  if (!PLAYER_LIST_FILES[list]) return res.status(400).json({ error: 'Unknown list' });
+  const trimmed = decodeURIComponent(name).trim();
+
+  const mcProcess = activeProcesses[id];
+  if (mcProcess) {
+    let cmd;
+    if (list === 'whitelist') cmd = `whitelist remove ${trimmed}`;
+    else if (list === 'ops') cmd = `deop ${trimmed}`;
+    else if (list === 'banned') cmd = `pardon ${trimmed}`;
+    else if (list === 'banned-ips') cmd = `pardon-ip ${trimmed}`;
+    io.emit(`console_${id}`, `[MineDash] /${cmd}\n`);
+    mcProcess.stdin.write(cmd + '\n');
+    return res.json({ message: 'Command sent', via: 'command' });
+  }
+
+  const serverPath = path.join(INSTANCES_DIR, id);
+  const file = PLAYER_LIST_FILES[list];
+  const current = await readPlayerListFile(serverPath, file);
+  const before = current.length;
+  const filtered = list === 'banned-ips'
+    ? current.filter(e => e.ip?.toLowerCase() !== trimmed.toLowerCase())
+    : current.filter(e => e.name?.toLowerCase() !== trimmed.toLowerCase() && e.uuid !== trimmed);
+  if (filtered.length === before) {
+    return res.status(404).json({ error: 'Entry not found' });
+  }
+  await writePlayerListFile(serverPath, file, filtered);
+  res.json({ message: 'Entry removed', via: 'file' });
+});
+
 // Mod metadata helpers — keyed by filename (without .disabled suffix)
 const MOD_META_FILE = '.mod-metadata.json';
 async function readModMetadata(modsPath) {
