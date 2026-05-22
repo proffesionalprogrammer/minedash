@@ -1,6 +1,67 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Terminal, AlertTriangle, X, ArrowRight } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Terminal, AlertTriangle, X, ArrowRight, Search, Regex, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// Detect the log level of a single line. Vanilla / Paper / Fabric / Forge
+// all converge on the "[HH:MM:SS] [Thread/LEVEL]" prefix or include the bare
+// word ERROR / WARN in the message body.
+function detectLogLevel(line) {
+  if (/\bERROR\b|\bFATAL\b|Exception|Traceback/.test(line)) return 'ERROR';
+  if (/\bWARN\b/.test(line)) return 'WARN';
+  return 'INFO';
+}
+
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Build the search RegExp. Returns null if the input is empty, or if regex
+// mode is on and the pattern doesn't compile. No `g` flag — the global state
+// would force every consumer to reset lastIndex. Build a fresh `g` regex
+// locally in highlightMatches() instead.
+function buildSearchRegex(query, useRegex) {
+  if (!query) return null;
+  try {
+    return new RegExp(useRegex ? query : escapeRegex(query), 'i');
+  } catch (_) {
+    return null;
+  }
+}
+
+function colorClassForLog(log) {
+  if (log.includes('[MineDash]') || log.includes('[Auto-Restart]') || log.includes('[Console]')) return 'text-[#00AF5C]';
+  if (log.includes('ERROR') || log.includes('Exception') || log.includes('FATAL') || log.includes('Traceback')) return 'text-[#FF5555]';
+  if (log.includes('WARN')) return 'text-amber-400';
+  if (/joined the game/.test(log)) return 'text-cyan-400';
+  if (/left the game/.test(log)) return 'text-orange-400';
+  if (/<[a-zA-Z0-9_]+>/.test(log)) return 'text-violet-400';
+  if (/Server process exited/.test(log)) return 'text-[#FF5555] font-bold';
+  if (/Done \(/.test(log)) return 'text-[#00AF5C] font-bold';
+  if (log.includes('INFO')) return 'text-[#CCCCCC]';
+  return 'text-[#A0A0A0]';
+}
+
+// Split a line on the search regex and wrap every match in a highlight span.
+// Takes a non-global regex (see buildSearchRegex) and constructs a fresh
+// global version locally — keeps the input regex pristine so callers can
+// share it without lastIndex side-effects.
+function highlightMatches(line, regex) {
+  const g = new RegExp(regex.source, regex.flags.includes('g') ? regex.flags : regex.flags + 'g');
+  const out = [];
+  let last = 0;
+  let m;
+  let k = 0;
+  while ((m = g.exec(line)) !== null) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    out.push(
+      <mark key={k++} className="bg-amber-400/40 text-[#FFFFFF] rounded-sm px-0.5">
+        {m[0]}
+      </mark>
+    );
+    last = m.index + m[0].length;
+    if (m[0].length === 0) g.lastIndex += 1;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
 
 // ─── Command tree ──────────────────────────────────────────────────────────────
 // Each node: { name, desc, args? }   args is the next level of completions.
@@ -427,10 +488,17 @@ function ConsoleViewer({ serverId, socket }) {
   const [commandHistory, setCommandHistory] = useState([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [crashBanner, setCrashBanner] = useState(null); // { type, message, tab }
+  // Search / filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [useRegex, setUseRegex] = useState(false);
+  // levelFilters: which levels to SHOW. Empty == show all.
+  const [levelFilters, setLevelFilters] = useState(() => new Set());
+  const [currentMatchIdx, setCurrentMatchIdx] = useState(0);
   const bottomRef = useRef(null);
   const containerRef = useRef(null);
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
+  const matchRefs = useRef(new Map()); // originalIdx -> DOM node, for the currently mounted matched lines
 
   useEffect(() => {
     setLogs([]);
@@ -462,8 +530,78 @@ function ConsoleViewer({ serverId, socket }) {
   }, [serverId, socket]);
 
   useEffect(() => {
+    // While a search is active the user is reading the result — don't yank
+    // them to the bottom when new log lines arrive.
+    if (searchQuery) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+  }, [logs, searchQuery]);
+
+  // Build search regex + the list of currently-visible lines that match it.
+  const searchRegex = useMemo(() => buildSearchRegex(searchQuery, useRegex), [searchQuery, useRegex]);
+  const searchInvalid = !!searchQuery && useRegex && !searchRegex;
+
+  const visibleLogs = useMemo(() => {
+    const showAllLevels = levelFilters.size === 0;
+    const items = [];
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i];
+      if (!showAllLevels && !levelFilters.has(detectLogLevel(log))) continue;
+      const isMatch = searchRegex ? searchRegex.test(log) : false;
+      if (searchRegex && !isMatch) continue;
+      items.push({ log, originalIdx: i, isMatch });
+    }
+    return items;
+  }, [logs, levelFilters, searchRegex]);
+
+  // OriginalIdx of every matched line, in display order. Used to look up the
+  // DOM node for jump-to-match scrolling.
+  const matchedOriginalIdxs = useMemo(
+    () => (searchRegex ? visibleLogs.filter(v => v.isMatch).map(v => v.originalIdx) : []),
+    [visibleLogs, searchRegex]
+  );
+  const matchCount = matchedOriginalIdxs.length;
+  const safeMatchIdx = matchCount > 0 ? Math.min(currentMatchIdx, matchCount - 1) : 0;
+
+  // When the matched set or selected index changes, scroll the current match
+  // into view. No setState here — clamping happens via safeMatchIdx above.
+  useEffect(() => {
+    if (matchCount === 0) return;
+    const originalIdx = matchedOriginalIdxs[safeMatchIdx];
+    const node = matchRefs.current.get(originalIdx);
+    if (node) node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [matchCount, safeMatchIdx, matchedOriginalIdxs]);
+
+  const jumpToMatch = useCallback((direction) => {
+    if (matchCount === 0) return;
+    setCurrentMatchIdx((prev) => {
+      const next = direction === 'next' ? prev + 1 : prev - 1;
+      return (next + matchCount) % matchCount;
+    });
+  }, [matchCount]);
+
+  const toggleLevel = (level) => {
+    setLevelFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) next.delete(level); else next.add(level);
+      return next;
+    });
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setCurrentMatchIdx(0);
+    setUseRegex(false);
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      jumpToMatch(e.shiftKey ? 'prev' : 'next');
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      clearSearch();
+    }
+  };
 
   const updateSuggestions = useCallback((val) => {
     if (!val.trim()) {
@@ -586,10 +724,98 @@ function ConsoleViewer({ serverId, socket }) {
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[#2D2D2D] bg-[#1A1A1A]">
         <Terminal size={16} className="text-[#A0A0A0]" />
         <span className="text-sm font-bold text-[#FFFFFF]">Live Console</span>
-        <div className="ml-auto flex gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#FF5555]"></div>
-          <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-          <div className="w-3 h-3 rounded-full bg-[#00AF5C]"></div>
+
+        {/* Search + level filter + jump-to-match */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Level chips */}
+          <div className="hidden sm:flex items-center gap-1">
+            {[
+              { key: 'INFO',  label: 'INFO',  color: 'text-[#CCCCCC]', activeBg: 'bg-[#CCCCCC]/10' },
+              { key: 'WARN',  label: 'WARN',  color: 'text-amber-400', activeBg: 'bg-amber-500/10' },
+              { key: 'ERROR', label: 'ERROR', color: 'text-[#FF5555]', activeBg: 'bg-[#FF5555]/10' },
+            ].map(chip => {
+              const active = levelFilters.has(chip.key);
+              const anyActive = levelFilters.size > 0;
+              return (
+                <button
+                  key={chip.key}
+                  onClick={() => toggleLevel(chip.key)}
+                  title={`Show only ${chip.label} lines`}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                    active
+                      ? `${chip.activeBg} ${chip.color}`
+                      : anyActive
+                        ? 'text-[#555555] hover:text-[#A0A0A0]'
+                        : `${chip.color} opacity-60 hover:opacity-100`
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search input */}
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${
+            searchInvalid
+              ? 'border-[#FF5555]/40 bg-[#FF5555]/5'
+              : searchQuery
+                ? 'border-[#00AF5C]/40 bg-[#00AF5C]/5'
+                : 'border-[#2D2D2D] bg-[#111111]'
+          } transition-colors`}>
+            <Search size={13} className={searchQuery ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentMatchIdx(0); }}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="Find in logs…"
+              className="bg-transparent outline-none text-xs font-mono text-[#FFFFFF] placeholder-[#555555] w-32 sm:w-40"
+            />
+            <button
+              type="button"
+              onClick={() => setUseRegex(v => !v)}
+              title="Toggle regex"
+              className={`p-0.5 rounded transition-colors ${
+                useRegex ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0]'
+              }`}
+            >
+              <Regex size={12} />
+            </button>
+            {searchQuery && (
+              <>
+                <span className="text-[10px] font-bold tabular-nums text-[#A0A0A0]">
+                  {matchCount === 0 ? '0/0' : `${currentMatchIdx + 1}/${matchCount}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => jumpToMatch('prev')}
+                  disabled={matchCount === 0}
+                  title="Previous match (Shift+Enter)"
+                  className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
+                >
+                  <ChevronUp size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => jumpToMatch('next')}
+                  disabled={matchCount === 0}
+                  title="Next match (Enter)"
+                  className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
+                >
+                  <ChevronDown size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  title="Clear search (Esc)"
+                  className="p-0.5 text-[#555555] hover:text-[#FFFFFF]"
+                >
+                  <X size={12} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -639,31 +865,29 @@ function ConsoleViewer({ serverId, socket }) {
           <div className="text-[#555555] italic h-full flex items-center justify-center font-sans font-medium">
             No console output yet... Start the server to see logs!
           </div>
+        ) : visibleLogs.length === 0 ? (
+          <div className="text-[#555555] italic h-full flex items-center justify-center font-sans font-medium">
+            {searchInvalid ? 'Invalid regex' : 'No log lines match the current filter.'}
+          </div>
         ) : (
-          logs.map((log, i) => {
-            let colorClass = 'text-[#A0A0A0]';
-            if (log.includes('[MineDash]') || log.includes('[Auto-Restart]') || log.includes('[Console]')) {
-              colorClass = 'text-[#00AF5C]';
-            } else if (log.includes('ERROR') || log.includes('Exception') || log.includes('FATAL') || log.includes('Traceback')) {
-              colorClass = 'text-[#FF5555]';
-            } else if (log.includes('WARN')) {
-              colorClass = 'text-amber-400';
-            } else if (/joined the game/.test(log)) {
-              colorClass = 'text-cyan-400';
-            } else if (/left the game/.test(log)) {
-              colorClass = 'text-orange-400';
-            } else if (/<[a-zA-Z0-9_]+>/.test(log)) {
-              colorClass = 'text-violet-400';
-            } else if (/Server process exited/.test(log)) {
-              colorClass = 'text-[#FF5555] font-bold';
-            } else if (/Done \(/.test(log)) {
-              colorClass = 'text-[#00AF5C] font-bold';
-            } else if (log.includes('INFO')) {
-              colorClass = 'text-[#CCCCCC]';
-            }
+          visibleLogs.map(({ log, originalIdx, isMatch }) => {
+            const colorClass = colorClassForLog(log);
+            const isCurrent = isMatch && matchedOriginalIdxs[safeMatchIdx] === originalIdx;
             return (
-              <div key={i} className="break-words whitespace-pre-wrap leading-relaxed">
-                <span className={colorClass}>{log}</span>
+              <div
+                key={originalIdx}
+                ref={(el) => {
+                  if (!isMatch) return;
+                  if (el) matchRefs.current.set(originalIdx, el);
+                  else matchRefs.current.delete(originalIdx);
+                }}
+                className={`break-words whitespace-pre-wrap leading-relaxed ${
+                  isCurrent ? 'bg-[#00AF5C]/10 rounded px-1 -mx-1 ring-1 ring-[#00AF5C]/30' : ''
+                }`}
+              >
+                <span className={colorClass}>
+                  {searchRegex ? highlightMatches(log, searchRegex) : log}
+                </span>
               </div>
             );
           })
