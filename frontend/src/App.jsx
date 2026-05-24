@@ -8,6 +8,7 @@ import JavaSetupModal from './components/JavaSetupModal';
 import PlaySection from './components/PlaySection';
 import AccountMenu from './components/AccountMenu';
 import { useLaunchSession } from './hooks/useLaunchSession';
+import { useModpackInstalls } from './hooks/useModpackInstalls';
 import SettingsMenu from './components/SettingsMenu';
 import UpdateToast from './components/UpdateToast';
 import WhatsNewModal from './components/WhatsNewModal';
@@ -142,6 +143,12 @@ function App() {
     onProfilesChanged: fetchInstalledProfiles,
     onError: showError,
   });
+
+  // Modpack-install tracker — lifted so a 500-mod install survives the user
+  // tab-switching away (and back) while it runs. ModrinthBrowser and
+  // LauncherContent both register their installs here and read progress back
+  // via key, so the progress bar rehydrates immediately on remount.
+  const modpackInstalls = useModpackInstalls(socket);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -318,6 +325,7 @@ function App() {
                 onProfilesChanged={fetchInstalledProfiles}
                 onError={showError}
                 launchSession={launchSession}
+                modpackInstalls={modpackInstalls}
               />
             </motion.div>
           ) : selectedServer ? (
@@ -338,6 +346,7 @@ function App() {
                 onProfilesChanged={fetchInstalledProfiles}
                 onBack={() => setSelectedServer(null)}
                 requestJavaGate={showJavaGate}
+                modpackInstalls={modpackInstalls}
               />
             </motion.div>
           ) : (
@@ -365,6 +374,7 @@ function App() {
             installedVersion={javaModal.installedVersion}
             requiredMajor={javaModal.requiredMajor}
             mcVersion={javaModal.mcVersion}
+            socket={socket}
             onClose={() => { javaModal.resolve?.(false); setJavaModal(null); }}
             onProceedAnyway={() => { javaModal.resolve?.(true); setJavaModal(null); }}
           />

@@ -265,6 +265,14 @@ ipcMain.on('window-hide-to-tray', () => {
   mainWindow.hide();
 });
 
+// Restore the window from tray. useLaunchSession fires this on the game's
+// 'close' event so the user gets MineDash back automatically once Minecraft
+// exits, instead of leaving them to hunt for the tray icon.
+ipcMain.on('window-show-from-tray', () => {
+  if (!mainWindow) return;
+  showFromTray();
+});
+
 // ─── System Tray ───────────────────────────────────────────────────────────────
 function ensureTray() {
   if (tray) return;

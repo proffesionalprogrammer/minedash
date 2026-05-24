@@ -62,3 +62,14 @@ desktop.ini
 # ─── Misc ────────────────────────────────────────────────────────────────
 # electron-builder cache (auto-downloaded winCodeSign etc.)
 .cache/
+
+# ─── Claude Code workspace state ─────────────────────────────────────────
+# Local agent settings, worktrees, conversation state — per-developer, not
+# meant to be shared.
+.claude/
+
+# ─── Managed JDK runtimes ────────────────────────────────────────────────
+# MineDash auto-downloads the JDK each server needs into this dir at
+# runtime (Adoptium pool). Hundreds of MB per major version, fully
+# regenerable, and gets re-fetched after a fresh install on the same box.
+backend/runtimes/

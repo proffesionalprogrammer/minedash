@@ -11,7 +11,22 @@ const fs = require('fs-extra');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const AdmZip = require('adm-zip');
+const multer = require('multer');
 const { Client } = require('minecraft-launcher-core');
+
+// Why mclc downloads can't be hard-cancelled:
+//   - minecraft-launcher-core uses the legacy `request` library and exposes no
+//     cancel API of its own. We previously intercepted `request` and called
+//     .abort() on every in-flight download when the user clicked Stop, but
+//     mclc's handler.js pipes the request directly into `fs.createWriteStream`
+//     with no error listener on the file stream — aborting the pipe makes the
+//     write stream emit an unhandled 'error' and the entire backend process
+//     exits. mclc also retries the download from its own error handler, so the
+//     abort actively makes things worse rather than stopping anything.
+//   - The pragmatic answer is: tell the user the truth in the UI ("Cancelling —
+//     will stop after current file") and let the cancelledLaunches flag kill
+//     the JVM the moment mclc's download phase completes. Not instant, but
+//     honest and doesn't crash the backend.
 const msmc = require('msmc');
 const { Auth } = msmc;
 
@@ -40,9 +55,28 @@ let MODRINTH_LOOKUP_API = MODRINTH_API;
 let MODRINTH_LOOKUP_HEADERS = MODRINTH_HEADERS;
 
 const msSessions = new Map();       // sessionId -> { status, link?, account?, error?, server? }
-const activeLaunches = new Map();   // launchId -> Client instance (or `true` during early setup)
-const cancelledLaunches = new Set(); // launchIds the user explicitly stopped
+// In parent (HTTP) mode: launchId -> { worker, jvmPid? } once the launch is forked.
+// In worker mode: launchId -> mclc Client instance during the active run (used
+// only by the in-worker code path for child-tracking and cancellation checks).
+const activeLaunches = new Map();
+// Parent-side flag set when the user clicks Stop. The worker is told via IPC,
+// but the flag also gates the parent's own "did we hide the window to tray?"
+// behaviour so it stays accurate even when the worker exits before we ask.
+const cancelledLaunches = new Set();
 const childMap = new Map();          // launchId -> game process (ChildProcess) after launch()
+
+// Pluggable side-effect hooks. The parent process keeps the defaults below
+// (emit → socket.io, isCancelled → set lookup) so HTTP-mode launches behave
+// the same as before. When this module is loaded inside a worker
+// (`launcher-worker.js`), the worker overrides these so events go back to the
+// parent over IPC and cancellation is driven by the parent's cancel message.
+let _emit = (launchId, event, data) => {
+  if (io) io.emit(`launcher_${launchId}`, { event, ...data });
+};
+let _isCancelled = (launchId) => cancelledLaunches.has(launchId);
+let _clearCancel  = (launchId) => cancelledLaunches.delete(launchId);
+let _trackChild   = () => {};
+let _untrackChild = () => {};
 
 function init(opts) {
   DATA_DIR = opts.DATA_DIR;
@@ -54,6 +88,12 @@ function init(opts) {
   if (opts.parseMissingModIds) parseMissingModIdsFn = opts.parseMissingModIds;
   if (opts.modrinthApi)        MODRINTH_LOOKUP_API = opts.modrinthApi;
   if (opts.modrinthHeaders)    MODRINTH_LOOKUP_HEADERS = opts.modrinthHeaders;
+  // Worker-mode overrides. All optional — parent leaves them at default.
+  if (opts.emit)         _emit         = opts.emit;
+  if (opts.isCancelled)  _isCancelled  = opts.isCancelled;
+  if (opts.clearCancel)  _clearCancel  = opts.clearCancel;
+  if (opts.trackChild)   _trackChild   = opts.trackChild;
+  if (opts.untrackChild) _untrackChild = opts.untrackChild;
   // Fire-and-forget — migration is idempotent and only writes if it finds dirs
   // missing from the registry. Errors are swallowed so a corrupt FS state can't
   // brick startup.
@@ -116,11 +156,15 @@ async function modrinthLookupByHash(sha1) {
     const vd = await vr.json();
     const projectId = vd?.project_id;
     if (!projectId) return { status: 'miss' };
+    // Pull version-level fields (the exact installed jar) so we can flag
+    // wrong-version / wrong-loader installs without making a second roundtrip.
+    const gameVersions = Array.isArray(vd?.game_versions) ? vd.game_versions : [];
+    const loaders = Array.isArray(vd?.loaders) ? vd.loaders : [];
     const pr = await fetch(`${MODRINTH_API}/project/${projectId}`, { headers: MODRINTH_HEADERS });
     if (pr.status === 404) {
       // The version exists but its project was deleted — odd but treat as a
       // permanent miss so we don't retry forever.
-      return { status: 'hit', hit: { iconUrl: null, title: null, projectId } };
+      return { status: 'hit', hit: { iconUrl: null, title: null, projectId, gameVersions, loaders } };
     }
     if (!pr.ok) return { status: 'retry' };
     const pd = await pr.json();
@@ -130,12 +174,33 @@ async function modrinthLookupByHash(sha1) {
         iconUrl: pd?.icon_url || null,
         title: pd?.title || null,
         projectId,
+        gameVersions,
+        loaders,
       },
     };
   } catch {
     // Network error — transient, let the caller retry next time.
     return { status: 'retry' };
   }
+}
+
+// Pick the best version from a Modrinth /project/{id}/version response.
+// Preference order: release > beta > alpha; within each type, newest by
+// date_published. The bare type-only sort relied on Modrinth returning
+// versions newest-first, which isn't reliable when game_versions / loaders
+// filters are applied.
+function pickBestModrinthVersion(versions) {
+  if (!Array.isArray(versions) || versions.length === 0) return null;
+  const typeRank = { release: 0, beta: 1, alpha: 2 };
+  const sorted = [...versions].sort((a, b) => {
+    const ta = typeRank[a.version_type] ?? 3;
+    const tb = typeRank[b.version_type] ?? 3;
+    if (ta !== tb) return ta - tb;
+    const da = Date.parse(a.date_published || '') || 0;
+    const db = Date.parse(b.date_published || '') || 0;
+    return db - da; // newest first
+  });
+  return sorted[0];
 }
 
 // Run async tasks with bounded concurrency. Default 4 in flight keeps a
@@ -163,6 +228,17 @@ async function enrichLauncherMeta(dir, files, meta) {
   const jobs = [];
   for (const f of files) {
     const existing = meta[f];
+    // `lookedUp: true` is final. We used to also force a re-enrich whenever
+    // gameVersions was missing — the idea was to backfill older metadata so
+    // the wrong-version banner could fire. But that turned every Modrinth
+    // 'miss' (CurseForge-only mods like FTB Quests, niche libraries, custom
+    // builds) into a permanent re-check: every time the user opened Content
+    // we'd re-SHA1 those files and re-hit Modrinth for a guaranteed 404.
+    // A 200-CurseForge-mod Prominence install made that a 20-second open,
+    // every open. The fix is to trust `lookedUp` regardless of which fields
+    // are present. Users who upgraded from a pre-version-tracking build can
+    // wipe `.minedash-launcher.json` to force a one-off re-enrichment if
+    // they want the wrong-version warnings on old metadata.
     if (existing && (existing.iconUrl || existing.lookedUp)) continue;
     jobs.push(async () => {
       try {
@@ -174,6 +250,8 @@ async function enrichLauncherMeta(dir, files, meta) {
             iconUrl: res.hit.iconUrl || existing?.iconUrl || null,
             title:   res.hit.title   || existing?.title   || null,
             projectId: res.hit.projectId || existing?.projectId || null,
+            gameVersions: res.hit.gameVersions || existing?.gameVersions || [],
+            loaders: res.hit.loaders || existing?.loaders || [],
             lookedUp: true,
           };
         } else if (res.status === 'miss') {
@@ -208,6 +286,43 @@ async function writeProfileRegistry(data) {
 async function getInstance(instanceId) {
   const reg = await readProfileRegistry();
   return reg.instances.find(i => i.id === instanceId) || null;
+}
+
+// Returns the instance ID for a per-server launcher profile, creating it on
+// first launch. Each MineDash server gets its own isolated client profile so
+// switching between servers doesn't smash their mod lists together. The ID is
+// derived from the server's stable `id`, not its (mutable) display name, so a
+// later rename of the server doesn't orphan the instance.
+async function ensureServerInstance(server) {
+  const id = `server-${server.id}`;
+  const reg = await readProfileRegistry();
+  let inst = reg.instances.find(i => i.id === id);
+  if (!inst) {
+    inst = {
+      id,
+      loader: server.type,
+      version: server.version,
+      // Show the server name in the instance dropdown so the user can tell
+      // which one's which. The serverInstance flag lets the UI render a small
+      // badge / hide the rename / link back to the server view if it wants to.
+      displayName: server.name,
+      createdAt: Date.now(),
+      serverInstance: true,
+      serverId: server.id,
+    };
+    reg.instances.push(inst);
+    await writeProfileRegistry(reg);
+  } else {
+    // Keep the displayName, loader and version in sync with the server config
+    // so the dropdown doesn't lie after the user renames or upgrades the server.
+    let changed = false;
+    if (inst.displayName !== server.name) { inst.displayName = server.name; changed = true; }
+    if (inst.loader !== server.type)      { inst.loader = server.type;      changed = true; }
+    if (inst.version !== server.version)  { inst.version = server.version;  changed = true; }
+    if (!inst.serverInstance)             { inst.serverInstance = true;     inst.serverId = server.id; changed = true; }
+    if (changed) await writeProfileRegistry(reg);
+  }
+  return id;
 }
 
 // Returns an instance object, creating a default one if no instance exists for
@@ -427,7 +542,7 @@ function register(app) {
   app.post('/api/launcher/profiles/:loader/:version/install', async (req, res) => {
     const { loader, version } = req.params;
     const instanceId = req.query.instance || null;
-    const { url, filename, projectType, projectId, iconUrl, title } = req.body || {};
+    const { url, filename, projectType, projectId, iconUrl, title, gameVersions, loaders } = req.body || {};
     if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
     if (!LOADERS.includes(loader)) {
       return res.status(400).json({ error: 'Invalid loader' });
@@ -457,11 +572,23 @@ function register(app) {
       const buf = Buffer.from(await r.arrayBuffer());
       await fs.writeFile(dest, buf);
 
-      // Record metadata so the UI can show titles/icons later.
+      // Record metadata so the UI can show titles/icons later. We also stash
+      // the version's gameVersions + loaders (when the client supplies them
+      // from the Modrinth version object) so the wrong-version / wrong-loader
+      // banner works on the very next /content listing — no SHA1 round-trip
+      // needed. `lookedUp: true` short-circuits enrichLauncherMeta for the
+      // same reason.
       const metaPath = path.join(targetDir, '.minedash-launcher.json');
       let meta = {};
       try { meta = await fs.readJson(metaPath); } catch {}
-      meta[filename] = { projectId, iconUrl, title };
+      meta[filename] = {
+        projectId,
+        iconUrl,
+        title,
+        gameVersions: Array.isArray(gameVersions) ? gameVersions : [],
+        loaders:      Array.isArray(loaders)      ? loaders      : [],
+        lookedUp: true,
+      };
       await fs.writeJson(metaPath, meta, { spaces: 2 });
 
       res.json({ ok: true, installed: filename });
@@ -511,6 +638,17 @@ function register(app) {
       const record = await fs.readJson(recordPath);
       result.modpack = Object.entries(record).map(([k, v]) => ({ filename: k, ...(v || {}) }));
     } catch {}
+    // Enrichment budget — we'd rather paint a snappy "Installed" list with
+    // some icons missing than make the user stare at a spinner for 20s while
+    // we SHA1-hash 500 jars and round-trip Modrinth for every one. Anything
+    // not enriched within the budget continues running in the background so
+    // the cache is warm the next time. After Fix #1 (lookedUp is final), the
+    // first open of a fresh modpack is the only place this matters — every
+    // subsequent open hits zero enrichment jobs and returns instantly.
+    const ENRICH_BUDGET_MS = 1500;
+    const deadline = Date.now() + ENRICH_BUDGET_MS;
+    const backgroundEnrichments = [];
+
     for (const [type, sub] of Object.entries(SUBDIR)) {
       const dir = path.join(profileDir, sub);
       try {
@@ -518,15 +656,192 @@ function register(app) {
         let meta = {};
         try { meta = await fs.readJson(path.join(dir, '.minedash-launcher.json')); } catch {}
         const contentFiles = files.filter(f => !f.startsWith('.') && /\.(jar|zip)$/i.test(f));
-        // Backfill icons for anything we don't already know about — covers .mrpack
-        // overrides and manually-dropped files. Cached on disk so it only runs once.
-        await enrichLauncherMeta(dir, contentFiles, meta);
+        // Kick off enrichment but only await up to the remaining budget. The
+        // promise keeps running after we move on — its `meta` mutation and
+        // writeJson finish out-of-band, so the next /content call sees a
+        // warmer cache without us having blocked this response.
+        const enrichPromise = enrichLauncherMeta(dir, contentFiles, meta).catch(() => {});
+        const remaining = deadline - Date.now();
+        if (remaining > 0) {
+          await Promise.race([
+            enrichPromise,
+            new Promise(resolve => setTimeout(resolve, remaining)),
+          ]);
+        } else {
+          backgroundEnrichments.push(enrichPromise);
+        }
         for (const f of contentFiles) {
-          result[type].push({ filename: f, ...(meta[f] || {}) });
+          const m = meta[f] || {};
+          // Compatibility checks only apply to mods (resource packs, shaders,
+          // datapacks aren't loader-gated and tolerate version mismatches).
+          let wrongVersion = false;
+          let wrongLoader = false;
+          if (type === 'mod') {
+            if (Array.isArray(m.gameVersions) && m.gameVersions.length > 0 && version && !m.gameVersions.includes(version)) {
+              wrongVersion = true;
+            }
+            if (Array.isArray(m.loaders) && m.loaders.length > 0 && ['fabric', 'forge', 'neoforge', 'quilt'].includes(loader)) {
+              const realLoaders = m.loaders.filter(l => ['forge', 'neoforge', 'fabric', 'quilt'].includes(l));
+              if (realLoaders.length > 0 && !realLoaders.includes(loader)) wrongLoader = true;
+            }
+          }
+          result[type].push({ filename: f, ...m, wrongVersion, wrongLoader });
         }
       } catch {}
     }
+    // Background enrichments are intentionally NOT awaited — they finish on
+    // their own timeline and update the on-disk cache for the next call.
+    void backgroundEnrichments;
     res.json(result);
+  });
+
+  // For every mod marked wrongVersion / wrongLoader, look up a compatible Modrinth
+  // version for the profile's MC + loader, delete the broken jar, and install the
+  // replacement. Mirrors POST /api/servers/:id/mods/repair-versions for launcher
+  // profiles. Only operates on mods/ (resource packs etc. aren't version-gated).
+  app.post('/api/launcher/profiles/:loader/:version/content/repair-versions', async (req, res) => {
+    const { loader, version } = req.params;
+    const instanceId = req.query.instance || null;
+    if (!['fabric', 'forge', 'neoforge', 'quilt'].includes(loader)) {
+      return res.status(400).json({ error: 'Only modded loaders can have wrong-version mods' });
+    }
+    let profileDir;
+    try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
+    catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+
+    const modsDir = path.join(profileDir, 'mods');
+    if (!await fs.pathExists(modsDir)) return res.json({ repaired: [], failed: [] });
+
+    const metaPath = path.join(modsDir, '.minedash-launcher.json');
+    let meta = {};
+    try { meta = await fs.readJson(metaPath); } catch {}
+
+    const files = (await fs.readdir(modsDir)).filter(f => !f.startsWith('.') && /\.(jar|zip)$/i.test(f));
+    await enrichLauncherMeta(modsDir, files, meta);
+
+    const repaired = [];
+    const failed = [];
+    for (const f of files) {
+      const m = meta[f] || {};
+      const versionOk = !Array.isArray(m.gameVersions) || m.gameVersions.length === 0 || m.gameVersions.includes(version);
+      const realLoaders = Array.isArray(m.loaders) ? m.loaders.filter(l => ['forge', 'neoforge', 'fabric', 'quilt'].includes(l)) : [];
+      const loaderOk = realLoaders.length === 0 || realLoaders.includes(loader);
+      if (versionOk && loaderOk) continue;
+      if (!m.projectId) { failed.push({ filename: f, reason: 'Not on Modrinth — replace manually' }); continue; }
+
+      try {
+        const vParams = new URLSearchParams();
+        vParams.set('game_versions', JSON.stringify([version]));
+        vParams.set('loaders', JSON.stringify([loader]));
+        const vRes = await fetch(`${MODRINTH_API}/project/${m.projectId}/version?${vParams}`, { headers: MODRINTH_HEADERS });
+        if (!vRes.ok) { failed.push({ filename: f, reason: 'Modrinth lookup failed' }); continue; }
+        const versions = await vRes.json();
+        const best = pickBestModrinthVersion(versions);
+        if (!best) { failed.push({ filename: f, reason: `No version compatible with ${loader} ${version}` }); continue; }
+        const file = best.files.find(x => x.primary) || best.files[0];
+        if (!file) { failed.push({ filename: f, reason: 'No primary file in version' }); continue; }
+        if (file.filename === f) { failed.push({ filename: f, reason: 'Already on the correct version' }); continue; }
+
+        const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+        if (!dlRes.ok) { failed.push({ filename: f, reason: `Download failed (${dlRes.status})` }); continue; }
+        const buf = Buffer.from(await dlRes.arrayBuffer());
+
+        await fs.remove(path.join(modsDir, f));
+        await fs.writeFile(path.join(modsDir, file.filename), buf);
+        delete meta[f];
+        meta[file.filename] = {
+          iconUrl: m.iconUrl || null,
+          title: m.title || null,
+          projectId: m.projectId,
+          // gameVersions/loaders will be re-fetched on the next enrichment pass.
+        };
+        repaired.push({ from: f, to: file.filename, title: m.title || file.filename });
+      } catch (err) {
+        failed.push({ filename: f, reason: err.message });
+      }
+    }
+
+    if (repaired.length > 0) {
+      try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
+    }
+    res.json({ repaired, failed });
+  });
+
+  // Upload a manually-downloaded file (mod jar / resource pack zip / shader zip
+  // / datapack zip) into the profile's content folder. Lets users install mods
+  // that are only on CurseForge (e.g. FTB Quests) by downloading them by hand
+  // and dropping them in here. 100 MB cap covers the chunky modpacks like
+  // GregTech / Create patches without bloating disk usage.
+  const launcherUpload = multer({
+    dest: path.join(require('os').tmpdir(), 'minedash-launcher-uploads'),
+    limits: { fileSize: 200 * 1024 * 1024 },
+  });
+  // `array('file', 50)` — accept multiple files appended under the same `file`
+  // field name (what FormData does when you append more than once). Single-file
+  // callers still work because `req.files` becomes a 1-element array.
+  app.post('/api/launcher/profiles/:loader/:version/upload', launcherUpload.array('file', 50), async (req, res) => {
+    const { loader, version } = req.params;
+    const instanceId = req.query.instance || null;
+    const projectType = req.query.type || 'mod';
+    const SUBDIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks', datapack: 'datapacks' };
+    const subdir = SUBDIR[projectType];
+    if (!subdir) return res.status(400).json({ error: `Unsupported type: ${projectType}` });
+    const files = req.files || [];
+    if (files.length === 0) return res.status(400).json({ error: 'No file uploaded' });
+
+    let profileDir;
+    try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
+    catch (err) {
+      // Clean up any temp files multer wrote — they're orphans now.
+      for (const f of files) await fs.remove(f.path).catch(() => {});
+      return res.status(err.status || 500).json({ error: err.message });
+    }
+
+    const targetDir = path.join(profileDir, subdir);
+    await fs.ensureDir(targetDir);
+
+    // Per-file validation + move. We don't fail the whole batch on one bad
+    // file — the user gets a per-file result so they can see e.g. "3 mods
+    // installed, 1 rejected (not a .jar)". That's friendlier than telling
+    // them to re-drop everything when only one file was wrong.
+    const installed = [];
+    const failed = [];
+    let extras;
+    try { extras = await readClientExtras(profileDir); } catch { extras = { files: [] }; }
+    const extrasSet = new Set(extras.files || []);
+
+    for (const f of files) {
+      const name = f.originalname;
+      const isJar = /\.jar$/i.test(name);
+      const isZip = /\.zip$/i.test(name);
+      if (projectType === 'mod' && !isJar) {
+        failed.push({ filename: name, reason: 'Mods must be .jar files' });
+        await fs.remove(f.path).catch(() => {});
+        continue;
+      }
+      if (projectType !== 'mod' && !isZip) {
+        failed.push({ filename: name, reason: `${projectType} files must be .zip` });
+        await fs.remove(f.path).catch(() => {});
+        continue;
+      }
+      try {
+        await fs.move(f.path, path.join(targetDir, name), { overwrite: true });
+        // Mark every successful upload as a client-extra so syncClientMods
+        // (the per-server Play path) doesn't wipe these on the next launch
+        // when the server's mods folder is the canonical source.
+        extrasSet.add(name);
+        installed.push(name);
+      } catch (err) {
+        failed.push({ filename: name, reason: err.message });
+        await fs.remove(f.path).catch(() => {});
+      }
+    }
+
+    if (installed.length > 0) {
+      try { await writeClientExtras(profileDir, { files: Array.from(extrasSet) }); } catch {}
+    }
+    // 207 Multi-Status — partial success. Use 200 if everything landed.
+    res.status(failed.length === 0 ? 200 : 207).json({ ok: failed.length === 0, installed, failed });
   });
 
   // Delete a single installed content file from a profile.
@@ -738,9 +1053,12 @@ function register(app) {
       loader = target.type;
       version = target.version;
       syncFromServerId = target.id;
-      // joinServerId always uses the default instance for now — per-server
-      // instance preference is a Phase 2 feature.
-      instanceId = null;
+      // Use (or create) an instance dedicated to this server, so each server's
+      // mods land in their own isolated profile instead of clobbering the
+      // shared default instance for this loader+version. The ID is deterministic
+      // (`server-<serverId>`) so the same instance is picked up on every
+      // subsequent Play, even if the user renames the server.
+      instanceId = await ensureServerInstance(target);
       const port = await readServerPort(target.id);
       quickPlayHost = `localhost:${port}`;
     }
@@ -784,30 +1102,161 @@ function register(app) {
       await writeSettings(persisted);
     } catch {}
 
-    runLaunch({ launchId, instance, account, accountsDoc: accounts, syncServer, settings, quickPlayHost })
-      .catch(err => {
-        emit(launchId, 'error', { message: err.message || String(err) });
-        activeLaunches.delete(launchId);
-      });
+    // Fork a worker process to run the actual launch. Doing this out-of-process
+    // means a SIGKILL on the worker terminates mclc's in-flight HTTP download
+    // instantly — no more "Stopping — current file has to finish first" wait,
+    // which mclc gives us no safe way to abort in-process. Events come back
+    // over IPC and are forwarded onto the socket so the UI is unchanged.
+    forkLaunchWorker({
+      launchId,
+      // The worker needs DATA_DIR/INSTANCES_DIR so its launcher.init mirrors
+      // ours; we pre-resolve Java + sync server so the worker doesn't have to
+      // re-read shared state.
+      DATA_DIR,
+      INSTANCES_DIR,
+      discoveredJava: (getJavaPath ? getJavaPath() : null) || 'java',
+      launchArgs: {
+        launchId,
+        instance,
+        account,
+        accountsDoc: accounts,
+        syncServer,
+        settings,
+        quickPlayHost,
+      },
+    });
   });
 
   // Cancel / stop an in-progress launch or running game.
-  // The frontend calls reset() to drop its socket listener before this fetch
-  // completes, so the 'close' emit is belt-and-suspenders for any rare race
-  // where the listener is still attached.
+  // With the worker-process refactor, cancellation is instant on the download
+  // path: parent flips the cancel flag, sends an IPC `cancel` to the worker so
+  // it can kill any sub-children (NeoForge installer / JVM) cleanly, then
+  // SIGKILLs the worker after a short grace period so an unresponsive worker
+  // can't keep eating CPU/bandwidth forever. The eventual `close` is emitted
+  // from the worker's `exit` handler in forkLaunchWorker.
   app.delete('/api/launcher/launch/:launchId', (req, res) => {
     const { launchId } = req.params;
     cancelledLaunches.add(launchId);
-    // Kill the game process if it already started
-    const child = childMap.get(launchId);
-    if (child) {
-      try { child.kill('SIGTERM'); } catch {}
-      childMap.delete(launchId);
+    const entry = activeLaunches.get(launchId);
+    const worker = entry && entry.worker;
+    if (worker && !worker.killed) {
+      // Polite first — give the worker a chance to taskkill /F /T its
+      // children (so NeoForge JVMs / game JVMs don't become orphans) and
+      // exit cleanly. If it doesn't exit within 2.5s, escalate.
+      try { worker.send({ type: 'cancel' }); } catch {}
+      setTimeout(() => {
+        if (!worker.killed && activeLaunches.has(launchId)) {
+          try { worker.kill('SIGKILL'); } catch {}
+        }
+      }, 2500);
+    } else {
+      // No live worker — nothing to kill, but the UI still needs to flip out
+      // of `cancelling` state. Emit close directly.
+      emit(launchId, 'close', { code: 'cancelled' });
+      cancelledLaunches.delete(launchId);
     }
-    activeLaunches.delete(launchId);
-    emit(launchId, 'close', { code: 'cancelled' });
-    res.json({ ok: true });
+    res.json({ ok: true, queued: !!worker });
   });
+}
+
+// Fork the worker subprocess and wire its IPC events back to the socket.
+// `entry.worker` is the ChildProcess; we stash it under activeLaunches so the
+// DELETE handler can find it. `entry.jvmPid` may be set later when the worker
+// sends `jvm_started` — currently we let the worker handle JVM kill itself on
+// cancel, but the field is here so the parent can SIGKILL the JVM directly if
+// the worker becomes unresponsive.
+function forkLaunchWorker(payload) {
+  const { fork } = require('child_process');
+  const path = require('path');
+  const workerPath = path.join(__dirname, 'launcher-worker.js');
+  const worker = fork(workerPath, [], {
+    // Pipe so we capture stdio in the parent's logs if the worker prints
+    // anything outside of our IPC channel (panic, native crash, etc).
+    silent: true,
+  });
+
+  activeLaunches.set(payload.launchId, { worker });
+
+  worker.stdout?.on('data', (d) => process.stdout.write(`[launcher-worker ${payload.launchId.slice(0,8)}] ${d}`));
+  worker.stderr?.on('data', (d) => process.stderr.write(`[launcher-worker ${payload.launchId.slice(0,8)}] ${d}`));
+
+  worker.on('message', (msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.kind === 'event') {
+      // Generic event forwarding — { kind: 'event', launchId, event, ...data }
+      const { kind, ...rest } = msg;
+      const { launchId, event, ...data } = rest;
+      // Track terminal events so the worker.on('exit') handler below doesn't
+      // synthesize a second close/error after we already forwarded one. Same
+      // launchId could get a "close" → IPC exit → exit handler racing.
+      if (event === 'close' || event === 'error') {
+        const entry = activeLaunches.get(payload.launchId);
+        if (entry) entry.terminalEmitted = true;
+      }
+      _emit(launchId, event, data);
+    } else if (msg.kind === 'jvm_started') {
+      const entry = activeLaunches.get(payload.launchId);
+      if (entry) entry.jvmPid = msg.pid;
+    } else if (msg.kind === 'persist_account') {
+      // The worker refreshed the Microsoft token mid-launch and wants the
+      // parent to persist it. Best-effort write; failures are logged.
+      writeAccounts(msg.accountsDoc).catch(err =>
+        console.warn('[launcher] persist_account failed:', err.message),
+      );
+    } else if (msg.kind === 'persist_settings') {
+      writeSettings(msg.settings).catch(err =>
+        console.warn('[launcher] persist_settings failed:', err.message),
+      );
+    }
+  });
+
+  worker.on('exit', (code, signal) => {
+    const wasCancelled = cancelledLaunches.has(payload.launchId);
+    const entry = activeLaunches.get(payload.launchId);
+    const alreadyEmittedTerminal = entry && entry.terminalEmitted;
+    activeLaunches.delete(payload.launchId);
+    cancelledLaunches.delete(payload.launchId);
+    if (alreadyEmittedTerminal) {
+      // Worker forwarded its own close/error before exiting — nothing more
+      // to do, the UI is already in the right state.
+      return;
+    }
+    if (wasCancelled) {
+      // Cancel path — the close event was deferred until the worker actually
+      // died. Emit it now so the UI flips back to idle.
+      _emit(payload.launchId, 'close', { code: 'cancelled' });
+      return;
+    }
+    // If the worker died abnormally (signal kill or non-zero exit) without
+    // a prior `close`/`error` IPC event, the UI would otherwise sit on a
+    // running-state forever. Emit a synthetic error so it resets.
+    if (code !== 0 && code !== null) {
+      _emit(payload.launchId, 'error', {
+        message: `Launcher worker exited unexpectedly (code ${code}${signal ? `, signal ${signal}` : ''})`,
+      });
+    } else if (signal && signal !== 'SIGTERM') {
+      _emit(payload.launchId, 'error', {
+        message: `Launcher worker was terminated (${signal})`,
+      });
+    }
+  });
+
+  worker.on('error', (err) => {
+    activeLaunches.delete(payload.launchId);
+    cancelledLaunches.delete(payload.launchId);
+    _emit(payload.launchId, 'error', { message: err.message || String(err) });
+  });
+
+  // Kick off the launch. Done after the listeners are attached so we don't
+  // miss any synchronous early events the worker might emit (unlikely with
+  // IPC, but cheap to be careful).
+  try {
+    worker.send({ type: 'init', payload });
+  } catch (err) {
+    activeLaunches.delete(payload.launchId);
+    _emit(payload.launchId, 'error', { message: 'Failed to send init to worker: ' + err.message });
+    try { worker.kill('SIGKILL'); } catch {}
+  }
 }
 
 async function readServerPort(serverId) {
@@ -821,7 +1270,7 @@ async function readServerPort(serverId) {
 }
 
 function emit(launchId, event, data = {}) {
-  if (io) io.emit(`launcher_${launchId}`, { event, ...data });
+  _emit(launchId, event, data);
 }
 
 function emitModpack(sessionId, event, data = {}) {
@@ -833,10 +1282,12 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   const profileRoot = instanceDir(instanceId);
   await fs.ensureDir(profileRoot);
   activeLaunches.set(launchId, true);
-  // Early bail if already cancelled before we even started
-  if (cancelledLaunches.has(launchId)) {
-    cancelledLaunches.delete(launchId);
+  // Early bail if already cancelled before we even started — emit close so the
+  // UI's 'cancelling' state knows we're done and resets to idle.
+  if (_isCancelled(launchId)) {
+    _clearCancel(launchId);
     activeLaunches.delete(launchId);
+    emit(launchId, 'close', { code: 'cancelled' });
     return;
   }
   // Mod IDs we've already tried to auto-install for this launchId — prevents
@@ -960,12 +1411,16 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   // Intentionally NOT forwarding `download-status` (per-file events) to the UI —
   // they fire ~100 events/sec with long filenames and just produce visual noise.
   launcher.on('close', async (code) => {
+    const tracked = childMap.get(launchId);
+    if (tracked) _untrackChild(tracked);
     childMap.delete(launchId);
-    // Skip all recovery logic if the user explicitly cancelled — the cancel
-    // endpoint already emitted 'close' and cleaned up activeLaunches/childMap.
-    if (cancelledLaunches.has(launchId)) {
-      cancelledLaunches.delete(launchId);
+    // If the user cancelled, the cancel endpoint set the flag but didn't emit
+    // close — emit it now that mclc has actually finished and the JVM child
+    // (if any) has exited. This is what flips the UI out of 'cancelling'.
+    if (_isCancelled(launchId)) {
+      _clearCancel(launchId);
       activeLaunches.delete(launchId);
+      emit(launchId, 'close', { code: 'cancelled' });
       return;
     }
     // Try to recover from a dep-crash before signalling close: if the game
@@ -1007,20 +1462,29 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   try {
     const child = await launcher.launch(opts);
     if (!child) throw new Error('Launcher returned no process.');
-    // Check if the user cancelled while the download was in progress — mclc
-    // can't be interrupted mid-download, but we kill the process immediately
-    // after it starts (before the user even sees the Minecraft window).
-    // We leave the cancelledLaunches entry intact so the 'close' event handler
-    // above can recognise and skip the normal dep-crash / close-emit logic.
-    if (cancelledLaunches.has(launchId)) {
+    // Catch the case where Stop was clicked while mclc was still downloading.
+    // mclc has no abort mechanism, so the download had to finish — but the JVM
+    // has only just spawned, so we kill it before it shows a window and emit
+    // close so the UI can flip out of its 'cancelling' state.
+    if (_isCancelled(launchId)) {
       try { child.kill('SIGTERM'); } catch {}
+      _clearCancel(launchId);
       activeLaunches.delete(launchId);
+      emit(launchId, 'close', { code: 'cancelled' });
       return;
     }
     childMap.set(launchId, child);
+    _trackChild(child);
     emit(launchId, 'launched', {});
   } catch (err) {
     activeLaunches.delete(launchId);
+    // If the user cancelled, swallow whatever mclc threw and emit a clean
+    // cancelled-close instead.
+    if (_isCancelled(launchId)) {
+      _clearCancel(launchId);
+      emit(launchId, 'close', { code: 'cancelled' });
+      return;
+    }
     throw err;
   }
 }
@@ -1192,11 +1656,8 @@ async function installMissingClientMods({ profileRoot, loader, version, missingI
         onLog?.(`[client-dep] No version of '${lookupId}' for ${loader} ${version}.\n`);
         continue;
       }
-      const sorted = [...versions].sort((a, b) => {
-        const p = { release: 0, beta: 1, alpha: 2 };
-        return (p[a.version_type] ?? 3) - (p[b.version_type] ?? 3);
-      });
-      const best = sorted[0];
+      const best = pickBestModrinthVersion(versions);
+      if (!best) continue;
       const file = best.files.find(f => f.primary) || best.files[0];
       if (!file) continue;
 
@@ -1347,10 +1808,15 @@ async function installNeoForgeClient(installerPath, profileRoot, javaPath, launc
       cwd: profileRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // Track so a cancel can SIGKILL it from the parent process if we're in
+    // worker mode. Untrack on natural exit so the parent doesn't keep a dead
+    // PID around.
+    _trackChild(proc);
     proc.stdout.on('data', d => emit(launchId, 'log', { message: `[NeoForge installer] ${d}` }));
     proc.stderr.on('data', d => emit(launchId, 'log', { message: `[NeoForge installer] ${d}` }));
-    proc.on('error', reject);
+    proc.on('error', (err) => { _untrackChild(proc); reject(err); });
     proc.on('exit', code => {
+      _untrackChild(proc);
       if (code === 0) resolve();
       else reject(new Error(`NeoForge installer exited with code ${code}`));
     });
@@ -1525,4 +1991,4 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
   }
 }
 
-module.exports = { init, register };
+module.exports = { init, register, runLaunch };

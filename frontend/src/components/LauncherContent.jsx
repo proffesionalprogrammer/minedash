@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as ImageIcon, Sparkles, Trash2, Package, Layers, Database, RefreshCw, FolderOpen, Globe, CheckSquare, Square, X } from 'lucide-react';
+import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as ImageIcon, Sparkles, Trash2, Package, Layers, Database, RefreshCw, FolderOpen, Globe, CheckSquare, Square, X, AlertTriangle, Wrench, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Select from './Select';
 
 const TYPES = [
   { key: 'mod',          label: 'Mods',           icon: Box        },
@@ -19,7 +20,7 @@ function fmt(n) {
 // Browse and install client-side content (mods / resource packs / shaders)
 // into a launcher profile. Trimmed-down counterpart of ModrinthBrowser that
 // targets a `${loader}-${version}` profile directory instead of a server.
-export default function LauncherContent({ loader, version, instanceId, socket, onError, inModal }) {
+export default function LauncherContent({ loader, version, instanceId, socket, onError, inModal, modpackInstalls }) {
   // Suffix appended to every profile-scoped API call so it targets the right
   // instance. Empty string when the caller didn't pick one — the backend then
   // resolves to the default instance for this loader+version.
@@ -39,8 +40,24 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   const [loadingVersionPicker, setLoadingVersionPicker] = useState({});
   const [installedFilter, setInstalledFilter] = useState('');
   const [view, setView] = useState('browse'); // 'browse' | 'installed'
-  // Per-project modpack install progress: { [projectId]: { task, total, statusText } }
-  const [modpackProgress, setModpackProgress] = useState({});
+  // Sort + pagination — mirrors the server-side ModrinthBrowser so users get
+  // the same controls in both places.
+  const [sortIndex, setSortIndex] = useState('relevance');
+  const [page, setPage] = useState(0);
+  const [totalHits, setTotalHits] = useState(0);
+  const LIMIT = 20;
+  // Per-project modpack install progress lives in the App-level
+  // useModpackInstalls hook so it survives this component unmounting (the
+  // modal closing, the user switching to a different launcher tab, etc.).
+  const installsMap = modpackInstalls?.installs || {};
+  // Stable scope key — uses the instance ID when provided, else the
+  // loader+version pair (which uniquely identifies the default instance).
+  const scopeKey = instanceId || `${loader}-${version}`;
+  const installKey = (pid) => `instance:${scopeKey}:${pid}`;
+  // Manual-upload UI state — local error/notice so this control doesn't have
+  // to compete with onError toasts for things like "wrong extension".
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const searchTimeout = useRef(null);
 
   // Vanilla profiles can't load mods, modpacks, or shaders — hide those tabs entirely.
@@ -70,12 +87,36 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   };
   useEffect(() => { fetchInstalled(); }, [loader, version, instanceId]);
 
-  const search = async (q) => {
+  // Watch for modpack installs in our scope that just hit terminal state and
+  // refetch the installed list so the UI flips Install → Installed without
+  // requiring the user to re-open the tab. Dedup with a ref so we don't
+  // refetch twice for the same session.
+  const reactedSessions = useRef(new Set());
+  useEffect(() => {
+    for (const key of Object.keys(installsMap)) {
+      if (!key.startsWith(`instance:${scopeKey}:`)) continue;
+      const entry = installsMap[key];
+      if (!entry?.sessionId) continue;
+      if (entry.status !== 'done' && entry.status !== 'error') continue;
+      if (reactedSessions.current.has(entry.sessionId)) continue;
+      reactedSessions.current.add(entry.sessionId);
+      if (entry.status === 'done') fetchInstalled();
+      else if (entry.errorMessage) onError?.(entry.errorMessage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installsMap, scopeKey]);
+
+  const search = async (q, p = 0, sort = sortIndex, attempt = 0) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ query: q, limit: '20', offset: '0' });
+      const params = new URLSearchParams({
+        query: q,
+        limit: String(LIMIT),
+        offset: String(p * LIMIT),
+      });
       params.set('projectType', type);
       params.set('gameVersion', version);
+      params.set('sort', sort);
       // Loader filter only applies to mods and modpacks. Resource packs, shaders, and datapacks are loader-agnostic.
       if ((type === 'mod' || type === 'modpack') && ['fabric', 'forge', 'neoforge'].includes(loader)) {
         params.set('loader', loader);
@@ -86,8 +127,18 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Search failed');
       setResults(d.hits || []);
+      setTotalHits(d.total_hits || 0);
     } catch (err) {
-      onError?.(err.message); setResults([]);
+      // The proxy occasionally fails during the initial /content enrichment
+      // burst on a big modpack (Modrinth's rate limit pushes back). Silently
+      // retry once after a short delay before showing the user an error —
+      // the second attempt almost always succeeds, and avoids the "you have
+      // to type something to retrigger search" UX the previous build had.
+      if (attempt === 0) {
+        setTimeout(() => search(q, p, sort, 1), 1500);
+        return; // leave loading=true; the retry will flip it
+      }
+      onError?.(err.message); setResults([]); setTotalHits(0);
     }
     setLoading(false);
   };
@@ -95,13 +146,101 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   useEffect(() => {
     if (!version) return;
     setResults([]);
-    search(query);
-  }, [type, loader, version]);
+    setPage(0);
+    search(query, 0, sortIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, loader, version, sortIndex]);
 
   const handleQuery = (val) => {
     setQuery(val);
     clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => search(val), 400);
+    searchTimeout.current = setTimeout(() => { setPage(0); search(val, 0, sortIndex); }, 400);
+  };
+
+  const handlePageChange = (p) => { setPage(p); search(query, p, sortIndex); };
+  const totalPages = Math.ceil(totalHits / LIMIT);
+
+  // Manual upload — for mods/packs you can't get from Modrinth (CurseForge-only
+  // mods like FTB Quests, or anything you downloaded by hand). Only valid for
+  // the four real content types — there's no "upload a modpack" path, since a
+  // .mrpack would need the full extractor flow.
+  const canUpload = ['mod', 'resourcepack', 'shader', 'datapack'].includes(type);
+  const handleUploadClick = () => fileInputRef.current?.click();
+
+  // Shared upload path — used by the file-picker button AND the drag/drop
+  // target. Accepts a FileList or array; uploads them all in one request so
+  // the user sees a single progress state and the backend writes them as a
+  // batch (partial-success reporting per file).
+  const uploadFiles = async (fileList) => {
+    const list = Array.from(fileList || []).filter(Boolean);
+    if (list.length === 0) return;
+    if (!version) {
+      onError?.('Pick a version first');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      for (const f of list) fd.append('file', f);
+      const params = new URLSearchParams();
+      if (instanceId) params.set('instance', instanceId);
+      params.set('type', type);
+      const r = await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/upload?${params}`, {
+        method: 'POST',
+        body: fd,
+      });
+      const d = await r.json();
+      // 207 (multi-status) is still "ok" — some files landed, some didn't.
+      if (!r.ok && r.status !== 207) throw new Error(d.error || 'Upload failed');
+      if (Array.isArray(d.failed) && d.failed.length > 0) {
+        // Surface only the first failure so the toast doesn't get huge; the
+        // user can drag-drop again with just the offenders if they want.
+        const f = d.failed[0];
+        onError?.(`${f.filename}: ${f.reason}${d.failed.length > 1 ? ` (+${d.failed.length - 1} more)` : ''}`);
+      }
+      await fetchInstalled();
+      setView('installed');
+    } catch (err) {
+      onError?.(err.message);
+    }
+    setUploading(false);
+  };
+
+  const handleFileChange = async (e) => {
+    const files = e.target.files;
+    e.target.value = '';
+    await uploadFiles(files);
+  };
+
+  // ── Drag-and-drop target ─────────────────────────────────────────────────
+  // Use a counter rather than a boolean for the drag overlay — onDragLeave
+  // fires when the cursor crosses child elements (e.g. a search input inside
+  // the panel), so naively toggling a boolean makes the overlay flicker.
+  const [dragDepth, setDragDepth] = useState(0);
+  const dragActive = dragDepth > 0;
+  const handleDragEnter = (e) => {
+    if (!canUpload || !version) return;
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    setDragDepth(d => d + 1);
+  };
+  const handleDragOver = (e) => {
+    if (!canUpload || !version) return;
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const handleDragLeave = (e) => {
+    if (!canUpload || !version) return;
+    e.preventDefault();
+    setDragDepth(d => Math.max(0, d - 1));
+  };
+  const handleDrop = async (e) => {
+    if (!canUpload || !version) return;
+    e.preventDefault();
+    setDragDepth(0);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) await uploadFiles(files);
   };
 
   const installedSet = useMemo(() => {
@@ -146,6 +285,11 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
           projectId: project.project_id,
           iconUrl: project.icon_url || null,
           title: project.title || null,
+          // Bundle the version's compatibility fields so the backend can
+          // populate wrong-version/wrong-loader metadata immediately,
+          // skipping the SHA1 + Modrinth roundtrip on the next listing.
+          gameVersions: best.game_versions || [],
+          loaders:      best.loaders       || [],
         }),
       });
       const ict = r.headers.get('content-type') || '';
@@ -155,34 +299,19 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Install failed');
 
-      // Modpack installs return a sessionId and run async — subscribe to socket
-      // events so the button can show a filling progress bar instead of a frozen
-      // spinner for the duration of a 200+ mod download.
-      if (type === 'modpack' && d.sessionId && socket) {
-        const pid = project.project_id;
-        setModpackProgress(p => ({ ...p, [pid]: { task: 0, total: 0, statusText: 'Starting…' } }));
-        await new Promise((resolve) => {
-          const channel = `modpack_install_${d.sessionId}`;
-          const handler = (payload) => {
-            if (payload.event === 'status') {
-              setModpackProgress(p => ({ ...p, [pid]: { ...(p[pid] || {}), statusText: payload.message } }));
-            } else if (payload.event === 'progress') {
-              setModpackProgress(p => ({ ...p, [pid]: { ...(p[pid] || {}), task: payload.task, total: payload.total } }));
-            } else if (payload.event === 'done') {
-              socket.off(channel, handler);
-              setModpackProgress(p => { const n = { ...p }; delete n[pid]; return n; });
-              resolve();
-            } else if (payload.event === 'error') {
-              socket.off(channel, handler);
-              setModpackProgress(p => { const n = { ...p }; delete n[pid]; return n; });
-              onError?.(payload.message || 'Modpack install failed');
-              resolve();
-            }
-          };
-          socket.on(channel, handler);
+      // Modpack installs return a sessionId and run async — register the
+      // tracker so the button can show a filling progress bar AND the bar
+      // survives the modal closing or the user navigating away mid-install.
+      // Completion-side effects (refetchInstalled, onError) are handled by
+      // the dedicated useEffect that watches installsMap above.
+      if (type === 'modpack' && d.sessionId && modpackInstalls?.trackInstall) {
+        modpackInstalls.trackInstall(d.sessionId, installKey(project.project_id), {
+          projectId: project.project_id,
+          title: project.title,
         });
+      } else {
+        fetchInstalled();
       }
-      fetchInstalled();
     } catch (err) {
       onError?.(err.message);
     }
@@ -241,7 +370,16 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
       const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: file.url, filename: file.filename, projectType: type, projectId: project.project_id, iconUrl: project.icon_url || null, title: project.title || null }),
+        body: JSON.stringify({
+          url: file.url,
+          filename: file.filename,
+          projectType: type,
+          projectId: project.project_id,
+          iconUrl: project.icon_url || null,
+          title: project.title || null,
+          gameVersions: modVersion.game_versions || [],
+          loaders:      modVersion.loaders       || [],
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Install failed');
@@ -252,7 +390,33 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
     setInstalling(p => ({ ...p, [project.project_id]: false }));
   };
 
+  // Repair-versions state for the mod tab. The banner only renders for mods —
+  // resource packs / shaders / datapacks don't have a loader-or-version gate.
+  const [repairing, setRepairing] = useState(false);
+  const [repairResult, setRepairResult] = useState(null);
+
+  const handleRepairVersions = async () => {
+    if (repairing) return;
+    setRepairing(true);
+    setRepairResult(null);
+    try {
+      const r = await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/content/repair-versions${instanceQuery}`, {
+        method: 'POST',
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Repair failed');
+      setRepairResult(d);
+      fetchInstalled();
+    } catch (err) {
+      onError?.(err.message);
+    }
+    setRepairing(false);
+  };
+
   const installedList = installedFiles[type] || [];
+  const wrongVersionCount = type === 'mod'
+    ? installedList.filter(f => f.wrongVersion || f.wrongLoader).length
+    : 0;
 
   // When rendered inside the modal we drop the outer card chrome — the modal
   // already provides framing, padding, and header.
@@ -260,7 +424,33 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   const wrapperClass = inModal ? '' : 'bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-6';
 
   return (
-    <Wrapper className={wrapperClass}>
+    <Wrapper
+      className={`relative ${wrapperClass}`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay — covers the panel while files are over it so the
+          drop zone is unambiguous. Pointer-events-none on the inner content
+          keeps the drop event firing on the wrapper itself. */}
+      <AnimatePresence>
+        {dragActive && canUpload && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#00AF5C]/10 backdrop-blur-sm border-2 border-dashed border-[#00AF5C] rounded-3xl pointer-events-none"
+          >
+            <Upload size={36} className="text-[#00AF5C] mb-2" />
+            <p className="text-sm font-bold text-white">Drop to upload</p>
+            <p className="text-xs text-[#A0A0A0] mt-1">
+              {type === 'mod' ? '.jar files' : '.zip files'} into this {TYPES.find(t => t.key === type)?.label.toLowerCase() || 'folder'} profile
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {!inModal && (
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-[#00AF5C]/10 rounded-xl"><Download size={18} className="text-[#00AF5C]" /></div>
@@ -327,28 +517,112 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
         </div>
       )}
 
+      {/* Hidden file input for the manual-upload button; rendered once so it persists
+          across the browse/installed view swap below. `multiple` lets the user pick
+          several jars/zips at once — drag-and-drop on the panel is the other path. */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        multiple
+        accept={type === 'mod' ? '.jar' : '.zip'}
+        onChange={handleFileChange}
+      />
+
       {view === 'installed' ? (
-        <InstalledTabView
-          items={installedList}
-          typeLabel={TYPES.find(t => t.key === type)?.label.toLowerCase() || 'items'}
-          filter={installedFilter}
-          onFilterChange={setInstalledFilter}
-          onDelete={handleDelete}
-          contentType={type}
-        />
+        <>
+          {wrongVersionCount > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+              className="mb-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-3"
+            >
+              <div className="p-2 bg-amber-500/15 rounded-xl flex-shrink-0">
+                <AlertTriangle size={18} className="text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">
+                  {wrongVersionCount} mod{wrongVersionCount !== 1 ? 's are' : ' is'} on the wrong version or loader
+                </p>
+                <p className="text-xs text-[#A0A0A0] mt-0.5">
+                  These will crash Minecraft. Replace with a compatible Modrinth build.
+                </p>
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                onClick={handleRepairVersions}
+                disabled={repairing}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C]/15 hover:bg-[#00AF5C]/25 text-[#00AF5C] border border-[#00AF5C]/30 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex-shrink-0"
+              >
+                {repairing ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
+                {repairing ? 'Repairing…' : 'Repair versions'}
+              </motion.button>
+            </motion.div>
+          )}
+          {repairResult && (
+            <div className="mb-3 px-3 py-2 text-xs text-[#A0A0A0] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+              {repairResult.repaired?.length > 0 && (
+                <p className="text-[#00AF5C] font-bold">Replaced {repairResult.repaired.length} mod(s) with compatible versions.</p>
+              )}
+              {repairResult.failed?.length > 0 && (
+                <p className="mt-1 text-[#FF5555]">
+                  {repairResult.failed.length} couldn't be repaired:{' '}
+                  {repairResult.failed.slice(0, 3).map(f => f.filename).join(', ')}
+                  {repairResult.failed.length > 3 && ` (+${repairResult.failed.length - 3})`}
+                </p>
+              )}
+              {repairResult.repaired?.length === 0 && repairResult.failed?.length === 0 && (
+                <p>No incompatible mods to repair.</p>
+              )}
+            </div>
+          )}
+          <InstalledTabView
+            items={installedList}
+            typeLabel={TYPES.find(t => t.key === type)?.label.toLowerCase() || 'items'}
+            filter={installedFilter}
+            onFilterChange={setInstalledFilter}
+            onDelete={handleDelete}
+            contentType={type}
+          />
+        </>
       ) : (
       <>
-      {/* Search */}
-      <div className="relative mb-3">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
-        <input
-          type="text"
-          value={query}
-          onChange={e => handleQuery(e.target.value)}
-          placeholder={`Search ${TYPES.find(t => t.key === type).label.toLowerCase()}…`}
-          disabled={!supportsLoader}
-          className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium disabled:opacity-40"
+      {/* Search + sort + manual upload. Sort and Upload mirror the controls on
+          the server-side Mods tab so the launcher and server feel consistent. */}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="relative flex-1 min-w-0">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => handleQuery(e.target.value)}
+            placeholder={`Search ${TYPES.find(t => t.key === type).label.toLowerCase()}…`}
+            disabled={!supportsLoader}
+            className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium disabled:opacity-40"
+          />
+        </div>
+        <Select
+          value={sortIndex}
+          onChange={setSortIndex}
+          options={[
+            { value: 'relevance', label: 'Relevance' },
+            { value: 'downloads', label: 'Downloads' },
+            { value: 'newest',    label: 'Newest'    },
+            { value: 'updated',   label: 'Updated'   },
+          ]}
+          className="flex-shrink-0"
         />
+        {canUpload && (
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleUploadClick}
+            disabled={uploading || !version}
+            title={`Upload a ${type === 'mod' ? '.jar mod' : '.zip ' + (TYPES.find(t => t.key === type)?.label || 'pack')} you downloaded yourself`}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            {uploading ? 'Uploading…' : 'Upload'}
+          </motion.button>
+        )}
       </div>
 
       {/* Results */}
@@ -407,10 +681,11 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                         </div>
                       ) : (
                         (() => {
-                          const mp = modpackProgress[p.project_id];
-                          const isModpackInstalling = type === 'modpack' && isInstalling && mp;
+                          const mp = type === 'modpack' ? installsMap[installKey(p.project_id)] : null;
+                          const isModpackInstalling = type === 'modpack' && mp && mp.status !== 'error';
                           if (isModpackInstalling) {
-                            const pct = mp.total > 0 ? Math.min(99, Math.round((mp.task / mp.total) * 100)) : 0;
+                            const pct = mp.status === 'done' ? 100
+                              : (mp.total > 0 ? Math.min(99, Math.round((mp.task / mp.total) * 100)) : 0);
                             return (
                               <div
                                 title={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`}
@@ -479,6 +754,16 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
           </div>
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#2D2D2D]">
+          <span className="text-xs text-[#555555]">{totalHits.toLocaleString()} results • Page {page+1} of {totalPages}</span>
+          <div className="flex gap-2">
+            <button onClick={() => handlePageChange(page-1)} disabled={page===0} className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"><ChevronLeft size={16}/></button>
+            <button onClick={() => handlePageChange(page+1)} disabled={page>=totalPages-1} className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"><ChevronRight size={16}/></button>
+          </div>
+        </div>
+      )}
       </>
       )}
     </Wrapper>
@@ -695,7 +980,21 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                     : <Package size={16} className="text-[#00AF5C]" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-[#FFFFFF] truncate">{f.title || f.filename}</p>
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <p className="text-sm font-bold text-[#FFFFFF] truncate">{f.title || f.filename}</p>
+                    {f.wrongVersion && (
+                      <span title="This mod's jar doesn't list this profile's Minecraft version as supported"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
+                        <AlertTriangle size={10} /> Wrong version
+                      </span>
+                    )}
+                    {!f.wrongVersion && f.wrongLoader && (
+                      <span title="This jar is built for a different mod loader than the profile"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
+                        <AlertTriangle size={10} /> Wrong loader
+                      </span>
+                    )}
+                  </div>
                   {f.title && f.title !== f.filename && (
                     <p className="text-[10px] text-[#555555] truncate font-mono">{f.filename}</p>
                   )}

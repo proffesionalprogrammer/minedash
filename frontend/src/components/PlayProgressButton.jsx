@@ -3,11 +3,13 @@ import { Play, Check, AlertCircle, Loader2, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Big primary launch button that doubles as a horizontal progress bar.
-// `phase` drives the visuals: idle | running | launched | error.
+// `phase` drives the visuals: idle | running | cancelling | launched | error.
 //
 // During `running`, hovering reveals a stop affordance — the fill turns red,
 // a Square icon replaces the spinner, and the label reads "Stop download".
 // Clicking while running calls `onClick` which PlaySection wires to `cancel`.
+// During `cancelling` the button is locked while the backend tears down
+// the in-flight downloads and emits the final close event.
 export default function PlayProgressButton({
   phase = 'idle',
   progress = 0,
@@ -19,8 +21,9 @@ export default function PlayProgressButton({
   size = 'lg',
 }) {
   const [stopHovered, setStopHovered] = useState(false);
-  const idle    = phase === 'idle';
-  const running = phase === 'running';
+  const idle       = phase === 'idle';
+  const running    = phase === 'running';
+  const cancelling = phase === 'cancelling';
   const showStop = running && stopHovered;
 
   const runningStatus = statusText || 'Starting…';
@@ -32,6 +35,7 @@ export default function PlayProgressButton({
     : runningStatus;
 
   const label =
+    cancelling           ? (statusText || 'Cancelling…') :
     showStop             ? 'Stop download' :
     phase === 'launched' ? 'Game running' :
     phase === 'error'    ? (statusText || 'Failed') :
@@ -39,6 +43,7 @@ export default function PlayProgressButton({
     idleLabel;
 
   const Icon =
+    cancelling           ? Loader2 :
     showStop             ? Square :
     phase === 'launched' ? Check :
     phase === 'error'    ? AlertCircle :
@@ -48,6 +53,7 @@ export default function PlayProgressButton({
   const trackColor =
     phase === 'error'    ? '#7A2A2A' :
     phase === 'launched' ? '#00AF5C' :
+    cancelling           ? '#1E1E1E' :
     '#1E1E1E';
 
   const sizing = size === 'sm'
@@ -57,7 +63,7 @@ export default function PlayProgressButton({
   return (
     <motion.button
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || cancelling}
       onMouseEnter={() => running && setStopHovered(true)}
       onMouseLeave={() => setStopHovered(false)}
       whileHover={!disabled && idle ? { scale: 1.01 } : {}}
@@ -67,13 +73,15 @@ export default function PlayProgressButton({
           ? 'bg-[#00AF5C] hover:bg-[#00964F] border-transparent text-white shadow-[0_4px_20px_rgba(0,175,92,0.25)] disabled:opacity-40'
           : phase === 'error'
             ? 'border-[#FF5555]/40'
-            : showStop
-              ? 'border-[#FF5555]/40 cursor-pointer'
-              : 'border-[#00AF5C]/40'
+            : cancelling
+              ? 'border-amber-500/40'
+              : showStop
+                ? 'border-[#FF5555]/40 cursor-pointer'
+                : 'border-[#00AF5C]/40'
       }`}
       style={!idle ? { background: trackColor } : undefined}
     >
-      {/* Progress fill — turns red when hovering to stop */}
+      {/* Progress fill — turns red when hovering to stop, amber while cancelling */}
       {!idle && (
         <motion.div
           initial={false}
@@ -81,7 +89,7 @@ export default function PlayProgressButton({
           transition={{ ease: [0.22, 1, 0.36, 1], duration: 0.5 }}
           className="absolute inset-y-0 left-0 z-0"
           style={{
-            background: showStop ? '#CC3333' : (phase === 'error' ? '#FF5555' : '#00AF5C'),
+            background: cancelling ? '#A06000' : (showStop ? '#CC3333' : (phase === 'error' ? '#FF5555' : '#00AF5C')),
             transition: 'background 0.25s ease',
           }}
         />
@@ -104,7 +112,7 @@ export default function PlayProgressButton({
       <div className={`relative z-10 flex items-center justify-center gap-3 ${sizing.padX} ${sizing.padY}`}>
         <Icon
           size={sizing.iconPx}
-          className={running && !showStop ? 'animate-spin' : ''}
+          className={(cancelling || (running && !showStop)) ? 'animate-spin' : ''}
           fill={idle ? 'currentColor' : 'none'}
         />
         <span className={`${sizing.text} font-bold tracking-tight text-white`}>{label}</span>

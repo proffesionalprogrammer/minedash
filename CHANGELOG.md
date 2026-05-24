@@ -2,6 +2,50 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.9 — 2026-05-24
+
+### Added
+
+- **Drag-and-drop multi-upload in both the launcher Content tab and the server Mods tab.** Drop one jar, ten jars, or a mix of jars and packs straight onto the panel — a green dashed overlay appears while you're hovering, and dropping uploads them all in one request with per-file success reporting. The file-picker buttons also accept multi-select now. Drop a single `.zip` on the server Mods panel and you still get the "Extract Modpack?" prompt.
+- **Manual mod upload for the launcher.** New Upload button beside the search bar (and the drag-drop target) lets you install mods Modrinth doesn't host — CurseForge-only stuff like FTB Quests, or anything you downloaded by hand. Uploaded files are marked client-extras so the per-server Play sync won't wipe them on launch.
+- **Sort and pagination in the launcher Content tab.** Relevance / Downloads / Newest / Updated dropdown and prev/next page buttons, mirroring the server-side Mods tab.
+- **Per-server launcher instance.** Hitting Play on a server now creates (or reuses) a dedicated launcher profile named after the server instead of dumping mods into the shared default instance. Switching between servers no longer smashes their mod lists together.
+- **Modpack install progress that survives tab switches.** Install state lives at the App level and rehydrates from a shared map when you come back to the tab — no more "the bar reset to Install but it was actually still going" UX. Works for both server and launcher modpack installs.
+
+### Changed
+
+- **Launch now runs in a forked subprocess for instant cancel.** Clicking Stop during a download used to require waiting for mclc's current file to finish (sometimes 30 s+ on a 200 MB asset) because mclc has no safe abort API. The whole launch sequence — Microsoft auth refresh, Fabric/Forge/NeoForge install, asset/library download, JVM spawn, dep-crash retry — now runs in a child Node process. Stop sends a polite cancel IPC (the worker `taskkill /F /T`s any sub-children on Windows), then SIGKILLs the worker after 2.5 s if it doesn't go quietly. End-to-end cancel is now sub-3 s even mid-download.
+
+### Fixed
+
+- **Content tab in the launcher opens instantly instead of taking 20 s on big modpacks.** The icon-enrichment cache was re-checking every "miss" entry (every CurseForge-only mod, every niche library) on every Content open — SHA1-hashing them from disk and re-asking Modrinth for a guaranteed 404. A 500-mod Prominence install made that a 20-second wait every single time. `lookedUp: true` is now final, and first-ever opens get a 1.5 s enrichment budget with the rest finishing in the background. Subsequent opens are instant.
+- **Browse search no longer dies during the first content load.** When Modrinth rate-limits the proxy during the initial enrichment burst, the search now silently retries once after 1.5 s instead of leaving "Modrinth failed" up until you type something. No manual reload needed.
+- **Newly-installed mods get wrong-version / wrong-loader warnings on the very next listing** — the install endpoint persists the version's `game_versions` and `loaders` immediately so no SHA1 round-trip is needed.
+- **Modpack importer now filters dozens more client-only mods out of dedicated servers.** Added patterns for ColorWheel, FancyMenu, Konkrete, Forge Config Screen, Configured, Drippy Loading Screen, EMF/ETF, cull-leaves, sound physics, Xaero Map Plus, Free Cam, Replay Mod, presence-footsteps, ambient sounds, Not Enough Animations, and more. The Prominence-style "I installed a 500-mod pack and the server crashes on startup" report should be much rarer.
+
+---
+
+## v1.0.8 — 2026-05-23
+
+### Added
+
+- **Auto-managed Java per server.** MineDash now downloads the exact Java major your server needs (1.20.x → Java 17, 1.21.5- → Java 21, 1.21.6+ → Java 25) into a managed pool the first time you start that server. Progress streams into the server console. You never have to install Java by hand again, and a 1.20.1 server stops failing because the system Java is too new for it.
+- **"Install automatically" in the Java setup modal.** Hit the green button and MineDash fetches the right JDK from Adoptium with a progress bar — no more leaving the app to download an installer.
+- **Mod tab flags broken mods + one-click fix.** The Mods tab now shows badges for **Client** (would crash a dedicated server), **Wrong version** (mod isn't built for this MC version), and **Wrong loader** (Forge jar in a Fabric server, etc.). An amber banner at the top offers "Clean client mods" (moves them to the per-server stash) and "Repair versions" (looks up a compatible Modrinth build and swaps the jar in place).
+- **Same fixer on the launcher side.** Launcher → Installed view gets the wrong-version / wrong-loader badges and a Repair button. Client-only cleanup is intentionally not exposed there — those are exactly the mods the launcher wants.
+- **Mixin crash detection.** When a mod's mixin injection fails on startup (the classic ModernFix / Forge-version-skew scenario), the crash banner now names the actual culprit ("ModernFix failed a mixin injection — disable or update the mod") and offers a one-click **Disable ModernFix** button right on the banner.
+- **Modpack install progress inside the server's Modpack tab.** Click Install on a modpack and the button fills with a live percentage as files land — same UX the Launcher tab already had. No more frozen spinner for 5 minutes.
+- **MineDash auto-restores from tray when Minecraft closes.** Paired with "After launching: hide", MineDash now pops back up on its own once you exit the game. No more hunting for the tray icon.
+
+### Fixed
+
+- **MineDash no longer installs older mod versions when newer ones exist.** Auto-install and Repair used to occasionally pick v82 of a mod instead of v92 — Modrinth's filtered version list isn't always newest-first. The selector now tie-breaks by `date_published` so the latest compatible release always wins.
+- **Java required-version modal showed up behind the Create Server modal.** First-time users never saw the prompt to install Java and just got mysterious crashes. The modal now sits on top where it belongs.
+- **Server's cmd.exe console window stays hidden.** Starting a server no longer pops a separate Windows console next to MineDash — the in-app console viewer is the only place server output appears (which means you can't accidentally close the cmd window and kill your server anymore).
+- **Stop downloading button in the launcher is honest now.** `minecraft-launcher-core` provides no way to interrupt a download mid-file, so the button used to claim it stopped while bytes kept flowing in the background. It now sits in a "Stopping — current file has to finish first…" state until the download genuinely ends, and the kill happens the instant the JVM tries to spawn.
+
+---
+
 ## v1.0.4 — 2026-05-22
 
 ### Added

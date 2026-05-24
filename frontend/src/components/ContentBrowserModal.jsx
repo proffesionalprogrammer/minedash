@@ -6,7 +6,7 @@ import ModalPortal from './ModalPortal';
 
 // Modal shell that hosts the LauncherContent browser. Opened from the
 // "Content" button on the Profile card. Centered, large, with a backdrop.
-export default function ContentBrowserModal({ loader, version, instanceId, instanceName, socket, onClose, onError }) {
+export default function ContentBrowserModal({ loader, version, instanceId, instanceName, socket, onClose, onError, modpackInstalls }) {
   return (
     <ModalPortal>
     <motion.div
@@ -46,7 +46,7 @@ export default function ContentBrowserModal({ loader, version, instanceId, insta
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
-          <LauncherContent loader={loader} version={version} instanceId={instanceId} socket={socket} onError={onError} inModal />
+          <LauncherContent loader={loader} version={version} instanceId={instanceId} socket={socket} onError={onError} modpackInstalls={modpackInstalls} inModal />
         </div>
       </motion.div>
     </motion.div>

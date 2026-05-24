@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     maximize:        () => ipcRenderer.send('window-maximize'),
     close:           () => ipcRenderer.send('window-close'),
     hideToTray:      () => ipcRenderer.send('window-hide-to-tray'),
+    showFromTray:    () => ipcRenderer.send('window-show-from-tray'),
     isMaximized:     () => ipcRenderer.invoke('window-is-maximized'),
     onMaximizeChange: (cb) => ipcRenderer.on('window-maximized', (_, val) => cb(val)),
   },

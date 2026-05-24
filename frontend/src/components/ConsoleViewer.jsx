@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Terminal, AlertTriangle, X, ArrowRight, Search, Regex, ChevronUp, ChevronDown } from 'lucide-react';
+import { Terminal, AlertTriangle, X, ArrowRight, Search, Regex, ChevronUp, ChevronDown, PowerOff, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Detect the log level of a single line. Vanilla / Paper / Fabric / Forge
@@ -487,7 +487,24 @@ function ConsoleViewer({ serverId, socket }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [commandHistory, setCommandHistory] = useState([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
-  const [crashBanner, setCrashBanner] = useState(null); // { type, message, tab }
+  const [crashBanner, setCrashBanner] = useState(null); // { type, message, tab, culprit?, culpritShort?, culpritJars? }
+  const [disablingCulprit, setDisablingCulprit] = useState(false);
+  const [culpritDisabled, setCulpritDisabled] = useState(false);
+
+  const disableCulpritMods = async () => {
+    if (!crashBanner?.culpritJars?.length || disablingCulprit) return;
+    setDisablingCulprit(true);
+    try {
+      // Skip jars already in .disabled state — calling toggle on a disabled jar
+      // would re-enable it, defeating the purpose.
+      const targets = crashBanner.culpritJars.filter(j => !j.endsWith('.disabled'));
+      for (const jar of targets) {
+        await fetch(`http://localhost:3001/api/servers/${serverId}/mods/${encodeURIComponent(jar)}/toggle`, { method: 'POST' });
+      }
+      setCulpritDisabled(true);
+    } catch (_) { /* surfaced via the banner's "still failed" state */ }
+    setDisablingCulprit(false);
+  };
   // Search / filter
   const [searchQuery, setSearchQuery] = useState('');
   const [useRegex, setUseRegex] = useState(false);
@@ -519,6 +536,7 @@ function ConsoleViewer({ serverId, socket }) {
 
     const handleCrash = (data) => {
       setCrashBanner(data);
+      setCulpritDisabled(false);
     };
 
     socket.on(`console_${serverId}`, handleLog);
@@ -833,8 +851,29 @@ function ConsoleViewer({ serverId, socket }) {
               <AlertTriangle size={18} className="text-[#FF5555] flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-[#FF5555]">Server Crash Detected</p>
-                <p className="text-xs text-[#A0A0A0] mt-0.5 leading-relaxed">{crashBanner.message}</p>
+                <p className="text-xs text-[#A0A0A0] mt-0.5 leading-relaxed">
+                  {culpritDisabled
+                    ? `Disabled ${crashBanner.culpritShort || 'the mod'}. Click Start to retry the server.`
+                    : crashBanner.message}
+                </p>
               </div>
+              {!culpritDisabled && crashBanner.culpritJars?.length > 0 && (
+                <button
+                  onClick={disableCulpritMods}
+                  disabled={disablingCulprit}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 text-[#FF5555] rounded-lg text-xs font-bold transition-all flex-shrink-0 border border-[#FF5555]/20 disabled:opacity-60"
+                >
+                  {disablingCulprit
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <PowerOff size={12} />}
+                  Disable {crashBanner.culpritShort || 'mod'}
+                </button>
+              )}
+              {culpritDisabled && (
+                <div className="flex items-center gap-1 px-2.5 py-1.5 bg-[#00AF5C]/10 text-[#00AF5C] rounded-lg text-xs font-bold flex-shrink-0 border border-[#00AF5C]/20">
+                  <Check size={12} /> Disabled
+                </div>
+              )}
               {crashBanner.tab && (
                 <button
                   onClick={() => {
@@ -847,7 +886,7 @@ function ConsoleViewer({ serverId, socket }) {
                 </button>
               )}
               <button
-                onClick={() => setCrashBanner(null)}
+                onClick={() => { setCrashBanner(null); setCulpritDisabled(false); }}
                 className="p-1 text-[#555555] hover:text-[#A0A0A0] transition-colors flex-shrink-0"
               >
                 <X size={14} />

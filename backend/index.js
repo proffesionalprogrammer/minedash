@@ -112,6 +112,10 @@ setInterval(async () => {
 const SERVERS_FILE = path.join(DATA_DIR, 'servers.json');
 const INSTANCES_DIR = path.join(DATA_DIR, 'instances');
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+// Managed JDK pool — one extracted JDK per major version. Used so each server
+// can launch with the exact Java its MC version was built for, regardless of
+// what the user has installed system-wide.
+const RUNTIMES_DIR = path.join(DATA_DIR, 'runtimes');
 
 // Ensure dirs exist
 fs.ensureDirSync(INSTANCES_DIR);
@@ -273,16 +277,275 @@ function requiredJavaMajor(mcVersion) {
   return 25;                                            // 1.21.6+ and beyond
 }
 
+// ─── Managed Java pool ────────────────────────────────────────────────────────
+// We download JDKs from Adoptium on demand into DATA_DIR/runtimes/jdk-{major}/
+// so every server can use the exact Java its MC version expects, without
+// asking the user to install anything. The pool is per-MineDash-installation,
+// shared across all servers on this machine.
+
+function managedJdkRoot(major) {
+  return path.join(RUNTIMES_DIR, `jdk-${major}`);
+}
+
+function managedJavaPath(major) {
+  return path.join(managedJdkRoot(major), 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+}
+
+function findManagedJava(major) {
+  const p = managedJavaPath(major);
+  return fs.existsSync(p) ? p : null;
+}
+
+// Read the major version of a specific java binary by shelling out to it.
+// Returns null on any failure. Caches results so we don't shell out on every
+// server start.
+const _javaVersionCache = new Map();
+function getJavaVersionForPath(javaPath) {
+  if (_javaVersionCache.has(javaPath)) return _javaVersionCache.get(javaPath);
+  try {
+    const out = execSync(`"${javaPath}" -version 2>&1`, { encoding: 'utf8', timeout: 6000 });
+    const m = out.match(/"(\d+)(?:\.(\d+))?/);
+    if (!m) { _javaVersionCache.set(javaPath, null); return null; }
+    const major = parseInt(m[1]);
+    const v = major === 1 ? parseInt(m[2] || '0') : major;
+    _javaVersionCache.set(javaPath, v);
+    return v;
+  } catch (_) {
+    _javaVersionCache.set(javaPath, null);
+    return null;
+  }
+}
+
+// Resolve the best Java for a server's MC version. Strategy:
+//   1. Managed JDK pool — preferred because we know its exact major matches.
+//   2. The discovered system Java — only if its major exactly matches what the
+//      MC version needs. We deliberately avoid "newer is fine" here because
+//      that's exactly what broke for the user (Java 25 on Forge 1.20.1).
+//   3. null — caller should trigger ensureManagedJava() to download it.
+function resolveJavaForServer(serverConfig) {
+  const requiredMajor = requiredJavaMajor(serverConfig?.version);
+  const managed = findManagedJava(requiredMajor);
+  if (managed) return { path: managed, major: requiredMajor, source: 'managed' };
+  const sys = getJavaPath();
+  if (sys && sys !== 'java') {
+    const sysMajor = getJavaVersionForPath(sys);
+    if (sysMajor === requiredMajor) return { path: sys, major: sysMajor, source: 'system' };
+  }
+  return { path: null, major: null, requiredMajor, source: 'missing' };
+}
+
+// Adoptium asset metadata for a given major. Returns the .zip binary URL +
+// filename. Throws on any API or network failure (callers wrap and log).
+const ADOPTIUM_API = 'https://api.adoptium.net/v3';
+async function fetchAdoptiumAsset(major) {
+  const osName = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'mac' : 'linux');
+  const arch = 'x64';
+  const params = new URLSearchParams({
+    architecture: arch,
+    heap_size: 'normal',
+    image_type: 'jdk',
+    jvm_impl: 'hotspot',
+    os: osName,
+    page: '0',
+    page_size: '1',
+    sort_method: 'DEFAULT',
+    sort_order: 'DESC',
+    vendor: 'eclipse',
+  });
+  const res = await axios.get(`${ADOPTIUM_API}/assets/feature_releases/${major}/ga?${params}`, {
+    timeout: 20000,
+    headers: { 'User-Agent': 'MineDash/1.0 java-installer' },
+  });
+  const data = res.data;
+  if (!Array.isArray(data) || data.length === 0) throw new Error('Adoptium returned no GA releases');
+  const release = data[0];
+  const binaries = release.binaries || [];
+  // Prefer .zip — adm-zip can extract it without native deps. .tar.gz needs an
+  // extra lib we don't currently bundle.
+  const bin = binaries.find(b => b.package?.name?.toLowerCase().endsWith('.zip'))
+           || binaries.find(b => b.package?.name?.toLowerCase().endsWith('.tar.gz'))
+           || binaries.find(b => b.package?.link);
+  if (!bin?.package?.link) throw new Error('No downloadable binary in Adoptium response');
+  return {
+    name: bin.package.name,
+    link: bin.package.link,
+    size: bin.package.size || 0,
+    releaseName: release.release_name || `jdk-${major}`,
+  };
+}
+
+// Download + extract the given JDK major into the runtimes pool. `onProgress`
+// receives { phase, percent, downloaded?, total?, name? } as the install runs.
+// Idempotent: if the JDK is already installed, returns the existing path.
+async function ensureManagedJava(major, onProgress) {
+  const existing = findManagedJava(major);
+  if (existing) return existing;
+
+  await fs.ensureDir(RUNTIMES_DIR);
+  const tempZip = path.join(RUNTIMES_DIR, `jdk-${major}.download`);
+  const extractTmp = path.join(RUNTIMES_DIR, `jdk-${major}.extract`);
+  await fs.remove(tempZip).catch(() => {});
+  await fs.remove(extractTmp).catch(() => {});
+
+  onProgress?.({ phase: 'metadata', percent: 0 });
+  const asset = await fetchAdoptiumAsset(major);
+
+  onProgress?.({ phase: 'download', percent: 0, name: asset.name, total: asset.size });
+
+  // Stream the download with progress events. adm-zip can't handle .tar.gz so
+  // we error early on non-zip archives — the API normally returns .zip for
+  // Windows, which is the platform MineDash targets.
+  if (!asset.name.toLowerCase().endsWith('.zip')) {
+    throw new Error(`Adoptium returned a ${path.extname(asset.name)} package, which MineDash can't extract on this platform`);
+  }
+
+  const dlRes = await axios.get(asset.link, {
+    responseType: 'stream',
+    maxRedirects: 10,
+    timeout: 0, // big file — let the per-chunk progress show liveness instead
+    headers: { 'User-Agent': 'MineDash/1.0 java-installer' },
+  });
+  const total = parseInt(dlRes.headers['content-length'] || asset.size || '0', 10);
+  let downloaded = 0;
+  let lastEmitPct = -1;
+  await new Promise((resolve, reject) => {
+    const w = fs.createWriteStream(tempZip);
+    dlRes.data.on('data', (chunk) => {
+      downloaded += chunk.length;
+      if (total > 0) {
+        const pct = Math.min(99, Math.floor((downloaded / total) * 100));
+        // Throttle to whole-percent updates so we don't flood the socket.
+        if (pct !== lastEmitPct) {
+          lastEmitPct = pct;
+          onProgress?.({ phase: 'download', percent: pct, downloaded, total });
+        }
+      }
+    });
+    dlRes.data.pipe(w);
+    w.on('finish', resolve);
+    w.on('error', reject);
+    dlRes.data.on('error', reject);
+  });
+
+  onProgress?.({ phase: 'extract', percent: 0 });
+  await fs.ensureDir(extractTmp);
+  try {
+    const zip = new AdmZip(tempZip);
+    zip.extractAllTo(extractTmp, true);
+  } catch (err) {
+    await fs.remove(tempZip).catch(() => {});
+    await fs.remove(extractTmp).catch(() => {});
+    throw new Error(`Failed to extract JDK zip: ${err.message}`);
+  }
+
+  // Adoptium zips have a single top-level dir like "jdk-21.0.7+6". Move that
+  // to a stable name (`jdk-{major}/`) so future runs find it deterministically.
+  const entries = await fs.readdir(extractTmp);
+  const topDir = entries.find(e => {
+    try { return fs.statSync(path.join(extractTmp, e)).isDirectory(); } catch { return false; }
+  });
+  if (!topDir) {
+    await fs.remove(extractTmp).catch(() => {});
+    await fs.remove(tempZip).catch(() => {});
+    throw new Error('Extracted JDK has no top-level directory');
+  }
+  const finalDir = managedJdkRoot(major);
+  await fs.remove(finalDir).catch(() => {});
+  await fs.move(path.join(extractTmp, topDir), finalDir);
+  await fs.remove(extractTmp).catch(() => {});
+  await fs.remove(tempZip).catch(() => {});
+
+  const finalJava = managedJavaPath(major);
+  if (!fs.existsSync(finalJava)) {
+    throw new Error(`Java binary not found after extract: ${finalJava}`);
+  }
+  // Drop any stale cached version for the system Java path — managed install
+  // doesn't change it, but the cache key is the path so this is just hygiene.
+  _javaVersionCache.delete(finalJava);
+
+  onProgress?.({ phase: 'done', percent: 100, path: finalJava });
+  return finalJava;
+}
+
+// One install per (major) in flight at a time — block parallel sessions so we
+// don't race extracting the same zip twice. Returns the same promise to all
+// concurrent callers.
+const _javaInstallInFlight = new Map(); // major -> Promise
+function ensureManagedJavaSingleFlight(major, onProgress) {
+  if (_javaInstallInFlight.has(major)) return _javaInstallInFlight.get(major);
+  const p = ensureManagedJava(major, onProgress).finally(() => {
+    _javaInstallInFlight.delete(major);
+  });
+  _javaInstallInFlight.set(major, p);
+  return p;
+}
+
+// Resolve the java exe to use for a given server. Falls back to the global
+// system Java if the per-server override hasn't been set yet (e.g. the user
+// hand-edited a server.json before MineDash got to populate it). Callers that
+// need exact-version matching should use resolveJavaForServer().
+function javaForServer(id) {
+  return serverJavaPaths[id] || getJavaPath();
+}
+
+// Build a spawn env that points run.bat / run.sh at the per-server JDK by
+// prepending its `bin` dir to PATH and setting JAVA_HOME. Forge/NeoForge's
+// generated launch scripts call `java` from PATH, so this is how we make them
+// pick up our managed JDK without rewriting their scripts.
+function spawnEnvForServer(id) {
+  const jp = serverJavaPaths[id];
+  if (!jp) return process.env;
+  const javaBin = path.dirname(jp);
+  const javaHome = path.dirname(javaBin);
+  const sep = process.platform === 'win32' ? ';' : ':';
+  // Windows env-var lookups are case-insensitive but Node preserves the casing
+  // we set. Use both PATH and Path so any tool that checks the wrong key works.
+  const existingPath = process.env.PATH || process.env.Path || '';
+  return {
+    ...process.env,
+    JAVA_HOME: javaHome,
+    PATH: javaBin + sep + existingPath,
+    Path: javaBin + sep + existingPath,
+  };
+}
+
 app.get('/api/java-status', (req, res) => {
   const version = getJavaVersion();
   const requestedMc = typeof req.query.version === 'string' ? req.query.version : null;
   const requiredMajor = requestedMc ? requiredJavaMajor(requestedMc) : RECOMMENDED_JAVA_MAJOR;
+  const managedAvailable = !!findManagedJava(requiredMajor);
   res.json({
     version,
     requiredMajor,
     recommended: RECOMMENDED_JAVA_MAJOR,
     mcVersion: requestedMc,
-    ok: version !== null && version >= requiredMajor,
+    managedAvailable,
+    // ok when we already have an exact-match Java (system or managed). The
+    // start endpoint also accepts a missing match because it'll auto-install.
+    ok: (version !== null && version >= requiredMajor) || managedAvailable,
+    canAutoInstall: true,
+  });
+});
+
+// Kick off a Java install. Returns immediately with a sessionId; progress is
+// streamed over the socket event `java_install_<sessionId>` as
+// { phase, percent, downloaded?, total?, name?, path?, error? }.
+app.post('/api/java/install', async (req, res) => {
+  const major = parseInt(req.body?.major, 10);
+  if (!Number.isInteger(major) || major < 8 || major > 50) {
+    return res.status(400).json({ error: 'Invalid Java major version' });
+  }
+
+  const existing = findManagedJava(major);
+  if (existing) return res.json({ alreadyInstalled: true, path: existing });
+
+  const sessionId = crypto.randomUUID();
+  res.json({ sessionId, major });
+
+  ensureManagedJavaSingleFlight(major, (progress) => {
+    io.emit(`java_install_${sessionId}`, progress);
+  }).catch((err) => {
+    io.emit(`java_install_${sessionId}`, { phase: 'error', error: err.message || String(err) });
   });
 });
 
@@ -298,6 +561,10 @@ const activeProcesses = {};
 const activeLogs = {};
 const serverStates = {}; // Stores startTime, players array, etc.
 const serverJavaPids = {}; // Maps server id -> actual Java process PID
+// Per-server resolved Java executable. Populated by the /start endpoint after
+// it confirms or auto-installs the right JDK for the server's MC version.
+// Read by startProcess + the install* helpers so each server uses its own JDK.
+const serverJavaPaths = {}; // Maps server id -> absolute java(.exe) path
 const allChildProcesses = new Set(); // Every spawned child proc, for clean shutdown
 
 // Auto-backup interval handles (serverId → NodeJS interval)
@@ -305,6 +572,10 @@ const autoBackupIntervals = {};
 
 
 // ─── Crash Pattern Definitions ────────────────────────────────────────────────
+// Each entry may include a `detect(text)` function returning { message, ...extras }
+// for crashes where the message depends on data we have to parse out of the log
+// (e.g. naming the mod that triggered a mixin failure). Static-message patterns
+// keep using `message` directly — `detect()` overrides if both are present.
 const CRASH_PATTERNS = [
   {
     test: (t) => /java\.lang\.OutOfMemoryError/i.test(t),
@@ -325,6 +596,32 @@ const CRASH_PATTERNS = [
     tab: null,
   },
   {
+    // Mixin transformer / injection failures — usually caused by a mod whose
+    // bytecode redirect can't find its target method (mod-vs-loader version
+    // skew, or running too-new Java against an old Forge). The mixin config
+    // name (e.g. modernfix-forge.mixins.json) points us at the offending mod.
+    test: (t) =>
+      /MixinTransformerError|Critical injection failure|failed injection check|InjectionError/i.test(t),
+    type: 'mixin',
+    tab: 'mods',
+    detect: (t) => {
+      // Find the first mixin config name mentioned in an injection-failure line.
+      const m = t.match(/in\s+([A-Za-z0-9_.-]+)\.mixins\.json/i);
+      if (m) {
+        const config = m[1];
+        const friendly = friendlyModNameFromMixinConfig(config);
+        return {
+          culprit: config,
+          culpritShort: friendly,
+          message: `${friendly} failed a mixin injection — it's not compatible with this Forge/loader build. Disable or update the mod.`,
+        };
+      }
+      return {
+        message: 'A mod failed mixin injection — likely outdated or incompatible with your Forge/loader build. Check the console for the mixin config name and disable or update that mod.',
+      };
+    },
+  },
+  {
     // Broad mod version mismatch — but NOT the missing dep crash (that's handled separately)
     test: (t) =>
       /incompatible mod set|ModLoadingException|Failed to create mod instance|forge\.fml\.ModLoadingException/i.test(t) &&
@@ -335,9 +632,52 @@ const CRASH_PATTERNS = [
   },
 ];
 
-function detectCrash(logText) {
+// Turn "modernfix-forge" into "ModernFix"; "create-forge" into "Create"; etc.
+// Strips loader suffixes and capitalises the leading word so the user sees a
+// recognisable name instead of a raw mixin config filename.
+function friendlyModNameFromMixinConfig(name) {
+  if (!name) return 'A mod';
+  const loaders = new Set(['forge', 'fabric', 'neoforge', 'quilt', 'common', 'core']);
+  const parts = name.split('-').filter(p => !loaders.has(p.toLowerCase()));
+  const base = (parts[0] || name).replace(/[._]+/g, ' ');
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+// Match the culprit mixin-config name against installed jars in mods/, returning
+// the jar filename(s) that look like the source mod. Case-insensitive, ignores
+// version suffixes and bracketed prefixes. Returns [] if we can't be confident.
+function resolveCulpritJars(modsPath, culpritConfig) {
+  if (!culpritConfig) return [];
+  try {
+    if (!fs.existsSync(modsPath)) return [];
+    const stem = culpritConfig.split('-')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!stem) return [];
+    const files = fs.readdirSync(modsPath).filter(f => /\.jar(\.disabled)?$/i.test(f));
+    const matches = files.filter(f => {
+      const normalised = f.toLowerCase().replace(/^\s*\[[^\]]*\]\s*/, '').replace(/[^a-z0-9]/g, '');
+      // Require a prefix match so "modernfix" matches "ModernFix-1.20.1-forge.jar"
+      // but doesn't accidentally hit "createmodernfixfork.jar" via substring.
+      return normalised.startsWith(stem);
+    });
+    return matches;
+  } catch (_) {
+    return [];
+  }
+}
+
+function detectCrash(logText, modsPath) {
   for (const pattern of CRASH_PATTERNS) {
-    if (pattern.test(logText)) return { type: pattern.type, message: pattern.message, tab: pattern.tab };
+    if (!pattern.test(logText)) continue;
+    const base = { type: pattern.type, message: pattern.message, tab: pattern.tab };
+    if (typeof pattern.detect === 'function') {
+      const extras = pattern.detect(logText) || {};
+      Object.assign(base, extras);
+    }
+    if (base.culprit && modsPath) {
+      const jars = resolveCulpritJars(modsPath, base.culprit);
+      if (jars.length > 0) base.culpritJars = jars;
+    }
+    return base;
   }
   return null;
 }
@@ -804,7 +1144,7 @@ async function installForge(id, serverConfig, serverPath, appendLog) {
     appendLog(`[MineDash] Running Forge Installer... This may take a moment.\n`);
 
     await new Promise((resolve, reject) => {
-      const instProc = spawn(getJavaPath(), ['-jar', 'forge-installer.jar', '--installServer'], { cwd: serverPath });
+      const instProc = spawn(javaForServer(id), ['-jar', 'forge-installer.jar', '--installServer'], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
       allChildProcesses.add(instProc);
       instProc.on('exit', () => allChildProcesses.delete(instProc));
       instProc.stdout.on('data', d => appendLog(d.toString()));
@@ -891,7 +1231,7 @@ async function installNeoForge(id, serverConfig, serverPath, appendLog) {
     appendLog(`[MineDash] Running NeoForge Installer... This may take a moment.\n`);
     
     await new Promise((resolve, reject) => {
-      const instProc = spawn(getJavaPath(), ['-jar', 'neoforge-installer.jar', '--installServer'], { cwd: serverPath });
+      const instProc = spawn(javaForServer(id), ['-jar', 'neoforge-installer.jar', '--installServer'], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
       allChildProcesses.add(instProc);
       instProc.on('exit', () => allChildProcesses.delete(instProc));
       instProc.stdout.on('data', d => appendLog(d.toString()));
@@ -1141,6 +1481,15 @@ const CLIENT_ONLY_MOD_PATTERNS = [
   /^reese[s']?[-_]sodium/i,
   /^sodium[-_]?(extra|extras|options)/i,
   /^iris[-_]flywheel/i,
+  /^embeddium[-_]?(plus|extras|options)/i,
+  /^oculus[-_]?(flywheel|extras)/i,
+  /^immediatelyfast/i,
+  /^entity[-_]?model[-_]?features/i,
+  /^entity[-_]?texture[-_]?features/i,
+  /^etf([-_.]|$)/i,
+  /^emf([-_.]|$)/i,
+  /^cull[-_]?less[-_]?leaves/i,
+  /^cull[-_]?leaves/i,
   // Pure visual / UI / animation
   /^(modmenu|mod[-_]menu)([-_.]|$)/i,
   /^continuity([-_.]|$)/i,
@@ -1149,6 +1498,7 @@ const CLIENT_ONLY_MOD_PATTERNS = [
   /^lambdynamiclights/i,
   /^(distant[-_]?horizons|distanthorizons)([-_.]|$)/i,
   /^3dskinlayers/i,
+  /^skin[-_]?layers/i,
   /^waveycapes/i,
   /^chat[-_]?heads/i,
   /^particle[-_]?rain/i,
@@ -1161,26 +1511,79 @@ const CLIENT_ONLY_MOD_PATTERNS = [
   /^borderless[-_]?mining/i,
   /^citresewn/i,
   /^particular([-_.]|$)/i,
+  /^better[-_]?ping[-_]?display/i,
+  /^better[-_]?mounthud/i,
+  /^better[-_]?statistics[-_]?screen/i,
+  /^better[-_]?recipe[-_]?book/i,
+  /^better[-_]?title[-_]?screen/i,
+  /^better[-_]?taskbar/i,
+  /^puzzle([-_.]|$)/i,             // Puzzle (Sodium options UI) — distinct from puzzles-lib
+  /^legendary[-_]?tooltips/i,
+  /^item[-_]?borders/i,
+  /^enchant[-_]?descriptions/i,
+  /^idwtialsimmoedm/i,             // "I Don't Want To Indicate A Long..." inventory mod
   // Inventory/UI overlays
   /^inventory[-_]?profiles[-_]?next/i,
   /^invmove([-_.]|$)/i,
   /^controlling([-_.]|$)/i,
   /^zoomify([-_.]|$)/i,
+  /^logical[-_]?zoom/i,
+  /^ok[-_]?zoomer/i,
   /^smooth[-_]?swapping/i,
   /^enhanced[-_]?visuals/i,
   /^item[-_]?physic/i,
+  /^itemphysiclite/i,
+  /^drippy[-_]?loading[-_]?screen/i,
+  /^drippyloadingscreen/i,
+  /^loading[-_]?screen[-_]?tips/i,
+  /^forgeconfigscreens/i,
+  /^forge[-_]?config[-_]?screen/i,   // Forge Config Screen — pure client UI
+  /^configured([-_.]|$)/i,           // Configured (UI for mod configs, client)
+  /^colorwheel/i,                    // ColorWheel — FancyMenu colour picker (client UI)
+  /^color[-_]?wheel/i,
+  /^fancymenu/i,
+  /^konkrete/i,                      // FancyMenu core dep, pure client UI lib
+  /^optigui/i,
+  /^smoothboot/i,
+  /^smoothchunk/i,
+  /^itemzoom/i,
+  /^auudio/i,
+  /^sound[-_]?physics[-_]?remastered/i,
+  /^presence[-_]?footsteps/i,
+  /^dynamic[-_]?surroundings/i,
+  /^ambient[-_]?sounds/i,
+  /^ambientsounds/i,
+  /^not[-_]?enough[-_]?animations/i,
+  /^not[-_]?enough[-_]?recipebook/i,
+  /^enhanced[-_]?block[-_]?entities/i,
+  /^better[-_]?animations[-_]?collection/i,
   // Maps / minimaps — Xaero's render in-client only; the server has no use for them
   /^xaeros?[-_]?(world)?map/i,
   /^xaeros?[-_]?minimap/i,
+  /^xaero[-_]?map[-_]?plus/i,
   /^journeymap([-_.]|$)/i,
   // Skins / chat / input
   /^customskinloader/i,
   /^je[-_]?characters/i,
   /^jei[-_]?characters/i,
+  /^better[-_]?compatibility[-_]?checker/i,
+  /^chatpatches/i,
+  /^chat[-_]?patches/i,
+  /^skin[-_]?customization/i,
+  /^skin[-_]?overlays/i,
   // First-person / camera
   /^firstperson([-_.]|$)/i,
   /^first[-_]?person[-_]?model/i,
   /^better[-_]?third[-_]?person/i,
+  /^camera[-_]?utils/i,
+  /^free[-_]?cam/i,
+  /^freecam/i,
+  /^replaymod/i,
+  /^replay[-_]?mod/i,
+  // Item / inventory display (pure client overlays)
+  /^just[-_]?enough[-_]?profession[-_]?desc/i,
+  /^just[-_]?enough[-_]?effect[-_]?desc/i,
+  /^waila[-_]?harvestability/i,
 ];
 
 function isClientOnlyModFilename(name) {
@@ -1560,58 +1963,28 @@ app.post('/api/servers/:id/clone', async (req, res) => {
 
 // ─── Console-based dependency auto-installer ─────────────────────────────────
 
-// Strip Minecraft color/formatting codes (§0, §a, §r, §n, etc.)
-function stripMcCodes(text) {
-  return text.replace(/[§§][0-9a-fklmnorA-FKLMNOR]/g, '');
-}
+// Dep-crash detection + missing-mod parsing — now shared with the launcher
+// worker so both server and client crash recovery use the same regexes.
+const { stripMcCodes, parseMissingModIds, hasDependencyCrash } = require('./dep-crash');
 
-// Parse server crash output for missing mod IDs.
-// Returns an array of mod ID strings to look up on Modrinth.
-function parseMissingModIds(logText) {
-  const clean = stripMcCodes(logText);
-  const missing = new Set();
-  let m;
-
-  // MOST RELIABLE — Forge/NeoForge structured dep report:
-  // "Mod ID: 'architectury', Requested by: 'exposure_expanded', ..., Actual version: '[MISSING]'"
-  const forgeStructured = /Mod ID:\s*'([^']+)'[^,\n]*,\s*Requested by:[^\n]*Actual version:\s*'\[MISSING\]'/gi;
-  while ((m = forgeStructured.exec(clean)) !== null) missing.add(m[1].toLowerCase());
-
-  // Forge/NeoForge prose message: "Currently, <modid> is ... not installed"
-  const forge1 = /Currently,\s+(\S+)\s+is\s+(?:\S+\s+)*?not installed/gi;
-  while ((m = forge1.exec(clean)) !== null) missing.add(m[1].toLowerCase());
-
-  // Forge/NeoForge: "Mod X requires <modid> <semver>" inside a loading-errors block
-  if (/LoadingFailedException|loading errors encountered|Missing or unsupported mandatory/i.test(clean)) {
-    const forge2 = /Mod\s+\S+\s+requires\s+([a-z][a-z0-9_-]*)\s+\d/gi;
-    while ((m = forge2.exec(clean)) !== null) missing.add(m[1].toLowerCase());
-  }
-
-  // Fabric: "requires mod '<modid>'" or "requires version X of mod '<modid>'"
-  const fabric = /requires(?:\s+version\s+\S+\s+of)?\s+mod\s+'([^']+)'/gi;
-  while ((m = fabric.exec(clean)) !== null) missing.add(m[1].toLowerCase());
-
-  // Fabric (newer loader): structured dep report — "HARD_DEP_NO_CANDIDATE <mod> <ver> {depends <depid> @"
-  const fabricHardDep = /HARD_DEP(?:_NO_CANDIDATE)?\s+\S+\s+\S+\s+\{depends\s+([a-z][a-z0-9_-]*)\s+@/gi;
-  while ((m = fabricHardDep.exec(clean)) !== null) missing.add(m[1].toLowerCase());
-
-  // Fabric (newer loader): "requires any version of <modid>, which is missing"
-  const fabricAnyVersion = /requires\s+any\s+version\s+of\s+([a-z][a-z0-9_-]*),\s+which\s+is\s+missing/gi;
-  while ((m = fabricAnyVersion.exec(clean)) !== null) missing.add(m[1].toLowerCase());
-
-  // Filter out tokens that are clearly not mod IDs
-  // NOTE: 'fabric' is intentionally kept — on Fabric servers it means Fabric API (a real mod), not the loader
-  for (const skip of ['minecraft', 'forge', 'neoforge', 'above', 'or', 'and', 'the', 'a', 'is', 'not', 'null', 'unknown']) {
-    missing.delete(skip);
-  }
-
-  return Array.from(missing);
-}
-
-// Returns true if the log text indicates a dependency crash (regardless of exit code).
-// Forge exits with code 0 even on dep failures, so we can't rely on code alone.
-function hasDependencyCrash(logText) {
-  return /Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Mod resolution failed/i.test(logText);
+// Pick the best version from a Modrinth /project/{id}/version response.
+// Preference order: release > beta > alpha; within each type, newest by
+// date_published. Older code only sorted by type and relied on Modrinth
+// returning versions newest-first, which isn't reliable when query filters
+// (game_versions, loaders) are applied — the API has been observed returning
+// an older release in front of a newer one, so we don't let v82 win over v92.
+function pickBestModrinthVersion(versions) {
+  if (!Array.isArray(versions) || versions.length === 0) return null;
+  const typeRank = { release: 0, beta: 1, alpha: 2 };
+  const sorted = [...versions].sort((a, b) => {
+    const ta = typeRank[a.version_type] ?? 3;
+    const tb = typeRank[b.version_type] ?? 3;
+    if (ta !== tb) return ta - tb;
+    const da = Date.parse(a.date_published || '') || 0;
+    const db = Date.parse(b.date_published || '') || 0;
+    return db - da; // newest first
+  });
+  return sorted[0];
 }
 
 // Search Modrinth for a mod by its in-game mod ID and install the best compatible version.
@@ -1680,11 +2053,8 @@ async function findAndInstallMissingDeps(missingModIds, serverConfig, serverPath
         continue;
       }
 
-      const sorted = [...versions].sort((a, b) => {
-        const p = { release: 0, beta: 1, alpha: 2 };
-        return (p[a.version_type] || 3) - (p[b.version_type] || 3);
-      });
-      const best = sorted[0];
+      const best = pickBestModrinthVersion(versions);
+      if (!best) continue;
       const file = best.files.find(f => f.primary) || best.files[0];
       if (!file) continue;
 
@@ -1742,15 +2112,37 @@ function startProcess(id, serverConfig, serverPath) {
   // per-server stash. Runs every start so servers imported before the
   // deny-list was updated self-heal, and so jars dropped into mods/ by hand
   // (e.g. via the file browser) don't crash the JVM. Vanilla has no mods/.
+  //
+  // Two passes: (1) the filename deny-list catches well-known offenders like
+  // Oculus/Sodium even without any Modrinth lookup, and (2) if we already
+  // have Modrinth metadata cached for a jar (server_side: unsupported), move
+  // that one too — covers arbitrary client-only mods that aren't in the
+  // hardcoded list.
   if (serverConfig.type !== 'vanilla') {
     try {
       const modsDir = path.join(serverPath, 'mods');
       if (fs.existsSync(modsDir)) {
         const stashDir = path.join(serverPath, '.minedash-client-mods');
+        // Cached metadata — may be empty for fresh installs; that's fine,
+        // we'll still get pass 1 coverage and the next mods-tab visit will
+        // populate it for the next start.
+        let cachedMeta = {};
+        try {
+          const metaPath = path.join(modsDir, MOD_META_FILE);
+          if (fs.existsSync(metaPath)) {
+            cachedMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          }
+        } catch (_) {}
+
         const moved = [];
         for (const f of fs.readdirSync(modsDir)) {
           if (!f.endsWith('.jar')) continue;
-          if (!isClientOnlyModFilename(f)) continue;
+          const baseKey = f.replace(/\.disabled$/, '');
+          const m = cachedMeta[baseKey] || {};
+          const isClientByMeta =
+            m.serverSide === 'unsupported' ||
+            (m.clientSide === 'required' && m.serverSide !== 'required' && m.serverSide !== 'optional');
+          if (!isClientByMeta && !isClientOnlyModFilename(f)) continue;
           try {
             fs.mkdirSync(stashDir, { recursive: true });
             fs.renameSync(path.join(modsDir, f), path.join(stashDir, f));
@@ -1839,18 +2231,22 @@ function startProcess(id, serverConfig, serverPath) {
     }
   }
 
+  // `windowsHide: true` keeps cmd.exe and java.exe from popping their own
+  // console window beside the in-app console — stdout/stderr are already
+  // piped into the React ConsoleViewer, so a separate OS window adds nothing
+  // and looks broken (closing it kills the server).
   if (hasBat && process.platform === 'win32') {
-    mcProcess = spawn('cmd.exe', ['/c', 'run.bat'], { cwd: serverPath });
+    mcProcess = spawn('cmd.exe', ['/c', 'run.bat'], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
   } else if (hasSh && process.platform !== 'win32') {
-    mcProcess = spawn('sh', ['run.sh'], { cwd: serverPath });
+    mcProcess = spawn('sh', ['run.sh'], { cwd: serverPath, env: spawnEnvForServer(id) });
   } else if (hasJar) {
-    mcProcess = spawn(getJavaPath(), [
+    mcProcess = spawn(javaForServer(id), [
       `-Xms${serverConfig.minRam}`,
       `-Xmx${serverConfig.maxRam}`,
       '-jar',
       'server.jar',
       'nogui'
-    ], { cwd: serverPath });
+    ], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
   } else {
     // Dummy fallback
     appendLog(`[MineDash] No server files found for ${id}, starting dummy process.\n`);
@@ -1962,7 +2358,7 @@ function startProcess(id, serverConfig, serverPath) {
 
     // ── Plain-English crash detection (only if dep installer didn't handle it) ─
     if (code !== 0 && !hasDependencyCrash(logText)) {
-      const crash = detectCrash(logText);
+      const crash = detectCrash(logText, path.join(serverPath, 'mods'));
       if (crash) {
         io.emit(`crash_detected_${id}`, crash);
       }
@@ -1995,23 +2391,61 @@ app.post('/api/servers/:id/start', async (req, res) => {
   const serverConfig = servers.find(s => s.id === id);
   if (!serverConfig) return res.status(404).json({ error: 'Server not found' });
 
-  // Java version gate — surface a structured error so the frontend can route
-  // through JavaSetupModal instead of letting the JVM crash with
-  // UnsupportedClassVersionError mid-boot. `allowMismatch=true` (query or body)
-  // is the same "I know what I'm doing" escape hatch the modal exposes.
   const allowMismatch = req.query.allowMismatch === 'true' || req.body?.allowMismatch === true;
-  if (!allowMismatch) {
-    const installedMajor = getJavaVersion();
-    const requiredMajor = requiredJavaMajor(serverConfig.version);
-    if (installedMajor !== null && installedMajor < requiredMajor) {
-      return res.status(409).json({
-        error: `Server "${serverConfig.name}" needs Java ${requiredMajor} or newer (you have Java ${installedMajor}).`,
-        code: 'java-version-mismatch',
-        installedVersion: installedMajor,
+
+  // Resolve the Java exe this server should run on. We prefer an exact-major
+  // match — both "too old" and "too new" Java break specific Forge builds
+  // (e.g. Java 25 + Forge 1.20.1 = mixin transformer crashes). If we don't
+  // have the right major locally yet, download it from Adoptium into the
+  // managed pool. Progress streams to the server console so the user sees
+  // what's happening on first start.
+  const resolved = resolveJavaForServer(serverConfig);
+  if (resolved.path) {
+    serverJavaPaths[id] = resolved.path;
+  } else if (!allowMismatch) {
+    const requiredMajor = resolved.requiredMajor;
+    // Stream progress into the server's console buffer so it shows up in the UI.
+    activeLogs[id] = activeLogs[id] || [];
+    const pushLog = (line) => {
+      activeLogs[id].push(line);
+      if (activeLogs[id].length > 500) activeLogs[id].shift();
+      io.emit(`console_${id}`, line);
+    };
+    pushLog(`[MineDash] Auto-installing Java ${requiredMajor} for Minecraft ${serverConfig.version}...\n`);
+    let lastReportedPct = -1;
+    try {
+      const installedPath = await ensureManagedJavaSingleFlight(requiredMajor, (p) => {
+        if (p.phase === 'metadata') {
+          pushLog(`[MineDash] Looking up the latest Java ${requiredMajor} on Adoptium...\n`);
+        } else if (p.phase === 'download') {
+          // Throttle: log every 10% so the console doesn't get flooded.
+          if (typeof p.percent === 'number' && p.percent - lastReportedPct >= 10) {
+            lastReportedPct = p.percent;
+            const mb = p.total ? ` (${Math.round(p.downloaded / 1024 / 1024)}/${Math.round(p.total / 1024 / 1024)} MB)` : '';
+            pushLog(`[MineDash] Downloading Java ${requiredMajor}: ${p.percent}%${mb}\n`);
+          }
+        } else if (p.phase === 'extract') {
+          pushLog(`[MineDash] Extracting Java ${requiredMajor}...\n`);
+        } else if (p.phase === 'done') {
+          pushLog(`[MineDash] Java ${requiredMajor} installed.\n`);
+        }
+      });
+      serverJavaPaths[id] = installedPath;
+    } catch (err) {
+      pushLog(`[MineDash] Auto-install of Java ${requiredMajor} failed: ${err.message}\n`);
+      // Fall back to the system Java so the user can at least try with what
+      // they have (the JavaSetupModal's "I know what I'm doing" path).
+      return res.status(500).json({
+        error: `Couldn't install Java ${requiredMajor}: ${err.message}`,
+        code: 'java-install-failed',
         requiredMajor,
         mcVersion: serverConfig.version,
       });
     }
+  } else {
+    // allowMismatch=true and we don't have a managed match — fall back to
+    // whatever system Java is on PATH. Old behavior.
+    serverJavaPaths[id] = getJavaPath();
   }
 
   const serverPath = path.join(INSTANCES_DIR, id);
@@ -2022,7 +2456,7 @@ app.post('/api/servers/:id/start', async (req, res) => {
   // Start auto-backup interval if configured
   startAutoBackupInterval(id, serverConfig);
 
-  res.json({ message: 'Server started' });
+  res.json({ message: 'Server started', javaPath: serverJavaPaths[id] });
 });
 
 app.post('/api/servers/:id/stop', async (req, res) => {
@@ -2333,7 +2767,10 @@ async function fileSha1(filePath) {
   });
 }
 
-// Look up a mod on Modrinth by file hash. Returns { iconUrl, title, projectId } or null.
+// Look up a mod on Modrinth by file hash. Returns { iconUrl, title, projectId, clientSide,
+// serverSide, gameVersions, loaders } or null. clientSide/serverSide come from the project
+// (constant across versions); gameVersions/loaders describe the exact installed jar so we
+// can flag a mod as incompatible with the current MC version or loader.
 async function lookupModrinthByHash(sha1) {
   try {
     const headers = { 'User-Agent': 'MineDash/1.0 mod-icon-resolver' };
@@ -2352,6 +2789,10 @@ async function lookupModrinthByHash(sha1) {
       iconUrl: projRes.data?.icon_url || null,
       title: projRes.data?.title || null,
       projectId,
+      clientSide: projRes.data?.client_side || null,
+      serverSide: projRes.data?.server_side || null,
+      gameVersions: Array.isArray(versionRes.data?.game_versions) ? versionRes.data.game_versions : [],
+      loaders: Array.isArray(versionRes.data?.loaders) ? versionRes.data.loaders : [],
     };
   } catch (_) {
     return null;
@@ -2365,7 +2806,11 @@ async function enrichModMetadata(modsPath, meta, jarFiles) {
   for (const f of jarFiles) {
     const base = f.replace(/\.disabled$/, '');
     const existing = meta[base];
-    if (existing && (existing.iconUrl || existing.lookedUp)) continue;
+    // Skip if already enriched. Older entries (before the side/version fields were
+    // captured) may have `lookedUp: true` but no `clientSide` key — re-look those
+    // up so the new "client-only" and "wrong version" detection has data to work with.
+    const hasSideInfo = existing && Object.prototype.hasOwnProperty.call(existing, 'clientSide');
+    if (existing && (existing.iconUrl || existing.lookedUp) && hasSideInfo) continue;
     tasks.push((async () => {
       try {
         const sha1 = await fileSha1(path.join(modsPath, f));
@@ -2375,6 +2820,10 @@ async function enrichModMetadata(modsPath, meta, jarFiles) {
           iconUrl: info?.iconUrl || null,
           title: info?.title || existing?.title || null,
           projectId: info?.projectId || existing?.projectId || null,
+          clientSide: info?.clientSide || existing?.clientSide || null,
+          serverSide: info?.serverSide || existing?.serverSide || null,
+          gameVersions: info?.gameVersions || existing?.gameVersions || [],
+          loaders: info?.loaders || existing?.loaders || [],
           lookedUp: true,
         };
       } catch (_) {
@@ -2386,6 +2835,37 @@ async function enrichModMetadata(modsPath, meta, jarFiles) {
   await Promise.allSettled(tasks);
   try { await writeModMetadata(modsPath, meta); } catch (_) {}
   return true;
+}
+
+// Compute issue flags for a single mod, given its metadata and the server's MC version + loader.
+// Returns { clientOnly, wrongVersion, wrongLoader }. Each flag is set only when we have enough
+// data to be confident — a mod with no Modrinth match doesn't get flagged as wrong-version
+// just because we don't know its game_versions.
+function computeModIssues(filename, meta, serverMcVersion, serverLoader) {
+  const baseName = filename.replace(/\.disabled$/, '');
+  const m = meta || {};
+  let clientOnly = false;
+  // Modrinth project says it can't run on a server.
+  if (m.serverSide === 'unsupported') clientOnly = true;
+  // Or it's required on the client but not the server.
+  if (m.clientSide === 'required' && m.serverSide !== 'required' && m.serverSide !== 'optional') clientOnly = true;
+  // Fall back to the well-known filename deny-list (Oculus, Sodium, Iris, …).
+  if (!clientOnly && isClientOnlyModFilename(baseName)) clientOnly = true;
+
+  // Wrong-version / wrong-loader checks only when Modrinth gave us version info.
+  let wrongVersion = false;
+  let wrongLoader = false;
+  if (Array.isArray(m.gameVersions) && m.gameVersions.length > 0 && serverMcVersion) {
+    if (!m.gameVersions.includes(serverMcVersion)) wrongVersion = true;
+  }
+  if (Array.isArray(m.loaders) && m.loaders.length > 0 && serverLoader) {
+    // 'datapack' / 'minecraft' / 'iris' etc. are not real server loaders — skip if the mod
+    // doesn't claim ANY of the standard server loaders (likely a datapack-style jar).
+    const realLoaders = m.loaders.filter(l => ['forge', 'neoforge', 'fabric', 'quilt'].includes(l));
+    if (realLoaders.length > 0 && !realLoaders.includes(serverLoader)) wrongLoader = true;
+  }
+
+  return { clientOnly, wrongVersion, wrongLoader };
 }
 
 // Mods Endpoints
@@ -2403,17 +2883,28 @@ app.get('/api/servers/:id/mods', async (req, res) => {
     // Cached permanently in .minedash-mods.json so this only runs once per mod.
     await enrichModMetadata(modsPath, meta, jarFiles);
 
+    const servers = await getServers();
+    const cfg = servers.find(s => s.id === id);
+    const serverMcVersion = cfg?.version || null;
+    const loaderMap = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
+    const serverLoader = loaderMap[cfg?.type] || null;
+
     const mods = jarFiles.map(f => {
       const stats = fs.statSync(path.join(modsPath, f));
       const isDisabled = f.endsWith('.disabled');
       const baseKey = isDisabled ? f.replace(/\.disabled$/, '') : f;
       const m = meta[baseKey] || {};
+      const issues = computeModIssues(f, m, serverMcVersion, serverLoader);
       return {
         name: f,
         displayName: m.title || (isDisabled ? f.replace('.disabled', '') : f),
         enabled: !isDisabled,
         size: (stats.size / (1024 * 1024)).toFixed(2) + ' MB',
         iconUrl: m.iconUrl || null,
+        projectId: m.projectId || null,
+        clientOnly: issues.clientOnly,
+        wrongVersion: issues.wrongVersion,
+        wrongLoader: issues.wrongLoader,
       };
     });
     res.json(mods);
@@ -2528,30 +3019,192 @@ app.delete('/api/servers/:id/mods/:modName', async (req, res) => {
   }
 });
 
-app.post('/api/servers/:id/mods/upload', upload.single('modFile'), async (req, res) => {
+// Move every client-only mod out of mods/ into the client-mods stash. Non-destructive —
+// the user can restore by hand from .minedash-client-mods/ if anything was a false positive.
+app.post('/api/servers/:id/mods/clean-client-only', async (req, res) => {
   const { id } = req.params;
   const serverPath = path.join(INSTANCES_DIR, id);
   const modsPath = path.join(serverPath, 'mods');
-  
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  try {
+    if (!await fs.pathExists(modsPath)) return res.json({ moved: [] });
+
+    const servers = await getServers();
+    const cfg = servers.find(s => s.id === id);
+    const meta = await readModMetadata(modsPath);
+    const files = (await fs.readdir(modsPath)).filter(f => f.endsWith('.jar') || f.endsWith('.jar.disabled'));
+    // Refresh metadata so newly-installed mods get flagged correctly.
+    await enrichModMetadata(modsPath, meta, files);
+
+    const loaderMap = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
+    const serverLoader = loaderMap[cfg?.type] || null;
+    const stashDir = clientModsStashDir(serverPath);
+
+    const moved = [];
+    for (const f of files) {
+      const baseKey = f.replace(/\.disabled$/, '');
+      const m = meta[baseKey] || {};
+      const issues = computeModIssues(f, m, cfg?.version || null, serverLoader);
+      if (!issues.clientOnly) continue;
+      try {
+        await fs.ensureDir(stashDir);
+        await fs.move(path.join(modsPath, f), path.join(stashDir, f), { overwrite: true });
+        moved.push(f);
+      } catch (e) {
+        console.warn(`[clean-client-only] couldn't move ${f}:`, e.message);
+      }
+    }
+    res.json({ moved });
+  } catch (err) {
+    console.error('[clean-client-only] failed:', err);
+    res.status(500).json({ error: err.message || 'Failed to clean client-only mods' });
+  }
+});
+
+// For every mod marked wrongVersion / wrongLoader, look up a compatible version on Modrinth
+// for the server's MC + loader, delete the old jar, and install the replacement.
+// Returns { repaired: [...], failed: [...] }.
+app.post('/api/servers/:id/mods/repair-versions', async (req, res) => {
+  const { id } = req.params;
+  const serverPath = path.join(INSTANCES_DIR, id);
+  const modsPath = path.join(serverPath, 'mods');
+  try {
+    if (!await fs.pathExists(modsPath)) return res.json({ repaired: [], failed: [] });
+
+    const servers = await getServers();
+    const cfg = servers.find(s => s.id === id);
+    if (!cfg) return res.status(404).json({ error: 'Server not found' });
+
+    const meta = await readModMetadata(modsPath);
+    const files = (await fs.readdir(modsPath)).filter(f => f.endsWith('.jar') || f.endsWith('.jar.disabled'));
+    await enrichModMetadata(modsPath, meta, files);
+
+    const loaderMap = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
+    const serverLoader = loaderMap[cfg.type];
+    const gameVersion = cfg.version;
+    if (!serverLoader || !gameVersion) {
+      return res.status(400).json({ error: 'Server has no loader/version set' });
+    }
+
+    const repaired = [];
+    const failed = [];
+
+    for (const f of files) {
+      const baseKey = f.replace(/\.disabled$/, '');
+      const m = meta[baseKey] || {};
+      const issues = computeModIssues(f, m, gameVersion, serverLoader);
+      if (!issues.wrongVersion && !issues.wrongLoader) continue;
+      if (!m.projectId) {
+        failed.push({ filename: f, reason: 'Not on Modrinth — replace manually' });
+        continue;
+      }
+      try {
+        const vParams = new URLSearchParams();
+        vParams.set('game_versions', JSON.stringify([gameVersion]));
+        vParams.set('loaders', JSON.stringify([serverLoader]));
+        const vRes = await fetch(`${MODRINTH_API}/project/${m.projectId}/version?${vParams}`, { headers: MODRINTH_HEADERS });
+        if (!vRes.ok) { failed.push({ filename: f, reason: 'Modrinth lookup failed' }); continue; }
+        const versions = await vRes.json();
+        if (!Array.isArray(versions) || versions.length === 0) {
+          failed.push({ filename: f, reason: `No version compatible with ${serverLoader} ${gameVersion}` });
+          continue;
+        }
+        const best = pickBestModrinthVersion(versions);
+        if (!best) { failed.push({ filename: f, reason: 'No version returned' }); continue; }
+        const file = best.files.find(x => x.primary) || best.files[0];
+        if (!file) { failed.push({ filename: f, reason: 'No primary file in version' }); continue; }
+
+        // Skip if the "new" file is the same as the old one (defensive — shouldn't happen
+        // since we only got here because issues are flagged, but a malformed metadata
+        // entry could trick us).
+        if (file.filename === baseKey) {
+          failed.push({ filename: f, reason: 'Already on the correct version' });
+          continue;
+        }
+
+        const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+        if (!dlRes.ok) { failed.push({ filename: f, reason: `Download failed (${dlRes.status})` }); continue; }
+        const buf = Buffer.from(await dlRes.arrayBuffer());
+
+        // Remove the broken jar (preserving disabled state by carrying it over to the
+        // replacement) and write the new one. Drop the old metadata key so we re-enrich
+        // the new filename on next GET.
+        const newFilename = f.endsWith('.disabled') ? file.filename + '.disabled' : file.filename;
+        await fs.remove(path.join(modsPath, f));
+        await fs.writeFile(path.join(modsPath, newFilename), buf);
+        delete meta[baseKey];
+        meta[file.filename] = {
+          iconUrl: m.iconUrl || null,
+          title: m.title || null,
+          projectId: m.projectId,
+          clientSide: m.clientSide || null,
+          // serverSide may change between versions in theory; clear it so enrichment
+          // re-fetches the project record next time.
+        };
+        repaired.push({ from: f, to: newFilename, title: m.title || file.filename });
+      } catch (err) {
+        failed.push({ filename: f, reason: err.message });
+      }
+    }
+
+    if (repaired.length > 0) await writeModMetadata(modsPath, meta);
+    res.json({ repaired, failed });
+  } catch (err) {
+    console.error('[repair-versions] failed:', err);
+    res.status(500).json({ error: err.message || 'Failed to repair mod versions' });
+  }
+});
+
+// Multer's .array('modFile', 50) accepts multiple files appended under the
+// same field name (what FormData does when you append more than once). A
+// single-file call still works — req.files becomes a 1-element array. The
+// modpack-extract path remains single-file because extracting two zips into
+// the same dir would interleave their overrides unpredictably.
+app.post('/api/servers/:id/mods/upload', upload.array('modFile', 50), async (req, res) => {
+  const { id } = req.params;
+  const serverPath = path.join(INSTANCES_DIR, id);
+  const modsPath = path.join(serverPath, 'mods');
+  const files = req.files || [];
+  if (files.length === 0) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
     await fs.ensureDir(modsPath);
-    const destPath = path.join(modsPath, req.file.originalname);
-    
-    // If it's a modpack zip, extract it into root server dir
-    if (req.file.originalname.endsWith('.zip') && req.body.isModpack === 'true') {
-      await extract(req.file.path, { dir: serverPath });
-      await fs.remove(req.file.path);
+
+    // Modpack extraction stays single-file — multi-zip would scramble overrides.
+    if (req.body.isModpack === 'true') {
+      if (files.length !== 1 || !files[0].originalname.endsWith('.zip')) {
+        for (const f of files) await fs.remove(f.path).catch(() => {});
+        return res.status(400).json({ error: 'Modpack import accepts exactly one .zip file' });
+      }
+      await extract(files[0].path, { dir: serverPath });
+      await fs.remove(files[0].path);
       return res.json({ message: 'Modpack extracted successfully' });
-    } else {
-      // Just a normal mod jar/zip
-      await fs.move(req.file.path, destPath, { overwrite: true });
-      res.json({ message: 'Mod uploaded successfully' });
     }
+
+    // Per-file move with partial-success reporting so the UI can say e.g.
+    // "12 mods uploaded, 1 failed" instead of failing the whole batch on
+    // one bad file. Names matter on the server side because pre-existing
+    // mods with the same filename get overwritten — intentional, the
+    // common case is replacing a mod jar with a new version.
+    const installed = [];
+    const failed = [];
+    for (const f of files) {
+      try {
+        await fs.move(f.path, path.join(modsPath, f.originalname), { overwrite: true });
+        installed.push(f.originalname);
+      } catch (err) {
+        failed.push({ filename: f.originalname, reason: err.message });
+        await fs.remove(f.path).catch(() => {});
+      }
+    }
+    res.status(failed.length === 0 ? 200 : 207).json({
+      message: `${installed.length} file(s) uploaded${failed.length ? `, ${failed.length} failed` : ''}`,
+      installed,
+      failed,
+    });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Upload failed' });
+    for (const f of files) await fs.remove(f.path).catch(() => {});
+    res.status(500).json({ error: 'Upload failed: ' + (error.message || error) });
   }
 });
 
@@ -3116,12 +3769,8 @@ async function resolveAndInstallDeps(depProjectIds, gameVersion, loader, modsPat
       const versions = await vRes.json();
       if (!Array.isArray(versions) || versions.length === 0) continue;
 
-      // Prefer release > beta > alpha
-      const sorted = [...versions].sort((a, b) => {
-        const p = { release: 0, beta: 1, alpha: 2 };
-        return (p[a.version_type] || 3) - (p[b.version_type] || 3);
-      });
-      const best = sorted[0];
+      const best = pickBestModrinthVersion(versions);
+      if (!best) continue;
       const file = best.files.find(f => f.primary) || best.files[0];
       if (!file) continue;
 
@@ -3269,12 +3918,17 @@ app.post('/api/servers/:serverId/open-folder', async (req, res) => {
 // ───────────────────────────────────────────────────────────────────────────────
 
 // Install a modpack from Modrinth — downloads .mrpack, parses manifest, installs all mods
-app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => {
-  const { serverId } = req.params;
-  const { url, filename } = req.body;
+// Emit a progress event on the per-session channel. Same shape the launcher
+// modpack installer uses (event: status|progress|done|error), so the frontend
+// install-progress UI can read either source with the same handler.
+function emitServerModpack(sessionId, event, data = {}) {
+  if (sessionId) io.emit(`modpack_install_${sessionId}`, { event, ...data });
+}
 
-  if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
-
+// Run the actual mrpack download + install. Pulled out of the request handler
+// so the handler can return a sessionId immediately and the install can stream
+// progress over the socket while the user watches a fill bar.
+async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
   const serverDir = path.join(INSTANCES_DIR, serverId);
   const modsPath = path.join(serverDir, 'mods');
   const tempPath = path.join(serverDir, '_temp_modpack.mrpack');
@@ -3282,54 +3936,66 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
   try {
     await fs.ensureDir(modsPath);
 
-    // 1. Download the .mrpack file
+    emitServerModpack(sessionId, 'status', { message: 'Downloading modpack…' });
     const response = await fetch(url, { headers: MODRINTH_HEADERS });
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
     const buffer = Buffer.from(await response.arrayBuffer());
     await fs.writeFile(tempPath, buffer);
 
-    // 2. Read the zip and parse the manifest
     const zip = new AdmZip(tempPath);
     const manifestEntry = zip.getEntry('modrinth.index.json');
     if (!manifestEntry) throw new Error('Invalid modpack: no modrinth.index.json found');
-
     const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
     const files = manifest.files || [];
 
-    // 3. Download all mod files from the manifest.
-    // Use downloadFromAny so we try every mirror in f.downloads[] (Modrinth lists
-    // multiple) rather than giving up the moment the first CDN URL 404s, and
-    // safeJoin to block traversal entries like "../../../etc/passwd".
-    // Same client-mod filtering rules as POST /api/servers/from-modpack —
-    // see that endpoint for the full rationale. The short version: env-flag
-    // check covers the common-correct case, the filename deny-list catches
-    // packs that mis-tag client mods OR ship them in overrides/mods/.
+    // Pre-filter the file list so the progress total reflects what we'll
+    // actually attempt — anything obviously broken (no downloads / bad path)
+    // is dropped before we start counting toward the total.
+    const eligible = files.filter(f => Array.isArray(f.downloads) && f.downloads.length > 0);
+    const overrideEntries = zip.getEntries().filter(e =>
+      !e.isDirectory &&
+      (e.entryName.startsWith('overrides/') || e.entryName.startsWith('server-overrides/'))
+    );
+    const clientOverrideEntries = zip.getEntries().filter(e =>
+      !e.isDirectory && e.entryName.startsWith('client-overrides/')
+    );
+
+    const total = eligible.length + overrideEntries.length + clientOverrideEntries.length;
+    let done = 0;
     let installed = 0;
     let failed = 0;
     let skippedClient = 0;
     let clientStashed = 0;
-    // Stash a client-only mod and bump the counter — silent on failure (per-mod
-    // failure shouldn't fail the whole modpack install).
+
+    const tick = (msg) => {
+      done++;
+      emitServerModpack(sessionId, 'progress', { task: done, total, message: msg });
+    };
+
+    emitServerModpack(sessionId, 'status', { message: 'Downloading mods…' });
+    emitServerModpack(sessionId, 'progress', { task: 0, total });
+
+    // Same client-mod filtering rules as POST /api/servers/from-modpack —
+    // env-flag check first, filename deny-list as a belt-and-braces catch.
     const stash = async (file, relPath) => {
       if (await stashClientModFromUrls(serverDir, relPath, file.downloads)) clientStashed++;
     };
-    for (const file of files) {
-      if (!Array.isArray(file.downloads) || file.downloads.length === 0) { failed++; continue; }
+    for (const file of eligible) {
       const env = file.env || {};
       if (env.server === 'unsupported') {
         if (env.client === 'required') await stash(file, file.path);
-        continue;
+        tick(file.path); continue;
       }
       if (env.client === 'required' && env.server !== 'required') {
         skippedClient++;
         await stash(file, file.path);
-        continue;
+        tick(file.path); continue;
       }
       const rel = String(file.path || '').replace(/\\/g, '/');
       if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
         skippedClient++;
         await stash(file, file.path);
-        continue;
+        tick(file.path); continue;
       }
 
       let destFile;
@@ -3337,7 +4003,7 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
         destFile = safeJoin(serverDir, file.path);
       } catch (e) {
         console.error(`Refusing unsafe modpack path: ${file.path}`);
-        failed++; continue;
+        failed++; tick(file.path); continue;
       }
 
       try {
@@ -3347,62 +4013,68 @@ app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => 
         console.error(`Failed to download ${file.path}:`, e.message);
         failed++;
       }
+      tick(file.path);
     }
 
-    // 4. Extract overrides (config files, etc.) — safeJoin to block traversal.
-    // overrides/mods/ also goes through the client-mod deny-list because the
-    // Oculus-jar-in-overrides case is the #1 cause of dedicated-server crashes
-    // after a modpack install.
-    const overrideEntries = zip.getEntries().filter(e =>
-      e.entryName.startsWith('overrides/') || e.entryName.startsWith('server-overrides/')
-    );
+    if (overrideEntries.length > 0) {
+      emitServerModpack(sessionId, 'status', { message: 'Extracting overrides…' });
+    }
     for (const entry of overrideEntries) {
-      if (entry.isDirectory) continue;
       const relativePath = entry.entryName.replace(/^(overrides|server-overrides)\//, '');
-      if (!relativePath) continue;
+      if (!relativePath) { tick(entry.entryName); continue; }
       const relNorm = relativePath.replace(/\\/g, '/');
       if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
         skippedClient++;
         if (await stashClientModFromZipEntry(serverDir, entry, relNorm)) clientStashed++;
-        continue;
+        tick(entry.entryName); continue;
       }
-      let destFile;
-      try { destFile = safeJoin(serverDir, relativePath); }
-      catch { continue; }
-      await fs.ensureDir(path.dirname(destFile));
-      await fs.writeFile(destFile, entry.getData());
+      try {
+        const destFile = safeJoin(serverDir, relativePath);
+        await fs.ensureDir(path.dirname(destFile));
+        await fs.writeFile(destFile, entry.getData());
+      } catch { /* skipped — counted as 'done' below either way */ }
+      tick(entry.entryName);
     }
 
-    // Also pull anything under client-overrides/mods/ into the stash so the
-    // client gets the configs/jars the pack author meant only for that side.
-    for (const entry of zip.getEntries()) {
-      if (entry.isDirectory) continue;
-      if (!entry.entryName.startsWith('client-overrides/')) continue;
+    if (clientOverrideEntries.length > 0) {
+      emitServerModpack(sessionId, 'status', { message: 'Stashing client-only files…' });
+    }
+    for (const entry of clientOverrideEntries) {
       const rel = entry.entryName.slice('client-overrides/'.length);
       const relNorm = rel.replace(/\\/g, '/');
-      if (!relNorm.startsWith('mods/')) continue;
-      if (await stashClientModFromZipEntry(serverDir, entry, relNorm)) clientStashed++;
+      if (relNorm.startsWith('mods/')) {
+        if (await stashClientModFromZipEntry(serverDir, entry, relNorm)) clientStashed++;
+      }
+      tick(entry.entryName);
     }
 
-    // 5. Cleanup temp file
-    await fs.remove(tempPath);
-
-    res.json({
-      message: 'Modpack installed',
+    await fs.remove(tempPath).catch(() => {});
+    emitServerModpack(sessionId, 'done', {
       installed,
       failed,
       total: files.length,
-      // How many client-only mods we filtered out so the user gets a "we did
-      // this on purpose" signal rather than wondering why the count's short.
       skippedClientOnly: skippedClient,
-      // Of those, how many we successfully stashed for client-side install.
       clientModsStashed: clientStashed,
     });
   } catch (error) {
     console.error('Modpack install error:', error);
     await fs.remove(tempPath).catch(() => {});
-    res.status(500).json({ error: 'Failed to install modpack: ' + error.message });
+    emitServerModpack(sessionId, 'error', { message: error.message || 'Modpack install failed' });
   }
+}
+
+app.post('/api/servers/:serverId/modpack/install-modrinth', async (req, res) => {
+  const { serverId } = req.params;
+  const { url, filename } = req.body;
+  if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
+
+  const sessionId = crypto.randomUUID();
+  res.json({ sessionId });
+
+  // Run in the background so the response returns immediately and the UI can
+  // start subscribing to progress events. Any thrown error is reported as a
+  // socket `error` event from inside runServerModpackInstall.
+  runServerModpackInstall({ sessionId, serverId, url, filename });
 });
 
 // Shutdown Endpoint

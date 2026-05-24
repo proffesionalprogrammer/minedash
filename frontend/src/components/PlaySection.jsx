@@ -14,7 +14,7 @@ const LOADERS = [
   { key: 'neoforge', label: 'NeoForge', icon: FlaskConical },
 ];
 
-export default function PlaySection({ servers, socket, initialServerId, accounts, activeAccountId, settings, installedProfiles, onProfilesChanged, onError, launchSession }) {
+export default function PlaySection({ servers, socket, initialServerId, accounts, activeAccountId, settings, installedProfiles, onProfilesChanged, onError, launchSession, modpackInstalls }) {
   const [loader, setLoader] = useState('vanilla');
   const [versions, setVersions] = useState([]);
   const [version, setVersion] = useState('');
@@ -407,8 +407,8 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
           statusText={statusText}
           fileCount={fileCount}
           idleLabel={activeAccount ? `Play as ${activeAccount.username}` : 'Play'}
-          disabled={!canLaunch && phase !== 'running'}
-          onClick={phase === 'running' ? cancel : handleLaunch}
+          disabled={(!canLaunch && phase !== 'running') || phase === 'cancelling'}
+          onClick={phase === 'running' ? cancel : (phase === 'cancelling' ? () => {} : handleLaunch)}
         />
       </div>
 
@@ -422,6 +422,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
             socket={socket}
             onClose={() => setContentOpen(false)}
             onError={onError}
+            modpackInstalls={modpackInstalls}
           />
         )}
       </AnimatePresence>

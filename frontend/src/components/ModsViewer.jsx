@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, Database, Check, CheckSquare, Square, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react';
+import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, Database, Check, CheckSquare, Square, ToggleLeft, ToggleRight, Loader2, AlertTriangle, Monitor, Wrench } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModrinthBrowser from './ModrinthBrowser';
 import ModalPortal from './ModalPortal';
 
-function ModsViewer({ serverId, serverVersion, serverType, onError }) {
+function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modpackInstalls }) {
   const [viewMode, setViewMode] = useState('installed');
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,6 +16,12 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
   const fileInputRef = useRef(null);
 
   const [exporting, setExporting] = useState(false);
+
+  // Cleanup-action state for the "Issues detected" banner.
+  const [cleaning, setCleaning] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [cleanResult, setCleanResult] = useState(null); // { moved: string[] } | null
+  const [repairResult, setRepairResult] = useState(null); // { repaired, failed } | null
 
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
@@ -150,6 +156,39 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
     setDeleteTarget(null);
   };
 
+  // ── Bulk repair actions ────────────────────────────────────────────────────
+  const handleCleanClientOnly = async () => {
+    if (cleaning) return;
+    setCleaning(true);
+    setCleanResult(null);
+    try {
+      const res = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/clean-client-only`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to clean client mods');
+      setCleanResult(data);
+      fetchMods();
+    } catch (err) {
+      if (onError) onError(err.message);
+    }
+    setCleaning(false);
+  };
+
+  const handleRepairVersions = async () => {
+    if (repairing) return;
+    setRepairing(true);
+    setRepairResult(null);
+    try {
+      const res = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/repair-versions`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to repair mod versions');
+      setRepairResult(data);
+      fetchMods();
+    } catch (err) {
+      if (onError) onError(err.message);
+    }
+    setRepairing(false);
+  };
+
   const handleExportZip = () => {
     if (exporting || mods.length === 0) return;
     setExporting(true);
@@ -159,13 +198,20 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
   };
 
   const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.name.endsWith('.zip')) setModpackFile(file);
-    else uploadFile(file, false);
+    const files = Array.from(e.target.files || []);
     e.target.value = '';
+    if (files.length === 0) return;
+    // Single zip → still ask whether to extract as a modpack. For anything
+    // else (jars, or multiple files), batch-upload them straight into mods/.
+    if (files.length === 1 && files[0].name.endsWith('.zip')) {
+      setModpackFile(files[0]);
+      return;
+    }
+    uploadFiles(files);
   };
 
+  // Single-file upload kept for the modpack-extract path, which the backend
+  // refuses to do for more than one file (overrides would interleave).
   const uploadFile = async (file, isModpack) => {
     const formData = new FormData();
     formData.append('modFile', file);
@@ -183,6 +229,66 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
     }
   };
 
+  // Multi-file upload — used by the file picker (when more than one is
+  // selected) AND by the drag-and-drop overlay. Sends all files in one
+  // request; the backend reports per-file success/failure so a single bad
+  // file doesn't fail the whole batch.
+  const uploadFiles = async (fileList) => {
+    const list = Array.from(fileList || []).filter(Boolean);
+    if (list.length === 0) return;
+    const formData = new FormData();
+    for (const f of list) formData.append('modFile', f);
+    try {
+      setLoading(true);
+      const res = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok && res.status !== 207) throw new Error(data.error || 'Upload failed');
+      if (Array.isArray(data.failed) && data.failed.length > 0) {
+        const f = data.failed[0];
+        if (onError) onError(`${f.filename}: ${f.reason}${data.failed.length > 1 ? ` (+${data.failed.length - 1} more)` : ''}`);
+      }
+      fetchMods();
+    } catch (err) {
+      console.error(err);
+      if (onError) onError(err.message);
+      setLoading(false);
+    }
+  };
+
+  // ── Drag-and-drop on the panel — works whether the user is on the
+  // Installed view, Browse, or anywhere else within ModsViewer. Counter-based
+  // depth tracking (rather than a bool) keeps the overlay from flickering as
+  // the cursor passes over child elements.
+  const [dragDepth, setDragDepth] = useState(0);
+  const dragActive = dragDepth > 0;
+  const handleDragEnter = (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    setDragDepth(d => d + 1);
+  };
+  const handleDragOver = (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragDepth(d => Math.max(0, d - 1));
+  };
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setDragDepth(0);
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    // Single .zip → treat as a modpack candidate (existing behaviour).
+    // Anything else → multi-upload straight into mods/.
+    if (files.length === 1 && files[0].name.endsWith('.zip')) {
+      setModpackFile(files[0]);
+      return;
+    }
+    await uploadFiles(files);
+  };
+
   const filteredMods = mods.filter(m => {
     const matchesSearch = (m.displayName || m.name).toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || (statusFilter === 'enabled' ? m.enabled : !m.enabled);
@@ -193,9 +299,34 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
   const disabledCount = mods.filter(m => !m.enabled).length;
   const canEnableSelected = filteredMods.some(m => selected.has(m.name) && !m.enabled);
   const canDisableSelected = filteredMods.some(m => selected.has(m.name) && m.enabled);
+  const clientOnlyCount = mods.filter(m => m.clientOnly).length;
+  const wrongVersionCount = mods.filter(m => (m.wrongVersion || m.wrongLoader) && !m.clientOnly).length;
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden relative">
+    <div
+      className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden relative"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay — same shape as the launcher's so the experience is
+          consistent across launcher and server panels. */}
+      <AnimatePresence>
+        {dragActive && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#00AF5C]/10 backdrop-blur-sm border-2 border-dashed border-[#00AF5C] rounded-2xl pointer-events-none"
+          >
+            <Upload size={36} className="text-[#00AF5C] mb-2" />
+            <p className="text-sm font-bold text-white">Drop to upload</p>
+            <p className="text-xs text-[#A0A0A0] mt-1">.jar mods · single .zip modpack · multiple files OK</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Single Delete Confirmation */}
       <AnimatePresence>
@@ -349,7 +480,7 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
                 </button>
               ))}
             </div>
-            <input type="file" ref={fileInputRef} className="hidden" accept=".jar,.zip" onChange={handleFileSelect} />
+            <input type="file" ref={fileInputRef} className="hidden" multiple accept=".jar,.zip" onChange={handleFileSelect} />
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               onClick={handleExportZip}
               disabled={exporting || mods.length === 0}
@@ -371,18 +502,97 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
       {/* Content */}
       {viewMode === 'browse' ? (
         <div className="flex-1 overflow-hidden p-4 flex flex-col">
-          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} onInstalled={fetchMods} projectType="mod" />
+          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="mod" modpackInstalls={modpackInstalls} />
         </div>
       ) : viewMode === 'modpacks' ? (
         <div className="flex-1 overflow-hidden p-4 flex flex-col">
-          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} onInstalled={fetchMods} projectType="modpack" />
+          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="modpack" modpackInstalls={modpackInstalls} />
         </div>
       ) : viewMode === 'datapacks' ? (
         <div className="flex-1 overflow-hidden p-4 flex flex-col">
-          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} onInstalled={fetchMods} projectType="datapack" />
+          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="datapack" modpackInstalls={modpackInstalls} />
         </div>
       ) : (
         <>
+          {/* Issues banner — only when there's something to act on */}
+          {(clientOnlyCount > 0 || wrongVersionCount > 0) && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mx-4 mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-3"
+            >
+              <div className="p-2 bg-amber-500/15 rounded-xl flex-shrink-0">
+                <AlertTriangle size={18} className="text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">
+                  {clientOnlyCount > 0 && (
+                    <>{clientOnlyCount} client-only mod{clientOnlyCount !== 1 ? 's' : ''} would crash the server</>
+                  )}
+                  {clientOnlyCount > 0 && wrongVersionCount > 0 && <span className="text-[#A0A0A0]"> · </span>}
+                  {wrongVersionCount > 0 && (
+                    <>{wrongVersionCount} mod{wrongVersionCount !== 1 ? 's are' : ' is'} on the wrong version/loader</>
+                  )}
+                </p>
+                <p className="text-xs text-[#A0A0A0] mt-0.5">
+                  {clientOnlyCount > 0 && 'Client-only mods will be moved to the client stash.'}
+                  {clientOnlyCount > 0 && wrongVersionCount > 0 && ' '}
+                  {wrongVersionCount > 0 && 'Wrong-version mods will be replaced with a compatible build from Modrinth.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {clientOnlyCount > 0 && (
+                  <motion.button
+                    whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                    onClick={handleCleanClientOnly}
+                    disabled={cleaning}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                  >
+                    {cleaning ? <Loader2 size={14} className="animate-spin" /> : <Monitor size={14} />}
+                    {cleaning ? 'Cleaning…' : 'Clean client mods'}
+                  </motion.button>
+                )}
+                {wrongVersionCount > 0 && (
+                  <motion.button
+                    whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                    onClick={handleRepairVersions}
+                    disabled={repairing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C]/15 hover:bg-[#00AF5C]/25 text-[#00AF5C] border border-[#00AF5C]/30 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                  >
+                    {repairing ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} />}
+                    {repairing ? 'Repairing…' : 'Repair versions'}
+                  </motion.button>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Result toast (from a recently-completed clean / repair) */}
+          {cleanResult && cleanResult.moved && (
+            <div className="mx-4 mt-2 px-3 py-2 text-xs text-[#A0A0A0] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+              {cleanResult.moved.length === 0
+                ? 'No client-only mods to move — your mods folder is clean.'
+                : `Moved ${cleanResult.moved.length} client-only mod(s) into the client stash.`}
+            </div>
+          )}
+          {repairResult && (
+            <div className="mx-4 mt-2 px-3 py-2 text-xs text-[#A0A0A0] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+              {repairResult.repaired?.length > 0 && (
+                <p className="text-[#00AF5C] font-bold">Replaced {repairResult.repaired.length} mod(s) with compatible versions.</p>
+              )}
+              {repairResult.failed?.length > 0 && (
+                <p className="mt-1 text-[#FF5555]">
+                  {repairResult.failed.length} couldn't be repaired:{' '}
+                  {repairResult.failed.slice(0, 3).map(f => f.filename).join(', ')}
+                  {repairResult.failed.length > 3 && ` (+${repairResult.failed.length - 3})`}
+                </p>
+              )}
+              {repairResult.repaired?.length === 0 && repairResult.failed?.length === 0 && (
+                <p>No incompatible mods to repair.</p>
+              )}
+            </div>
+          )}
+
           {/* Search bar */}
           <div className="px-6 py-3 border-b border-[#2D2D2D]">
             <div className="relative">
@@ -465,7 +675,27 @@ function ModsViewer({ serverId, serverVersion, serverType, onError }) {
                         </div>
 
                         <div className="min-w-0">
-                          <h4 className="font-bold text-[#FFFFFF] truncate">{mod.displayName || mod.name}</h4>
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                            <h4 className="font-bold text-[#FFFFFF] truncate">{mod.displayName || mod.name}</h4>
+                            {mod.clientOnly && (
+                              <span title="Client-only — will crash a dedicated server"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md flex-shrink-0">
+                                <Monitor size={10} /> Client
+                              </span>
+                            )}
+                            {!mod.clientOnly && mod.wrongVersion && (
+                              <span title="This mod's jar doesn't list this server's Minecraft version as supported"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
+                                <AlertTriangle size={10} /> Wrong version
+                              </span>
+                            )}
+                            {!mod.clientOnly && !mod.wrongVersion && mod.wrongLoader && (
+                              <span title="This jar is built for a different mod loader than the server"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
+                                <AlertTriangle size={10} /> Wrong loader
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-[#A0A0A0] mt-1">{mod.size}</p>
                         </div>
                       </div>

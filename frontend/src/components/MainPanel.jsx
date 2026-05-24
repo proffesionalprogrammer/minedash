@@ -103,7 +103,7 @@ function pushHistory(prev, sample) {
   return next;
 }
 
-function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged, onBack, requestJavaGate }) {
+function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged, onBack, requestJavaGate, modpackInstalls }) {
   const joinSession = useLaunchSession({ socket, settings, onProfilesChanged, onError });
   const handleJoin = () => joinSession.launch({ joinServerId: server.id });
   const launcherSupported = ['vanilla', 'fabric', 'forge', 'neoforge'].includes(server.type);
@@ -741,7 +741,7 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
               <PluginsViewer serverId={server.id} serverVersion={server.version} onError={onError} />
             )}
             {activeTab === 'mods' && !isPaper && !isVanilla && (
-              <ModsViewer serverId={server.id} serverVersion={server.version} serverType={server.type} onError={onError} />
+              <ModsViewer serverId={server.id} serverVersion={server.version} serverType={server.type} socket={socket} onError={onError} modpackInstalls={modpackInstalls} />
             )}
             {activeTab === 'backups' && <BackupsViewer serverId={server.id} server={server} onError={onError} />}
             {activeTab === 'schedule' && <ScheduleViewer serverId={server.id} onError={onError} />}

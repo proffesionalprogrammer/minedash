@@ -31,7 +31,7 @@ const DEFAULT_BAND = [5, 99];
 // subscribes to its progress events. Used by both the global Launcher tab and
 // the per-server Play button.
 export function useLaunchSession({ socket, settings, onProfilesChanged, onError }) {
-  const [phase, setPhase] = useState('idle'); // idle | running | launched | error
+  const [phase, setPhase] = useState('idle'); // idle | running | launched | cancelling | error
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('');
   const [fileCount, setFileCount] = useState({ current: 0, total: 0 });
@@ -39,6 +39,10 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   const handlerRef = useRef(null);
   const launchIdRef = useRef(null);
   const resetTimerRef = useRef(null);
+  // Tracks whether *this launch* hid the window to tray — set on 'launched'
+  // when the "After launching: hide" setting fires, cleared on close. We only
+  // auto-show when we hid; otherwise we'd surprise users who minimised manually.
+  const hidToTrayRef = useRef(false);
 
   useEffect(() => () => {
     clearTimeout(resetTimerRef.current);
@@ -57,15 +61,23 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     launchIdRef.current = null;
   };
 
-  // Stop an active download or kill the running game. Resets the UI immediately
-  // (fire-and-forget to the backend so the button snaps back without waiting).
+  // Stop an active download or kill the running game. Since the launch now
+  // runs in a forked worker subprocess, the backend can SIGKILL it — mclc's
+  // in-flight HTTP download is severed at the TCP layer and cancellation is
+  // effectively instant (the parent gives the worker 2.5s to clean-kill any
+  // sub-children like a NeoForge installer or the JVM, then escalates).
   const cancel = () => {
     const launchId = launchIdRef.current;
-    reset(); // drop the listener and go back to idle right away
-    if (launchId) {
-      fetch(`http://localhost:3001/api/launcher/launch/${launchId}`, { method: 'DELETE' })
-        .catch(() => {});
-    }
+    if (!launchId) { reset(); return; }
+    setPhase('cancelling');
+    setStatusText('Stopping…');
+    fetch(`http://localhost:3001/api/launcher/launch/${launchId}`, { method: 'DELETE' })
+      .catch(() => {});
+    // Safety net in case the backend goes away without ever emitting close
+    // (e.g. parent process crash). 10s is plenty — the normal path is well
+    // under 3s end-to-end.
+    clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(reset, 10000);
   };
 
   // `body` is forwarded as-is to /api/launcher/launch — supports
@@ -122,7 +134,10 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
             // minimize for older builds that haven't reloaded the preload yet.
             const controls = window.electronAPI.windowControls;
             const hide = controls.hideToTray || controls.minimize;
-            if (hide) setTimeout(() => hide(), 1500);
+            if (hide) {
+              hidToTrayRef.current = true;
+              setTimeout(() => hide(), 1500);
+            }
           }
         } else if (event === 'error') {
           setPhase('error');
@@ -131,6 +146,14 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           clearTimeout(resetTimerRef.current);
           resetTimerRef.current = setTimeout(reset, 4000);
         } else if (event === 'close') {
+          // Game (or cancelled launch) exited — bring MineDash back into view
+          // if we hid it. Skip on `code === 'cancelled'` so the user sees their
+          // already-visible MineDash window stay put after they hit Stop.
+          if (hidToTrayRef.current && payload.code !== 'cancelled') {
+            const show = window.electronAPI?.windowControls?.showFromTray;
+            if (show) try { show(); } catch {}
+          }
+          hidToTrayRef.current = false;
           reset();
         }
       };

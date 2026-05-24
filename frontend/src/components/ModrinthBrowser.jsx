@@ -32,7 +32,7 @@ const TYPE_COLORS = {
   alpha: 'bg-[#FF5555]/10 text-[#FF5555] border-[#FF5555]/20',
 };
 
-export default function ModrinthBrowser({ serverId, serverVersion, serverType, onInstalled, projectType = 'mod' }) {
+export default function ModrinthBrowser({ serverId, serverVersion, serverType, socket, onInstalled, projectType = 'mod', modpackInstalls }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +42,11 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
   const [sortIndex, setSortIndex] = useState('relevance');
   const [installing, setInstalling] = useState({});
   const [installed, setInstalled] = useState({});
+  // Per-project modpack install progress lives in the App-level
+  // useModpackInstalls hook so it survives this component unmounting (e.g.
+  // user tab-switches away mid-install and comes back). We read by key.
+  const installsMap = modpackInstalls?.installs || {};
+  const installKey = (pid) => `server:${serverId}:${pid}`;
   const [installedFiles, setInstalledFiles] = useState([]);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
@@ -66,7 +71,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
     return '';
   };
 
-  const searchMods = useCallback(async (q, p=0, cat='', sort='relevance') => {
+  const searchMods = useCallback(async (q, p=0, cat='', sort='relevance', attempt=0) => {
     setLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ query: q, limit: LIMIT.toString(), offset: (p*LIMIT).toString() });
@@ -83,7 +88,16 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       if (!res.ok) throw new Error(data.error || 'Search failed');
       setResults(data.hits || []);
       setTotalHits(data.total_hits || 0);
-    } catch (err) { setError(err.message); setResults([]); }
+    } catch (err) {
+      // Auto-retry once — the proxy occasionally fails under burst load
+      // (Modrinth rate-limit window). Don't surface the error until the
+      // second attempt also fails.
+      if (attempt === 0) {
+        setTimeout(() => searchMods(q, p, cat, sort, 1), 1500);
+        return;
+      }
+      setError(err.message); setResults([]);
+    }
     setLoading(false);
   }, [serverVersion, serverType, projectType]);
 
@@ -130,6 +144,37 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
   const handlePageChange = (p) => { setPage(p); searchMods(query, p, category, sortIndex); };
   const showToast = (msg, isError=false) => { setToast({msg,isError}); setTimeout(()=>setToast(null), 4000); };
 
+  // Watch for modpack installs that just transitioned to terminal state
+  // ('done' / 'error') and react: refresh installed-list, show toast, etc.
+  // Uses a ref to remember which sessions we've already reacted to so the
+  // effect doesn't fire twice for the same completion.
+  const reactedSessions = useRef(new Set());
+  useEffect(() => {
+    if (projectType !== 'modpack') return;
+    for (const key of Object.keys(installsMap)) {
+      if (!key.startsWith(`server:${serverId}:`)) continue;
+      const entry = installsMap[key];
+      if (!entry || !entry.sessionId) continue;
+      if (entry.status !== 'done' && entry.status !== 'error') continue;
+      if (reactedSessions.current.has(entry.sessionId)) continue;
+      reactedSessions.current.add(entry.sessionId);
+      if (entry.status === 'done') {
+        const pid = entry.projectId || key.split(':')[2];
+        const title = entry.title || 'Modpack';
+        setInstalled(prev => ({ ...prev, [pid]: true }));
+        const extras = [];
+        if (entry.summary?.installed) extras.push(`${entry.summary.installed} mods`);
+        if (entry.summary?.skippedClientOnly) extras.push(`${entry.summary.skippedClientOnly} client-only mods stashed`);
+        showToast(`${title} installed! ${extras.join(', ') || 'done'}`);
+        if (onInstalled) onInstalled();
+        fetchInstalledFiles();
+      } else {
+        showToast(entry.errorMessage || 'Modpack install failed', true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installsMap, projectType, serverId]);
+
   // One-click install: get versions filtered by game version, pick best release
   const handleInstall = async (project) => {
     setInstalling(prev => ({ ...prev, [project.project_id]: true }));
@@ -143,25 +188,44 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       const vs = await res.json();
       if (!res.ok || !Array.isArray(vs) || vs.length === 0) throw new Error('No compatible version found');
 
-      // Prefer release > beta > alpha
+      // Prefer release > beta > alpha; tie-break by newest date_published so
+      // we never install an older release (v82) when a newer one (v92) is
+      // available. Modrinth's order isn't reliable once filters are applied.
       const sorted = [...vs].sort((a,b) => {
         const p = {release:0,beta:1,alpha:2};
-        return (p[a.version_type]||3) - (p[b.version_type]||3);
+        const ta = p[a.version_type] ?? 3;
+        const tb = p[b.version_type] ?? 3;
+        if (ta !== tb) return ta - tb;
+        return (Date.parse(b.date_published || '') || 0) - (Date.parse(a.date_published || '') || 0);
       });
       const best = sorted[0];
       const file = best.files.find(f=>f.primary) || best.files[0];
       if (!file) throw new Error('No downloadable file');
 
       if (projectType === 'modpack') {
-        // Modpack install
+        // Modpack install — runs async on the server, progress streams over a
+        // session socket channel. Tracking is delegated to the App-level
+        // useModpackInstalls hook so the progress bar survives this component
+        // unmounting (tab switch) — when we come back, it rehydrates from the
+        // shared installs map.
         const r = await fetch(`http://localhost:3001/api/servers/${serverId}/modpack/install-modrinth`, {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ url: file.url, filename: file.filename }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'Install failed');
-        setInstalled(prev => ({...prev, [project.project_id]: true}));
-        showToast(`${project.title} installed! ${d.installed} mods added.`);
+
+        if (d.sessionId && modpackInstalls?.trackInstall) {
+          modpackInstalls.trackInstall(d.sessionId, installKey(project.project_id), {
+            projectId: project.project_id,
+            title: project.title,
+          });
+        } else {
+          // No socket-backed tracker available — fall back to the old "spinner
+          // then done" pattern so we still report success.
+          setInstalled(prev => ({...prev, [project.project_id]: true}));
+          showToast(`${project.title} installed!`);
+        }
       } else if (isDatapack) {
         // Datapack install — goes into world/datapacks/
         const r = await fetch(`http://localhost:3001/api/servers/${serverId}/datapacks/install-modrinth`, {
@@ -476,12 +540,43 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C]/10 text-[#00AF5C] rounded-xl text-xs font-bold border border-[#00AF5C]/20"><Check size={14}/>Installed</div>
                       {!isModpack && <button onClick={()=>openVersions(mod)} className="text-[10px] text-[#555555] hover:text-[#00AF5C] transition-colors font-medium">Change version</button>}
                     </div>
-                  ) : (
-                    <motion.button whileHover={{scale:1.03}} whileTap={{scale:0.97}} onClick={()=>handleInstall(mod)} disabled={!!installing[mod.project_id]}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 hover:shadow-[0_4px_15px_rgba(0,175,92,0.25)]">
-                      {installing[mod.project_id]?<><Loader2 size={14} className="animate-spin"/>Installing...</>:<><Download size={14}/>Install</>}
-                    </motion.button>
-                  )}
+                  ) : (() => {
+                    // Modpacks emit per-file progress over a socket session.
+                    // Show a fill-bar button rather than a frozen spinner while
+                    // a 200-mod modpack downloads. The entry lives in the
+                    // App-level installsMap so the bar survives tab switches.
+                    const mp = isModpack ? installsMap[installKey(mod.project_id)] : null;
+                    const isModpackInstalling = isModpack && mp && mp.status !== 'error';
+                    if (isModpackInstalling) {
+                      const pct = mp.status === 'done' ? 100
+                        : (mp.total > 0 ? Math.min(99, Math.round((mp.task / mp.total) * 100)) : 0);
+                      return (
+                        <div
+                          title={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`}
+                          className="relative overflow-hidden flex items-center gap-1.5 px-3 py-1.5 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
+                          style={{ background: '#1E1E1E' }}
+                        >
+                          <motion.div
+                            initial={false}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ ease: [0.22, 1, 0.36, 1], duration: 0.4 }}
+                            className="absolute inset-y-0 left-0 z-0"
+                            style={{ background: '#00AF5C' }}
+                          />
+                          <span className="relative z-10 flex items-center gap-1.5">
+                            <Loader2 size={12} className="animate-spin" />
+                            <span className="tabular-nums">{pct}%</span>
+                          </span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <motion.button whileHover={{scale:1.03}} whileTap={{scale:0.97}} onClick={()=>handleInstall(mod)} disabled={!!installing[mod.project_id]}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 hover:shadow-[0_4px_15px_rgba(0,175,92,0.25)]">
+                        {installing[mod.project_id]?<><Loader2 size={14} className="animate-spin"/>Installing...</>:<><Download size={14}/>Install</>}
+                      </motion.button>
+                    );
+                  })()}
                 </div>
               </motion.div>
             ))}
