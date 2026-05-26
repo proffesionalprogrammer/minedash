@@ -2,6 +2,19 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.92 — 2026-05-26
+
+### Added
+
+- **Open profile folder from the launcher.** The Instance row on the Play tab now has a folder button next to Rename/Delete that opens the on-disk profile directory in your file explorer. No more digging through `%AppData%\MineDash\launcher-clients\…` to drop a manual mod or check what configs the modpack wrote.
+
+### Fixed
+
+- **Deleting a modpack in the launcher actually removes it.** Hitting the trash icon on an installed modpack used to silently do nothing — the backend's content-delete endpoint had no handler for `modpack` and returned 400. Modpack installs now record the full list of paths they wrote (mods + overrides), and Delete wipes every tracked file, prunes the empty directories it left behind, and clears the manifest entry so the UI flips back to "Install".
+- **NeoForge servers no longer pop a separate "Minecraft server" GUI window** beside the in-app console. Modern Forge's `run.bat` hardcodes `nogui`; NeoForge's doesn't, so the bundled server.jar was booting its Swing GUI. MineDash now passes `nogui` through to `run.bat`/`run.sh`, which is forwarded to the JVM via `%*` / `$@`. Closing the rogue window no longer kills the server because the rogue window is gone.
+
+---
+
 ## v1.0.91 — 2026-05-26
 
 ### Fixed

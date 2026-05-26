@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Box, Layers, Hammer, FlaskConical, AlertCircle, Download, Plus, X, Pencil, Trash2, Check } from 'lucide-react';
+import { Box, Layers, Hammer, FlaskConical, AlertCircle, Download, Plus, X, Pencil, Trash2, Check, FolderOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import VersionSelect from './VersionSelect';
 import PlayProgressButton from './PlayProgressButton';
@@ -303,6 +303,17 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
             </Tooltip>
             {currentInstance && (
               <>
+                <Tooltip content="Open this instance's folder in your file explorer" className="flex-shrink-0">
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => {
+                      fetch(`http://localhost:3001/api/launcher/instances/${encodeURIComponent(currentInstance.id)}/open-folder`, { method: 'POST' }).catch(() => {});
+                    }}
+                    className="flex-shrink-0 p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                    <FolderOpen size={14} />
+                  </motion.button>
+                </Tooltip>
                 <Tooltip content="Rename this instance" className="flex-shrink-0">
                   <motion.button
                     whileHover={{ scale: 1.03 }}

@@ -9,7 +9,7 @@
 const path = require('path');
 const fs = require('fs-extra');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const AdmZip = require('adm-zip');
 const multer = require('multer');
 const { Client } = require('minecraft-launcher-core');
@@ -512,6 +512,47 @@ function register(app) {
     res.json({ ok: true });
   });
 
+  // Open the on-disk profile folder for an instance in the OS file explorer.
+  // Resolves the instance ID first so we don't accidentally let a malicious
+  // payload pass a `..`-laced path through to explorer. If the directory
+  // doesn't exist yet (instance was created but never launched), create it
+  // so the user always lands on a real folder instead of a "not found" error.
+  app.post('/api/launcher/instances/:id/open-folder', async (req, res) => {
+    const { id } = req.params;
+    const inst = await getInstance(id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const dir = instanceDir(inst.id);
+    try { await fs.ensureDir(dir); } catch {}
+    const cmd = process.platform === 'win32'
+      ? `explorer "${dir}"`
+      : process.platform === 'darwin'
+        ? `open "${dir}"`
+        : `xdg-open "${dir}"`;
+    exec(cmd);
+    res.json({ ok: true, path: dir });
+  });
+
+  // Same as above but resolves by loader+version (uses the default instance,
+  // creating it if needed). Keeps the URL nice for callers that don't have an
+  // instance ID handy — e.g. the per-server Play button shares a profile via
+  // loader+version conventions.
+  app.post('/api/launcher/profiles/:loader/:version/open-folder', async (req, res) => {
+    const { loader, version } = req.params;
+    const instanceId = req.query.instance || null;
+    if (!LOADERS.includes(loader)) return res.status(400).json({ error: 'Invalid loader' });
+    let profileDir;
+    try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
+    catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+    try { await fs.ensureDir(profileDir); } catch {}
+    const cmd = process.platform === 'win32'
+      ? `explorer "${profileDir}"`
+      : process.platform === 'darwin'
+        ? `open "${profileDir}"`
+        : `xdg-open "${profileDir}"`;
+    exec(cmd);
+    res.json({ ok: true, path: profileDir });
+  });
+
   app.get('/api/launcher/settings', async (req, res) => {
     res.json(await readSettings());
   });
@@ -844,16 +885,74 @@ function register(app) {
     res.status(failed.length === 0 ? 200 : 207).json({ ok: failed.length === 0, installed, failed });
   });
 
-  // Delete a single installed content file from a profile.
+  // Delete a single installed content file from a profile. Modpacks are
+  // handled specially: there's no `modpacks/` folder — they're tracked in
+  // `.minedash-modpacks.json` and the install dropped files scattered across
+  // mods/, config/, resourcepacks/, etc. Delete removes every file the
+  // install recorded plus the manifest entry.
   app.delete('/api/launcher/profiles/:loader/:version/content/:type/:filename', async (req, res) => {
     const { loader, version, type, filename } = req.params;
     const instanceId = req.query.instance || null;
-    const SUBDIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks', datapack: 'datapacks' };
-    const sub = SUBDIR[type];
-    if (!sub) return res.status(400).json({ error: 'Invalid content type' });
     let profileDir;
     try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
     catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+
+    if (type === 'modpack') {
+      const recordPath = path.join(profileDir, '.minedash-modpacks.json');
+      let record = {};
+      try { record = await fs.readJson(recordPath); } catch {}
+      const entry = record[filename];
+      if (!entry) {
+        // No manifest entry means the install never registered or the user
+        // already removed it. Treat as already-deleted so the UI flips cleanly.
+        return res.json({ ok: true, removed: 0 });
+      }
+      const files = Array.isArray(entry.files) ? entry.files : [];
+      let removed = 0;
+      const removedDirs = new Set();
+      for (const rel of files) {
+        // safeJoin: refuse to traverse out of the profile, in case an older
+        // install recorded an absolute or `..`-laced path.
+        const norm = String(rel).replace(/^[/\\]+/, '');
+        if (!norm || norm.includes('..')) continue;
+        const target = path.join(profileDir, norm);
+        if (!target.startsWith(profileDir)) continue;
+        try {
+          if (await fs.pathExists(target)) {
+            await fs.remove(target);
+            removed++;
+            removedDirs.add(path.dirname(target));
+          }
+        } catch {
+          // Skip files we can't remove (locked by AV, in use) — the user can
+          // delete them by hand. We still strip them from the manifest below
+          // so the modpack disappears from the UI.
+        }
+      }
+      // Walk up the directory tree pruning any directories the install left
+      // behind that are now empty. Stop at the profile root — never delete
+      // the profile itself or anything outside it.
+      const sortedDirs = Array.from(removedDirs).sort((a, b) => b.length - a.length);
+      for (const dir of sortedDirs) {
+        let cur = dir;
+        while (cur.startsWith(profileDir) && cur !== profileDir) {
+          try {
+            const entries = await fs.readdir(cur);
+            if (entries.length === 0) {
+              await fs.remove(cur);
+              cur = path.dirname(cur);
+            } else break;
+          } catch { break; }
+        }
+      }
+      delete record[filename];
+      try { await fs.writeJson(recordPath, record, { spaces: 2 }); } catch {}
+      return res.json({ ok: true, removed });
+    }
+
+    const SUBDIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks', datapack: 'datapacks' };
+    const sub = SUBDIR[type];
+    if (!sub) return res.status(400).json({ error: 'Invalid content type' });
     const target = path.join(profileDir, sub, filename);
     try {
       if (await fs.pathExists(target)) await fs.remove(target);
@@ -1910,6 +2009,12 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
     const index = JSON.parse(indexEntry.getData().toString('utf8'));
 
     const installedFiles = [];
+    // All relative paths (mods + overrides) the modpack writes into the profile.
+    // Persisted on the install record so a later "delete modpack" can actually
+    // remove every file the pack dropped — without this list there's no way to
+    // tell a modpack mod from a manually-installed one and "delete" would
+    // either be a no-op or a destructive nuke of the whole profile.
+    const trackedPaths = [];
     const failed = [];
 
     // Pre-filter the file list so the progress total reflects what we'll actually download.
@@ -1957,8 +2062,10 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
           break;
         } catch {}
       }
-      if (ok) installedFiles.push(targetRel);
-      else failed.push(targetRel);
+      if (ok) {
+        installedFiles.push(targetRel);
+        trackedPaths.push(targetRel);
+      } else failed.push(targetRel);
       done++;
       if (sessionId) emitModpack(sessionId, 'progress', { task: done, total });
     }
@@ -1974,15 +2081,26 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
       const out = path.join(profileDir, rel);
       await fs.ensureDir(path.dirname(out));
       await fs.writeFile(out, entry.getData());
+      // Track every override path too — these are configs/scripts/resourcepacks
+      // the modpack brought along, and a real "uninstall" needs to wipe them.
+      trackedPaths.push(rel);
       done++;
       if (sessionId) emitModpack(sessionId, 'progress', { task: done, total });
     }
 
     // Record the install so the UI can show it as "Installed".
+    // `files` is the full list of relative paths the modpack wrote — used by
+    // the DELETE handler to clean the profile when the user removes the pack.
     const recordPath = path.join(profileDir, '.minedash-modpacks.json');
     let record = {};
     try { record = await fs.readJson(recordPath); } catch {}
-    record[filename] = { projectId, iconUrl, title, installedAt: Date.now() };
+    record[filename] = {
+      projectId,
+      iconUrl,
+      title,
+      installedAt: Date.now(),
+      files: trackedPaths,
+    };
     await fs.writeJson(recordPath, record, { spaces: 2 });
 
     return { installed: installedFiles.length, failed };

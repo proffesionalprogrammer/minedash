@@ -2235,10 +2235,17 @@ function startProcess(id, serverConfig, serverPath) {
   // console window beside the in-app console — stdout/stderr are already
   // piped into the React ConsoleViewer, so a separate OS window adds nothing
   // and looks broken (closing it kills the server).
+  //
+  // We also pass `nogui` to run.bat so it gets forwarded through `%*` to the
+  // underlying JVM command. Modern Forge run.bat hardcodes `nogui` before
+  // `%*` so it was fine without this, but NeoForge's run.bat doesn't — so
+  // the bundled Minecraft server.jar booted its Swing "Minecraft server" GUI
+  // window beside the in-app console. Duplicates are harmless to MC's arg
+  // parser, so always appending nogui keeps both loaders behaving the same.
   if (hasBat && process.platform === 'win32') {
-    mcProcess = spawn('cmd.exe', ['/c', 'run.bat'], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
+    mcProcess = spawn('cmd.exe', ['/c', 'run.bat', 'nogui'], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
   } else if (hasSh && process.platform !== 'win32') {
-    mcProcess = spawn('sh', ['run.sh'], { cwd: serverPath, env: spawnEnvForServer(id) });
+    mcProcess = spawn('sh', ['run.sh', 'nogui'], { cwd: serverPath, env: spawnEnvForServer(id) });
   } else if (hasJar) {
     mcProcess = spawn(javaForServer(id), [
       `-Xms${serverConfig.minRam}`,
