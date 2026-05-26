@@ -138,6 +138,17 @@ html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover {
   background: transparent;
 }
 
+/* ─── Branded number input ────────────────────────────────────── */
+/* Hides the chunky default spinner arrows (which render in OS-default
+   colours and clash with the dark UI). The matching React component
+   overlays branded chevron buttons in their place. */
+.branded-number::-webkit-inner-spin-button,
+.branded-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.branded-number { -moz-appearance: textfield; }
+
 /* ─── Custom Checkbox ─────────────────────────────────────────── */
 .custom-checkbox-wrapper {
   position: relative;

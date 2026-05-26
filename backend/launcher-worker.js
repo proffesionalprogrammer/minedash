@@ -26,6 +26,13 @@
 //                                                     MS token to accounts.json
 //     { kind: 'persist_settings', settings }        — parent writes settings.json
 
+// Prefer IPv4 for every outbound HTTP call in this worker process. The parent
+// (backend/index.js) sets this globally, but `dns.setDefaultResultOrder` is
+// process-local — forked workers don't inherit it. Without this, NeoForge's
+// maven.neoforged.net fetches go to AAAA records that time out on residential
+// networks, producing "failed to fetch" the moment the user clicks Play.
+require('dns').setDefaultResultOrder('ipv4first');
+
 const { spawn, exec } = require('child_process');
 
 // Children we've spawned (NeoForge installer, the game JVM). Tracked so the

@@ -1,6 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles } from 'lucide-react';
+import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// Branded number input — replaces the OS-default spinner arrows (which render
+// in light grey and clash with the dark theme) with stacked chevron buttons
+// that match the rest of the kit. `step` defaults to 1.
+function NumberInput({ value, onChange, min, step = 1, disabled }) {
+  const clamp = (n) => (typeof min === 'number' && n < min ? min : n);
+  const bump = (delta) => onChange(clamp(Number(value || 0) + delta));
+  return (
+    <div className={`relative w-full ${disabled ? 'opacity-40' : ''}`}>
+      <input
+        type="number" min={min} step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        disabled={disabled}
+        className="branded-number w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-3 pr-8 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums"
+      />
+      <div className="absolute right-1 top-1 bottom-1 flex flex-col gap-0.5 pointer-events-none">
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => bump(step)}
+          disabled={disabled}
+          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[#555555] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[#555555]"
+        >
+          <ChevronUp size={10} strokeWidth={3} />
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => bump(-step)}
+          disabled={disabled}
+          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[#555555] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[#555555]"
+        >
+          <ChevronDown size={10} strokeWidth={3} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const DEFAULTS = {
   ramGb: 4,
@@ -137,20 +176,18 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   <label className="text-xs font-bold text-[#FFFFFF]">Window size</label>
                 </div>
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                  <input
-                    type="number" min={320}
+                  <NumberInput
+                    min={320}
                     value={draft.windowWidth}
-                    onChange={(e) => commit({ ...draft, windowWidth: Number(e.target.value) })}
+                    onChange={(v) => commit({ ...draft, windowWidth: v })}
                     disabled={draft.fullscreen}
-                    className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums disabled:opacity-40"
                   />
                   <span className="text-[#555555] text-xs font-bold">×</span>
-                  <input
-                    type="number" min={240}
+                  <NumberInput
+                    min={240}
                     value={draft.windowHeight}
-                    onChange={(e) => commit({ ...draft, windowHeight: Number(e.target.value) })}
+                    onChange={(v) => commit({ ...draft, windowHeight: v })}
                     disabled={draft.fullscreen}
-                    className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums disabled:opacity-40"
                   />
                 </div>
                 <label className="flex items-center gap-2 mt-2 cursor-pointer text-xs text-[#A0A0A0] hover:text-[#FFFFFF]">

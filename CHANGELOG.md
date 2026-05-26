@@ -2,6 +2,18 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.91 — 2026-05-26
+
+### Fixed
+
+- **NeoForge "failed to fetch" the moment you click Play.** v1.0.7 forced IPv4-first DNS for outbound HTTP, but only in the main backend process. NeoForge installs run inside a forked worker subprocess (introduced in v1.0.9 for instant cancel), and `dns.setDefaultResultOrder` is process-local — the worker didn't inherit it, so its fetches to `maven.neoforged.net` were still hitting AAAA records that time out on networks with broken IPv6. The setting is now applied inside the worker too.
+
+### Changed
+
+- **Branded number inputs in Settings.** The Window Size width/height fields used the OS-default spinner arrows, which rendered in light grey and clashed with the dark UI. Replaced them with stacked chevron buttons in the brand grey-to-green palette.
+
+---
+
 ## v1.0.9 — 2026-05-24
 
 ### Added
