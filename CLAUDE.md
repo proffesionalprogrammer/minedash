@@ -33,6 +33,8 @@ npm run build              # builds frontend → electron/renderer/, then NSIS i
 
 **Known build gotcha — winCodeSign symlinks:** On first build, `electron-builder` downloads `winCodeSign-2.6.0.7z` and tries to extract it. On Windows Home without Developer Mode enabled the symlink extraction fails. Fix: enable **Settings → System → For Developers → Developer Mode**, then re-run `npm run build`. The extracted cache lands in `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0\` and is reused on future builds.
 
+**Releasing a new version:** bump `version` in root `package.json`, append a `## vX.Y.Z — YYYY-MM-DD` section to `CHANGELOG.md`, commit, tag (`git tag vX.Y.Z`), and push both. The `.github/workflows/build.yml` workflow triggers on `v*` tags and builds + publishes to `proffesionalprogrammer/minedash-releases`. If CI doesn't fire (the user has historically also published manually), build locally with `GH_TOKEN="$(gh auth token)" npm run build:release` then flip the draft to published via `gh release edit vX.Y.Z --repo proffesionalprogrammer/minedash-releases --draft=false --notes-file <(...)`. The auto-updater ignores drafts, so the publish step is mandatory.
+
 There are no tests and no backend lint. Frontend has ESLint: `cd frontend && npm run lint`.
 
 ## Architecture
@@ -56,12 +58,13 @@ Key patterns:
 - **In-memory state**: `activeProcesses` (running MC server child processes), `activeLogs` (console output buffers), `serverStates` (uptime/players), `serverJavaPids` (actual JVM PIDs discovered via process-tree walk), `autoBackupIntervals`, `taskLastFireKey` (scheduled-task per-minute dedup).
 - **Persistent state**: `servers.json` — array of server config objects. Read/written via `getServers()` / `saveServers()`. Socket event `server_updated` is emitted after every save.
 - **Data directory**: Controlled by `DATA_DIR = process.env.MINEDASH_DATA_DIR || __dirname`. In packaged Electron, `MINEDASH_DATA_DIR` is set to `app.getPath('userData')` (`AppData\Roaming\MineDash`). In dev it defaults to the `backend/` folder itself.
-- **Server lifecycle**: `startProcess(id, serverConfig, serverPath)` — spawns the MC Java process, wires up stdout/stderr to `appendLog()`, handles the exit event (dependency crash detection → auto-restart → backup interval cleanup → crash banner emission).
+- **Server lifecycle**: `startProcess(id, serverConfig, serverPath)` — spawns the MC Java process, wires up stdout/stderr to `appendLog()`, handles the exit event (dependency crash detection → auto-restart → backup interval cleanup → crash banner emission). When a `run.bat`/`run.sh` exists (Forge/NeoForge), we pass `nogui` as an extra arg so it's forwarded through `%*` / `"$@"` to the JVM — modern Forge's run.bat hardcodes `nogui` before `%*`, NeoForge's doesn't, and without this NeoForge boots the bundled server.jar's Swing GUI window beside the in-app console. The duplicate is harmless to MC's arg parser.
+- **IPv4-first DNS**: both `backend/index.js` and `backend/launcher-worker.js` call `dns.setDefaultResultOrder('ipv4first')` at the very top. Several upstream hosts (notably `maven.neoforged.net`) publish AAAA records that hang on residential networks. The setting is **process-local** — forked workers don't inherit it, which is why it's set in both files. Add it to any new fork target that makes outbound HTTP calls.
 - **Socket events**: All namespaced by server ID — `console_${id}`, `server_memory_${id}`, `crash_detected_${id}`, `players_update_${id}`. Global events: `system_stats`, `server_created`, `server_deleted`, `server_status_change`, `server_updated`.
 - **CORS**: configured at the top of the file with an explicit `methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']` whitelist. **If you add a route using a method not in this list, the browser will reject it with `TypeError: Failed to fetch`.** Add the method to the whitelist before adding the route.
 - **External APIs proxied**: Modrinth (mod search/install + SHA1 hash lookup), Hangar (Paper plugin search/install), Mojang/Paper/Fabric/Forge/NeoForge version lists (10-minute cache).
 - **Java discovery**: `getJavaPath()` searches JAVA_HOME, PATH, Windows registry, common install roots, and the Minecraft launcher's bundled JRE. Returns `'java'` as a fallback (never null).
-- **Java version check**: `GET /api/java-status` runs `java -version`, parses the major version, and returns `{ version: number|null, ok: boolean }`. Currently gates on Java 25+ across the board — being upgraded to per-MC-version (`requiredJavaMajor(mcVersion)` table: 1.16→8, 1.17→16, 1.18–1.20.4→17, 1.20.5–1.21.5→21, 1.21.6+→25). Today the frontend calls this before opening the Create Server modal.
+- **Java version check**: `GET /api/java-status?mcVersion=…` runs `java -version`, parses the major version, and returns `{ version: number|null, ok: boolean, required: number }`. Gates per-MC-version via `requiredJavaMajor(mcVersion)` (1.16→8, 1.17→16, 1.18–1.20.4→17, 1.20.5–1.21.5→21, 1.21.6+→25). The frontend calls this before opening the Create Server modal. MineDash also auto-manages a Java pool: when a server needs a Java major the system doesn't have, MineDash downloads the right JDK from Adoptium into a managed `runtimes/` folder and uses that for the server's spawns.
 
 ### Frontend (`frontend/src/`)
 
@@ -97,6 +100,18 @@ The crash banner in `ConsoleViewer` communicates tab-switches to `MainPanel` via
 ### Server types and their directories
 
 Each server lives in `instances/<id>/`. Paper servers additionally get a `plugins/` subdirectory. Vanilla servers have no mods or plugins tab. Mod/plugin metadata is stored in `.minedash-mods.json` / `.minedash-plugins.json` inside the mods or plugins folder.
+
+### Launcher worker subprocess
+
+The actual game-launch sequence (Microsoft token refresh, Fabric/Forge/NeoForge install, mclc asset downloads, JVM spawn, dep-crash retry) runs in a forked Node subprocess — `backend/launcher-worker.js` — not in the main backend process. The HTTP handler in `backend/launcher.js` (`POST /api/launcher/launch`) forks the worker, stashes it in `activeLaunches[launchId]`, and the worker streams events back via IPC which the parent rebroadcasts on the `launcher_${launchId}` socket channel. The whole launcher module (`backend/launcher.js`) is loaded a second time inside the worker with `init()` hooks overridden so its `_emit`/`_isCancelled`/`_trackChild` go through IPC instead of socket.io/`cancelledLaunches`.
+
+Why: `minecraft-launcher-core` uses the legacy `request` library and exposes no abort API. Calling `.abort()` mid-download crashes the parent because mclc's pipe to `fs.createWriteStream` has no error listener. Killing the worker process is the only safe way to interrupt mclc — the OS reaps its HTTP connections cleanly. `DELETE /api/launcher/launch/:launchId` sends a polite `cancel` IPC message (the worker `taskkill /F /T`s any sub-children on Windows, then exits), then SIGKILLs the worker after 2.5s if it doesn't go quietly.
+
+**Don't add new launch logic in `backend/launcher.js`'s parent-process route handlers.** Anything that runs during launch — pre-checks, post-launch hooks, mod sync — belongs inside `runLaunch()` so it executes in the worker and gets cancelled cleanly when the user clicks Stop.
+
+### Launcher modpack install
+
+`installModpackIntoProfile()` records the **full list of relative paths** it writes (mods + overrides) into the per-modpack manifest entry at `.minedash-modpacks.json → record[filename].files`. The DELETE handler at `/api/launcher/profiles/:loader/:version/content/modpack/:filename` reads that list, removes every tracked path (with `safeJoin` protection), walks up pruning empty directories, then clears the manifest entry. Without the file list there's no way to tell a modpack mod from a manually-installed one — preserve `files` if you change the install path, otherwise Delete becomes a no-op or has to nuke the whole profile.
 
 ### Dependency auto-installer
 
@@ -188,6 +203,7 @@ These are non-obvious gotchas worth knowing before writing new components:
 - **Toast / error display**: errors propagate up via the `onError` prop passed from `App.jsx` (`showError`). Don't render error UI locally inside leaf components — use the prop.
 - **Confirm modals** all follow the same shape: `absolute inset-0 bg-[#000000]/80 backdrop-blur-sm` overlay → `bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl` card → header (icon in a `bg-<color>/10 rounded-xl` chip, then title) → body copy → `border-t pt-4` action row with `Cancel` then primary action.
 - **Title bar drag region**: any new element added to `TitleBar.jsx` that should be clickable must have `style={{ WebkitAppRegion: 'no-drag' }}` — the parent sets the whole bar as draggable.
+- **Number inputs**: don't use the OS-default spinner arrows — they render in light grey and clash with the dark UI. The `.branded-number` CSS class in `index.css` hides them; pair it with stacked `ChevronUp`/`ChevronDown` buttons positioned `absolute right-1 top-1 bottom-1` in a vertical flex (see the `NumberInput` component in `SettingsMenu.jsx` for the canonical pattern).
 
 ## What NOT to add
 
