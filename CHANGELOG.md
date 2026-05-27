@@ -2,6 +2,23 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.93 — 2026-05-27
+
+### Added
+
+- **First-run onboarding tour.** A short, skippable guided tour now runs the first time you launch MineDash — it walks you through the Launcher/Servers top bar, signing in (or playing offline), picking a loader and version, and one-click modpack installs, so new users know where everything lives.
+
+### Changed
+
+- **App-wide motion polish.** Animations across the app are now smoother and snappier, driven by a shared brand-coloured motion system. Server cards stagger in on the home screen, stat-card sparklines draw themselves in, online indicators pulse in brand green, and the Network and console-search panels animate into place. Modals everywhere share one consistent, quick spring (with faster exits), and switching tabs is now a clean crossfade instead of a vertical slide.
+
+### Fixed
+
+- **Mods tab no longer jumps upward when you open it.** Tab content used to slide up a few pixels as it appeared; tabs now swap in place.
+- **Instance dropdown flicker** on the Play tab.
+
+---
+
 ## v1.0.92 — 2026-05-26
 
 ### Added

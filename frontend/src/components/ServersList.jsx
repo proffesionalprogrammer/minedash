@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Plus, Server, Flame, Link as LinkIcon, Gamepad2, Settings, Trash2, Copy, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { staggerContainer, staggerItem, modalBackdrop, modalPanel } from '../lib/motion';
 
 export default function ServersList({ servers, onSelect, onCreateClick }) {
   const [search, setSearch] = useState('');
@@ -65,9 +66,10 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
   return (
     <div className="flex-1 flex flex-col h-full bg-[#111111] p-8 md:p-12 overflow-y-auto custom-scrollbar relative">
       {/* Delete Confirmation Modal */}
-      {deleteTarget && (
-        <div className="fixed inset-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+      <AnimatePresence>
+        {deleteTarget && (
+        <motion.div variants={modalBackdrop} initial="initial" animate="animate" exit="exit" className="fixed inset-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm">
+          <motion.div variants={modalPanel} initial="initial" animate="animate" exit="exit" className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
             <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete Server</h3>
             <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
               Are you sure you want to permanently delete <span className="text-white font-bold">{deleteTarget.name}</span>?
@@ -89,21 +91,21 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
                 <Trash2 size={16} /> Delete Permanently
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Clone Server Modal */}
       <AnimatePresence>
         {cloneTarget && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            variants={modalBackdrop} initial="initial" animate="animate" exit="exit"
             className="fixed inset-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm"
             onClick={() => !cloning && setCloneTarget(null)}
           >
             <motion.div
-              initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+              variants={modalPanel} initial="initial" animate="animate" exit="exit"
               className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
               onClick={(e) => e.stopPropagation()}
             >
@@ -223,14 +225,12 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
             </div>
           </div>
 
-          <div className="flex flex-col gap-4">
+          <motion.div className="flex flex-col gap-4" variants={staggerContainer} initial="initial" animate="animate">
             {filteredServers.map((server) => (
               <motion.div
                 key={server.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                variants={staggerItem}
                 whileHover={{ scale: 1.01, borderColor: '#555555' }}
-                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                 className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-4 flex items-center gap-6 transition-colors group cursor-pointer"
               >
                 <div
@@ -282,7 +282,7 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
                 <div className="flex items-center gap-3 flex-shrink-0">
                   {server.status === 'online' && (
                     <div className="px-3 py-1 bg-[#00AF5C]/10 border border-[#00AF5C]/20 text-[#00AF5C] rounded-full text-xs font-bold flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse"></span>
+                      <span className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse-glow"></span>
                       Online
                     </div>
                   )}
@@ -310,7 +310,7 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
                 <p>No servers found.</p>
               </div>
             )}
-          </div>
+          </motion.div>
 
           <div className="mt-12 text-center text-[#555555] text-sm flex items-center justify-center gap-2">
             <Flame size={16} /> Powered by MineDash

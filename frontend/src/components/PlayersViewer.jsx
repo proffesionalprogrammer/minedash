@@ -80,7 +80,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                     </button>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse-glow" />
                     <span className="text-xs text-[#A0A0A0]">Online</span>
                   </div>
                 </div>

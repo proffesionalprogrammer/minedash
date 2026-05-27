@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Wifi, WifiOff, Copy, Check, Monitor, Gamepad2, RefreshCw } from 'lucide-react';
+import { staggerContainer, staggerItem } from '../lib/motion';
 
 function NetworkPanel({ serverId, server, socket }) {
   const [addresses, setAddresses] = useState([]);
@@ -54,13 +56,20 @@ function NetworkPanel({ serverId, server, socket }) {
           <Wifi size={18} className="text-[#A0A0A0]" />
           <h3 className="font-bold text-[#FFFFFF]">Connection Info</h3>
         </div>
-        <button
+        <motion.button
           onClick={fetchNetworkInfo}
+          whileTap={{ scale: 0.9 }}
           className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all"
           title="Refresh"
         >
-          <RefreshCw size={16} />
-        </button>
+          <motion.span
+            className="block"
+            animate={loading ? { rotate: 360 } : { rotate: 0 }}
+            transition={loading ? { repeat: Infinity, duration: 0.8, ease: 'linear' } : { duration: 0.3, ease: 'easeOut' }}
+          >
+            <RefreshCw size={16} />
+          </motion.span>
+        </motion.button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
@@ -69,10 +78,10 @@ function NetworkPanel({ serverId, server, socket }) {
             Loading network info...
           </div>
         ) : (
-          <>
+          <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-6">
             {/* ── Radmin / Hamachi VPN ──────────────────────────────── */}
             {vpnAddress ? (
-              <div className="bg-[#00AF5C]/5 border border-[#00AF5C]/20 rounded-2xl p-6">
+              <motion.div variants={staggerItem} className="bg-[#00AF5C]/5 border border-[#00AF5C]/20 rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-1">
                   <Wifi size={16} className="text-[#00AF5C]" />
                   <span className="text-xs font-bold text-[#00AF5C] uppercase tracking-wider">
@@ -93,9 +102,9 @@ function NetworkPanel({ serverId, server, socket }) {
                 <p className="text-xs text-[#A0A0A0] mt-3">
                   <span className="text-[#555555]">Adapter:</span> {vpnAddress.name}
                 </p>
-              </div>
+              </motion.div>
             ) : (
-              <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-5">
+              <motion.div variants={staggerItem} className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-5">
                 <div className="flex items-center gap-3 mb-2">
                   <WifiOff size={18} className="text-[#555555]" />
                   <span className="text-sm font-bold text-[#A0A0A0]">No VPN Detected</span>
@@ -103,19 +112,21 @@ function NetworkPanel({ serverId, server, socket }) {
                 <p className="text-sm text-[#555555]">
                   Radmin VPN or Hamachi is not running. Install Radmin VPN on both machines to play together.
                 </p>
-              </div>
+              </motion.div>
             )}
 
             {/* ── LAN Addresses ─────────────────────────────────────── */}
             {lanAddresses.length > 0 && (
-              <div>
+              <motion.div variants={staggerItem}>
                 <h4 className="text-xs font-bold text-[#A0A0A0] uppercase tracking-wider mb-3 px-1">
                   Local Network Addresses
                 </h4>
-                <div className="space-y-2">
+                <motion.div className="space-y-2" variants={staggerContainer} initial="initial" animate="animate">
                   {lanAddresses.map((addr, i) => (
-                    <div
+                    <motion.div
                       key={i}
+                      variants={staggerItem}
+                      whileHover={{ x: 2 }}
                       className="flex items-center justify-between p-4 bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-colors group"
                     >
                       <div className="flex items-center gap-4">
@@ -140,14 +151,14 @@ function NetworkPanel({ serverId, server, socket }) {
                           <Copy size={16} />
                         )}
                       </button>
-                    </div>
+                    </motion.div>
                   ))}
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             )}
 
             {/* ── How to Connect ─────────────────────────────────────── */}
-            <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
+            <motion.div variants={staggerItem} className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
               <h4 className="text-sm font-bold text-[#FFFFFF] mb-3 flex items-center gap-2">
                 <Gamepad2 size={16} className="text-[#A0A0A0]" />
                 How to Connect
@@ -170,8 +181,8 @@ function NetworkPanel({ serverId, server, socket }) {
                   Paste the address and connect!
                 </li>
               </ol>
-            </div>
-          </>
+            </motion.div>
+          </motion.div>
         )}
       </div>
     </div>
