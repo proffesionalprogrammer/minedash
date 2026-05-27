@@ -37,7 +37,11 @@ export default function Select({ value, onChange, options, size = 'sm', classNam
         onClick={() => setOpen(v => !v)}
         className={`flex items-center justify-between gap-2 bg-[#1E1E1E] hover:border-[#555555] focus:border-[#00AF5C] border border-[#2D2D2D] rounded-xl ${padding} ${textSize} font-bold text-[#A0A0A0] outline-none transition-all cursor-pointer ${open ? 'border-[#00AF5C] ring-4 ring-[#00AF5C]/10' : ''}`}
       >
-        <span className="truncate">{current?.label || value}</span>
+        {/* Render the label of the matched option only. Falling back to the raw
+            `value` would leak internal IDs (e.g. "fabric-1.20.1") into the UI
+            during the one-frame gap between a parent prop change and the
+            parent's state-settling effect. Empty is safer than wrong. */}
+        <span className="truncate">{current?.label || ''}</span>
         <ChevronDown size={14} className={`text-[#555555] transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       <AnimatePresence>

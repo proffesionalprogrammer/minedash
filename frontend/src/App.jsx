@@ -12,6 +12,7 @@ import { useModpackInstalls } from './hooks/useModpackInstalls';
 import SettingsMenu from './components/SettingsMenu';
 import UpdateToast from './components/UpdateToast';
 import WhatsNewModal from './components/WhatsNewModal';
+import OnboardingTour from './components/OnboardingTour';
 import { AlertCircle, X, Gamepad2, Server } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -116,6 +117,11 @@ function App() {
   // Launcher settings — lifted so SettingsMenu and PlaySection share state.
   const [launcherSettings, setLauncherSettings] = useState(null);
 
+  // First-run onboarding tour. We show it the first time the settings file
+  // loads with onboardingComplete === false, and any time the user re-triggers
+  // it from Settings via the `minedash-show-onboarding` custom event.
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   // Cached set of installed `${loader}-${version}` profiles — lifted up so
   // switching to Servers and back doesn't make the launcher "forget" them.
   const [installedProfiles, setInstalledProfiles] = useState(new Set());
@@ -186,8 +192,37 @@ function App() {
   useEffect(() => {
     fetch('http://localhost:3001/api/launcher/settings')
       .then(r => r.json())
-      .then(d => setLauncherSettings(d))
+      .then(d => {
+        setLauncherSettings(d);
+        // Auto-show the welcome tour the first time a user runs MineDash.
+        // We key off the persisted flag so it never re-appears after they
+        // finish or skip it (unless re-triggered from Settings).
+        if (d && d.onboardingComplete === false) setShowOnboarding(true);
+      })
       .catch(() => {});
+  }, []);
+
+  // Settings menu fires this when the user clicks "Replay onboarding tour".
+  useEffect(() => {
+    const handler = () => setShowOnboarding(true);
+    window.addEventListener('minedash-show-onboarding', handler);
+    return () => window.removeEventListener('minedash-show-onboarding', handler);
+  }, []);
+
+  // Persist completion to launcher-settings.json so the tour doesn't reappear.
+  // Both finish and skip flow through here — we don't distinguish the two.
+  const handleOnboardingComplete = useCallback(async () => {
+    try {
+      const r = await fetch('http://localhost:3001/api/launcher/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onboardingComplete: true }),
+      });
+      const updated = await r.json();
+      if (r.ok) setLauncherSettings(updated);
+    } catch {
+      // Best-effort — if the PUT fails the user can dismiss again next launch.
+    }
   }, []);
 
   useEffect(() => {
@@ -411,6 +446,14 @@ function App() {
 
       <UpdateToast />
       <WhatsNewModal />
+
+      {/* First-run guided tour — auto-shows for new users, re-triggerable from Settings */}
+      {showOnboarding && (
+        <OnboardingTour
+          onClose={() => setShowOnboarding(false)}
+          onComplete={handleOnboardingComplete}
+        />
+      )}
     </div>
   );
 }

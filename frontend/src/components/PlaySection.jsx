@@ -126,6 +126,17 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
     [instances, loader, version],
   );
 
+  // Synchronously-derived display ID for the Select. The effect below settles
+  // `instanceId` to a valid value asynchronously, which leaves a one-frame gap
+  // after the user swaps loader/version where the stale ID (e.g. "fabric-1.20.1")
+  // would render as the Select label. Falling back here keeps the dropdown
+  // honest every frame.
+  const safeInstanceId = useMemo(() => {
+    if (visibleInstances.some(i => i.id === instanceId)) return instanceId;
+    const def = visibleInstances.find(i => i.isDefault);
+    return (def || visibleInstances[0])?.id || '';
+  }, [visibleInstances, instanceId]);
+
   // Whenever the loader/version selection changes, pick a sensible default
   // instance: the last-played one if it matches, otherwise the default
   // instance (the one with isDefault), otherwise the first available.
@@ -215,7 +226,10 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
     }
   };
 
-  const currentInstance = visibleInstances.find(i => i.id === instanceId);
+  // Use the derived safe ID so the rename / open-folder / delete buttons
+  // immediately retarget the correct instance after a loader/version swap
+  // (rather than briefly pointing at the stale Fabric instance from a frame ago).
+  const currentInstance = visibleInstances.find(i => i.id === safeInstanceId);
   const handleLaunch = () => {
     launch?.({ version, loader, instanceId: instanceId || undefined });
     // If the user just deleted the default and clicked Play with no instance
@@ -284,7 +298,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
           <div className="flex items-stretch gap-2">
             {visibleInstances.length > 0 && (
               <Select
-                value={instanceId}
+                value={safeInstanceId}
                 onChange={setInstanceId}
                 options={visibleInstances.map(i => ({ value: i.id, label: i.displayName }))}
                 size="md"

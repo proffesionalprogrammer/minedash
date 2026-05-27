@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles, ChevronUp, ChevronDown } from 'lucide-react';
+import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles, ChevronUp, ChevronDown, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Branded number input — replaces the OS-default spinner arrows (which render
@@ -290,6 +290,15 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   What's new in this version
                 </button>
               )}
+
+              {/* Replay the first-run onboarding tour. App.jsx listens for
+                  this custom event and flips showOnboarding back on. */}
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-onboarding'))}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                <Compass size={14} className="text-[#00AF5C]" />
+                Replay onboarding tour
+              </button>
 
               {/* Version footer — small gray line so the user can tell what
                   build they're on without digging through About menus.

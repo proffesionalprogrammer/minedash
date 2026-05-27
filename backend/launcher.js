@@ -385,6 +385,7 @@ const DEFAULT_SETTINGS = {
   lastLoader: '',            // last loader the user launched — restores the Play form on reopen
   lastVersion: '',           // last version the user launched
   lastInstanceId: '',        // last instance ID launched — narrower than lastLoader+lastVersion when multiple instances exist
+  onboardingComplete: false, // first-run guided tour — true once the user finishes or skips it
 };
 
 async function readAccounts() {
@@ -574,6 +575,7 @@ function register(app) {
     if (typeof incoming.lastLoader === 'string' && ['vanilla','fabric','forge','neoforge',''].includes(incoming.lastLoader)) next.lastLoader = incoming.lastLoader;
     if (typeof incoming.lastVersion === 'string') next.lastVersion = incoming.lastVersion.trim();
     if (typeof incoming.lastInstanceId === 'string') next.lastInstanceId = incoming.lastInstanceId.trim();
+    if (typeof incoming.onboardingComplete === 'boolean') next.onboardingComplete = incoming.onboardingComplete;
 
     await writeSettings(next);
     res.json(next);
