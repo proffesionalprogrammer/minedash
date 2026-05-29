@@ -1926,6 +1926,41 @@ function register(app) {
     }
     res.json({ ok: true, queued: !!worker });
   });
+
+  // Cancel an in-progress modpack install (Browse pre-install, install-into-
+  // profile, or modpack update). Keyed by the sessionId the frontend tracks on
+  // the `modpack_install_<sessionId>` channel. Two backends:
+  //   - worker-backed (Browse pre-install): kill the launch worker exactly like
+  //     a launch cancel; its exit handler wipes the partial instance and emits
+  //     the `cancelled` event once the worker (and its file locks) is gone.
+  //   - direct (install-into-profile / update): flip the cancel token so the
+  //     download loop bails; its .catch emits `cancelled`.
+  app.delete('/api/launcher/modpack-install/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const entry = activeModpackInstalls.get(sessionId);
+    if (!entry) {
+      // Nothing in flight (already finished, or never started). Still emit
+      // `cancelled` so a UI sitting in a stale "cancelling" state resets.
+      emitModpack(sessionId, 'cancelled', {});
+      return res.json({ ok: true, found: false });
+    }
+    if (entry.launchId) {
+      cancelledLaunches.add(entry.launchId);
+      const lentry = activeLaunches.get(entry.launchId);
+      const worker = lentry && lentry.worker;
+      if (worker && !worker.killed) {
+        try { worker.send({ type: 'cancel' }); } catch {}
+        setTimeout(() => {
+          if (!worker.killed && activeLaunches.has(entry.launchId)) {
+            try { worker.kill('SIGKILL'); } catch {}
+          }
+        }, 2500);
+      }
+    } else if (entry.token) {
+      entry.token.cancelled = true;
+    }
+    res.json({ ok: true, found: true });
+  });
 }
 
 // Fork the worker subprocess and wire its IPC events back to the socket.
@@ -1944,7 +1979,7 @@ function forkLaunchWorker(payload) {
     silent: true,
   });
 
-  activeLaunches.set(payload.launchId, { worker });
+  activeLaunches.set(payload.launchId, { worker, cleanupInstanceId: payload.cleanupInstanceId || null });
 
   // Full pre-install runs through the same worker/runLaunch path (so it's
   // cancellable and out-of-process like a normal launch), but the Browse UI
@@ -1958,7 +1993,10 @@ function forkLaunchWorker(payload) {
     if (event === 'status' || event === 'progress') {
       emitModpack(payload.modpackSessionId, event, data);
     } else if (event === 'close') {
-      emitModpack(payload.modpackSessionId, 'done', data);
+      // A cancelled close (user clicked Stop) surfaces as a distinct `cancelled`
+      // event so the UI tears the install card down quietly instead of flashing
+      // a bogus "install complete" / Play-now toast.
+      emitModpack(payload.modpackSessionId, data && data.code === 'cancelled' ? 'cancelled' : 'done', data);
     } else if (event === 'error') {
       emitModpack(payload.modpackSessionId, 'error', data);
     }
@@ -1974,13 +2012,20 @@ function forkLaunchWorker(payload) {
       // Generic event forwarding — { kind: 'event', launchId, event, ...data }
       const { kind, ...rest } = msg;
       const { launchId, event, ...data } = rest;
+      // A cancelled close for a modpack pre-install is deferred to the worker's
+      // exit handler: it must wipe the partial instance BEFORE the UI hears
+      // `cancelled` (and refetches), otherwise the half-installed instance flashes
+      // back as a broken card. Don't route it and don't mark it terminal here.
+      const deferCancelClose = payload.modpackSessionId && event === 'close'
+        && data && data.code === 'cancelled';
       // Track terminal events so the worker.on('exit') handler below doesn't
       // synthesize a second close/error after we already forwarded one. Same
       // launchId could get a "close" → IPC exit → exit handler racing.
-      if (event === 'close' || event === 'error') {
+      if (!deferCancelClose && (event === 'close' || event === 'error')) {
         const entry = activeLaunches.get(payload.launchId);
         if (entry) entry.terminalEmitted = true;
       }
+      if (deferCancelClose) return;
       routeEvent(launchId, event, data);
     } else if (msg.kind === 'jvm_started') {
       const entry = activeLaunches.get(payload.launchId);
@@ -1998,21 +2043,30 @@ function forkLaunchWorker(payload) {
     }
   });
 
-  worker.on('exit', (code, signal) => {
+  worker.on('exit', async (code, signal) => {
     const wasCancelled = cancelledLaunches.has(payload.launchId);
     const entry = activeLaunches.get(payload.launchId);
     const alreadyEmittedTerminal = entry && entry.terminalEmitted;
+    const cleanupInstanceId = entry && entry.cleanupInstanceId;
     activeLaunches.delete(payload.launchId);
     cancelledLaunches.delete(payload.launchId);
+    if (payload.modpackSessionId) activeModpackInstalls.delete(payload.modpackSessionId);
+    if (wasCancelled) {
+      // Cancel path. The worker (and its file locks) is gone now, so wipe the
+      // partially-installed instance the pre-install registered up-front before
+      // telling the UI — otherwise the broken instance flashes back as a card.
+      if (cleanupInstanceId) {
+        try { await removeInstanceCompletely(cleanupInstanceId); }
+        catch (e) { console.warn('[launcher] cancel cleanup failed:', e.message); }
+      }
+      // The close event was deferred until the worker actually died. Emit it now
+      // so the UI flips back to idle (unless the worker already forwarded one).
+      if (!alreadyEmittedTerminal) routeEvent(payload.launchId, 'close', { code: 'cancelled' });
+      return;
+    }
     if (alreadyEmittedTerminal) {
       // Worker forwarded its own close/error before exiting — nothing more
       // to do, the UI is already in the right state.
-      return;
-    }
-    if (wasCancelled) {
-      // Cancel path — the close event was deferred until the worker actually
-      // died. Emit it now so the UI flips back to idle.
-      routeEvent(payload.launchId, 'close', { code: 'cancelled' });
       return;
     }
     // If the worker died abnormally (signal kill or non-zero exit) without
@@ -2032,6 +2086,7 @@ function forkLaunchWorker(payload) {
   worker.on('error', (err) => {
     activeLaunches.delete(payload.launchId);
     cancelledLaunches.delete(payload.launchId);
+    if (payload.modpackSessionId) activeModpackInstalls.delete(payload.modpackSessionId);
     routeEvent(payload.launchId, 'error', { message: err.message || String(err) });
   });
 
