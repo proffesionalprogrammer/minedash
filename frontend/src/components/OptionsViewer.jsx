@@ -159,6 +159,7 @@ function GeneralSettings({ server, onError }) {
   const [loading, setLoading] = useState(false);
   const [iconPreview, setIconPreview] = useState(`http://localhost:3001/api/servers/${server.id}/icon.png`);
   const [ram, setRam] = useState(Math.max(parseRamGB(server.minRam), parseRamGB(server.maxRam)));
+  const [elybySkins, setElybySkins] = useState(!!server.elybySkins);
   const [showRegenModal, setShowRegenModal] = useState(false);
   const [regenSeed, setRegenSeed] = useState('');
   const [regenLoading, setRegenLoading] = useState(false);
@@ -172,7 +173,7 @@ function GeneralSettings({ server, onError }) {
       const res = await fetch(`http://localhost:3001/api/servers/${server.id}/general`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, minRam: ram + 'G', maxRam: ram + 'G' })
+        body: JSON.stringify({ name, minRam: ram + 'G', maxRam: ram + 'G', elybySkins })
       });
       if (!res.ok) throw new Error('Failed to save settings');
     } catch (e) {
@@ -261,6 +262,28 @@ function GeneralSettings({ server, onError }) {
             <span>{RAM_MIN} GB</span><span>{RAM_MAX} GB</span>
           </div>
         </div>
+      </div>
+
+      <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-[#FFFFFF] mb-1">Ely.by skins for players</h3>
+        <p className="text-sm text-[#A0A0A0] mb-4">
+          Lets offline players show the skin from their free Ely.by account to everyone on this
+          server (no Ely.by login needed). Players just need a matching Ely.by username with a skin
+          uploaded.
+        </p>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <span className="custom-checkbox-wrapper mt-0.5">
+            <input type="checkbox" className="custom-checkbox" checked={elybySkins}
+              onChange={(e) => setElybySkins(e.target.checked)} />
+            <span className="custom-checkbox-visual" />
+          </span>
+          <span>
+            <span className="text-sm font-bold text-[#FFFFFF]">Enable Ely.by skins on this server</span>
+            <span className="block text-xs text-[#A0A0A0] mt-0.5 leading-snug">
+              Applied on the next start. <span className="text-amber-400 font-bold">Set <code className="font-mono">online-mode=false</code> in Server properties</span> — with online mode on, this forces Ely.by authentication and premium players can't join.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div className="flex justify-end">

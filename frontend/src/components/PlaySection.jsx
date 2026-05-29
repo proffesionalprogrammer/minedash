@@ -6,6 +6,7 @@ import PlayProgressButton from './PlayProgressButton';
 import ContentBrowserModal from './ContentBrowserModal';
 import Tooltip from './Tooltip';
 import Select from './Select';
+import SkinHead from './SkinHead';
 
 const LOADERS = [
   { key: 'vanilla',  label: 'Vanilla',  icon: Box          },
@@ -14,7 +15,7 @@ const LOADERS = [
   { key: 'neoforge', label: 'NeoForge', icon: FlaskConical },
 ];
 
-export default function PlaySection({ servers, socket, initialServerId, accounts, activeAccountId, settings, installedProfiles, onProfilesChanged, onError, launchSession, modpackInstalls }) {
+export default function PlaySection({ servers, socket, initialServerId, accounts, activeAccountId, settings, installedProfiles, onProfilesChanged, onError, launchSession, modpackInstalls, launcherSelection, onSelectionConsumed, instancesRefreshKey, onOpenDetail }) {
   const [loader, setLoader] = useState('vanilla');
   const [versions, setVersions] = useState([]);
   const [version, setVersion] = useState('');
@@ -62,6 +63,31 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
   }, []);
 
   useEffect(() => { fetchInstances(); }, [fetchInstances]);
+
+  // Refetch when a new instance was just created elsewhere (e.g. a Browse
+  // install). The parent bumps `instancesRefreshKey` rather than passing an
+  // imperative handle so PlaySection's mounting story stays simple.
+  useEffect(() => {
+    if (instancesRefreshKey == null) return;
+    fetchInstances();
+  }, [instancesRefreshKey, fetchInstances]);
+
+  // External "jump to this instance" — fired by App.jsx when the user clicks
+  // "Play now" on a completed Browse install. Apply the loader/version/instance
+  // triple, then tell the parent the selection has been consumed so a later
+  // re-render doesn't re-apply it on top of the user's manual edits.
+  useEffect(() => {
+    if (!launcherSelection) return;
+    const { loader: nl, version: nv, instanceId: ni } = launcherSelection;
+    if (nl && LOADERS.some(l => l.key === nl)) setLoader(nl);
+    if (nv) setVersion(nv);
+    if (ni) setInstanceId(ni);
+    // Make sure the new instance is in our local cache so the dropdown can
+    // render it as the selected option. Without this the Select would
+    // briefly show the loader+version default until the next mount cycle.
+    fetchInstances();
+    onSelectionConsumed?.();
+  }, [launcherSelection, fetchInstances, onSelectionConsumed]);
 
   useEffect(() => {
     if (!initialServerId) return;
@@ -432,6 +458,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
           statusText={statusText}
           fileCount={fileCount}
           idleLabel={activeAccount ? `Play as ${activeAccount.username}` : 'Play'}
+          leading={activeAccount ? <SkinHead username={activeAccount.username} uuid={activeAccount.uuid} type={activeAccount.type} size={24} rounded="rounded-md" /> : null}
           disabled={(!canLaunch && phase !== 'running') || phase === 'cancelling'}
           onClick={phase === 'running' ? cancel : (phase === 'cancelling' ? () => {} : handleLaunch)}
         />
@@ -448,6 +475,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
             onClose={() => setContentOpen(false)}
             onError={onError}
             modpackInstalls={modpackInstalls}
+            onOpenDetail={onOpenDetail}
           />
         )}
       </AnimatePresence>

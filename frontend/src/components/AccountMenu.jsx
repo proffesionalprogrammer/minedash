@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, ChevronDown, UserCircle2, ShieldCheck } from 'lucide-react';
+import { User, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AccountManager from './AccountManager';
+import SkinHead from './SkinHead';
 
 export default function AccountMenu({ accounts, activeAccountId, microsoftConfigured, onChanged, onError }) {
   const [open, setOpen] = useState(false);
@@ -30,15 +31,13 @@ export default function AccountMenu({ accounts, activeAccountId, microsoftConfig
             : 'bg-[#00AF5C]/10 border-[#00AF5C]/30 hover:bg-[#00AF5C]/15'
         }`}
       >
-        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-          active?.type === 'microsoft' ? 'bg-[#00AF5C]/15 text-[#00AF5C]'
-            : active ? 'bg-[#2D2D2D] text-[#A0A0A0]'
-            : 'bg-[#00AF5C]/20 text-[#00AF5C]'
-        }`}>
-          {active?.type === 'microsoft' ? <ShieldCheck size={14} />
-            : active ? <UserCircle2 size={14} />
-            : <User size={14} />}
-        </div>
+        {active ? (
+          <SkinHead username={active.username} uuid={active.uuid} type={active.type} size={28} rounded="rounded-lg" />
+        ) : (
+          <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-[#00AF5C]/20 text-[#00AF5C]">
+            <User size={14} />
+          </div>
+        )}
         <span className="text-sm font-bold text-[#FFFFFF] max-w-[120px] truncate">
           {active ? active.username : 'Sign in'}
         </span>

@@ -23,6 +23,7 @@ const os = require('os');
 const net = require('net');
 const pidusage = require('pidusage');
 const crypto = require('crypto');
+const { ensureAuthlibInjector, jarPath: authlibJarPathFor } = require('./authlib-injector');
 
 const app = express();
 const server = http.createServer(app);
@@ -2242,10 +2243,31 @@ function startProcess(id, serverConfig, serverPath) {
   // the bundled Minecraft server.jar booted its Swing "Minecraft server" GUI
   // window beside the in-app console. Duplicates are harmless to MC's arg
   // parser, so always appending nogui keeps both loaders behaving the same.
+  // Server-side Ely.by skins (opt-in per server). Inject the authlib-injector
+  // agent so offline players' Ely.by skins resolve for everyone on this server.
+  // JAVA_TOOL_OPTIONS reaches the JVM identically for run.bat / run.sh / -jar.
+  // IMPORTANT: this only makes sense with online-mode=false — on an online-mode
+  // server authlib-injector forces Ely.by auth and would reject premium players,
+  // so we never inject unless the user explicitly enabled it for this server.
+  let spawnEnv = spawnEnvForServer(id);
+  if (serverConfig.elybySkins) {
+    try {
+      const jar = authlibJarPathFor(DATA_DIR);
+      if (fs.existsSync(jar)) {
+        const prefix = spawnEnv.JAVA_TOOL_OPTIONS ? spawnEnv.JAVA_TOOL_OPTIONS + ' ' : '';
+        // Full API root, not the `ely.by` shorthand — the shorthand relies on an
+        // HTTP redirect from https://ely.by that isn't guaranteed; the explicit
+        // root resolves the auth/session endpoints directly. (See launcher.js
+        // ELYBY_API_ROOT for the full rationale.)
+        spawnEnv = { ...spawnEnv, JAVA_TOOL_OPTIONS: `${prefix}-javaagent:${jar}=https://authserver.ely.by/api/authlib-injector` };
+      }
+    } catch {}
+  }
+
   if (hasBat && process.platform === 'win32') {
-    mcProcess = spawn('cmd.exe', ['/c', 'run.bat', 'nogui'], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
+    mcProcess = spawn('cmd.exe', ['/c', 'run.bat', 'nogui'], { cwd: serverPath, env: spawnEnv, windowsHide: true });
   } else if (hasSh && process.platform !== 'win32') {
-    mcProcess = spawn('sh', ['run.sh', 'nogui'], { cwd: serverPath, env: spawnEnvForServer(id) });
+    mcProcess = spawn('sh', ['run.sh', 'nogui'], { cwd: serverPath, env: spawnEnv });
   } else if (hasJar) {
     mcProcess = spawn(javaForServer(id), [
       `-Xms${serverConfig.minRam}`,
@@ -2253,7 +2275,7 @@ function startProcess(id, serverConfig, serverPath) {
       '-jar',
       'server.jar',
       'nogui'
-    ], { cwd: serverPath, env: spawnEnvForServer(id), windowsHide: true });
+    ], { cwd: serverPath, env: spawnEnv, windowsHide: true });
   } else {
     // Dummy fallback
     appendLog(`[MineDash] No server files found for ${id}, starting dummy process.\n`);
@@ -3651,7 +3673,7 @@ app.post('/api/servers/:id/regenerate-world', async (req, res) => {
 // General Settings Endpoint
 app.put('/api/servers/:id/general', async (req, res) => {
   const { id } = req.params;
-  const { name, customUrl, minRam, maxRam } = req.body;
+  const { name, customUrl, minRam, maxRam, elybySkins } = req.body;
   const servers = await getServers();
   const index = servers.findIndex(s => s.id === id);
   if (index === -1) return res.status(404).json({ error: 'Server not found' });
@@ -3660,7 +3682,9 @@ app.put('/api/servers/:id/general', async (req, res) => {
   if (customUrl !== undefined) servers[index].customUrl = customUrl;
   if (minRam) servers[index].minRam = minRam;
   if (maxRam) servers[index].maxRam = maxRam;
-  
+  // Server-side Ely.by skins toggle (applied on next start via authlib-injector).
+  if (typeof elybySkins === 'boolean') servers[index].elybySkins = elybySkins;
+
   await saveServers(servers);
   const emitData = { ...servers[index], status: activeProcesses[id] ? 'online' : 'offline' };
   io.emit('server_updated', emitData);
@@ -3708,13 +3732,26 @@ const MODRINTH_HEADERS = { 'User-Agent': 'MineDash/1.0 (local server manager)' }
 // Search mods on Modrinth
 app.get('/api/modrinth/search', async (req, res) => {
   try {
-    const { query, limit, offset, gameVersion, loader, category, projectType, sort } = req.query;
+    const { query, limit, offset, projectType, sort } = req.query;
+    // gameVersion / loader / category accept either a single string ("1.21")
+    // or repeated query params (?gameVersion=1.21&gameVersion=1.20.1). Each
+    // value within a single field becomes an OR group inside the Modrinth
+    // facets array; separate fields are AND'd together. This is what powers
+    // the Browse filter rail's multi-select chips.
+    const multi = (name) => {
+      const all = req.query[name];
+      if (Array.isArray(all)) return all.filter(Boolean);
+      return all ? [all] : [];
+    };
     const facets = [[`project_type:${projectType || 'mod'}`]];
-    if (gameVersion) facets.push([`versions:${gameVersion}`]);
-    if (loader) facets.push([`categories:${loader}`]);
-    if (category) facets.push([`categories:${category}`]);
+    const gvs = multi('gameVersion');
+    if (gvs.length) facets.push(gvs.map(v => `versions:${v}`));
+    const lds = multi('loader');
+    if (lds.length) facets.push(lds.map(v => `categories:${v}`));
+    const cats = multi('category');
+    if (cats.length) facets.push(cats.map(v => `categories:${v}`));
 
-    const ALLOWED_SORTS = ['relevance', 'downloads', 'newest', 'updated'];
+    const ALLOWED_SORTS = ['relevance', 'downloads', 'follows', 'newest', 'updated'];
     const sortIndex = ALLOWED_SORTS.includes(sort) ? sort : 'relevance';
 
     const params = new URLSearchParams({
@@ -3749,6 +3786,66 @@ app.get('/api/modrinth/project/:id/versions', async (req, res) => {
   } catch (error) {
     console.error('Modrinth versions error:', error);
     res.status(500).json({ error: 'Failed to get project versions' });
+  }
+});
+
+// Modrinth tag/category list — used by the Browse filter rail to populate the
+// category multi-select. Cached for an hour because the list rarely changes
+// and Modrinth has a 300 req/min global rate limit shared with search.
+let categoriesCache = { at: 0, data: null };
+app.get('/api/modrinth/categories', async (_req, res) => {
+  try {
+    if (categoriesCache.data && Date.now() - categoriesCache.at < 60 * 60 * 1000) {
+      return res.json(categoriesCache.data);
+    }
+    const r = await fetch(`${MODRINTH_API}/tag/category`, { headers: MODRINTH_HEADERS });
+    const d = await r.json();
+    if (!r.ok) throw new Error('Modrinth /tag/category returned ' + r.status);
+    categoriesCache = { at: Date.now(), data: d };
+    res.json(d);
+  } catch (err) {
+    console.error('Modrinth categories error:', err);
+    res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+// Full Modrinth project metadata (body markdown, gallery, license, links,
+// donation_urls, organization, monetization_status, published/updated).
+// Used by the launcher's ProjectDetailModal. Cached briefly so opening the
+// same modal twice in a session doesn't repeatedly hit the API.
+const projectCache = new Map(); // id -> { at, data }
+app.get('/api/modrinth/project/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const cached = projectCache.get(id);
+    if (cached && Date.now() - cached.at < 5 * 60 * 1000) {
+      return res.json(cached.data);
+    }
+    const r = await fetch(`${MODRINTH_API}/project/${encodeURIComponent(id)}`, { headers: MODRINTH_HEADERS });
+    const d = await r.json();
+    if (!r.ok) return res.status(r.status).json({ error: d?.description || `Modrinth returned ${r.status}` });
+    projectCache.set(id, { at: Date.now(), data: d });
+    res.json(d);
+  } catch (err) {
+    console.error('Modrinth project fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch project' });
+  }
+});
+
+// Resolved dependency tree for a project. Modrinth returns { projects[],
+// versions[] } where projects are the dep's full project metadata and
+// versions are recommended versions per dep. Used by the Dependencies tab in
+// the ProjectDetailModal so users can see what a mod pulls in before installing.
+app.get('/api/modrinth/project/:id/dependencies', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const r = await fetch(`${MODRINTH_API}/project/${encodeURIComponent(id)}/dependencies`, { headers: MODRINTH_HEADERS });
+    const d = await r.json();
+    if (!r.ok) return res.status(r.status).json({ error: d?.description || `Modrinth returned ${r.status}` });
+    res.json(d);
+  } catch (err) {
+    console.error('Modrinth dependencies fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch dependencies' });
   }
 });
 
@@ -4367,6 +4464,11 @@ launcher.init({
   modrinthHeaders: MODRINTH_HEADERS,
 });
 launcher.register(app);
+
+// Warm the authlib-injector JAR at boot so server-side Ely.by-skin injection
+// (in startProcess) has a ready file path without doing async work mid-spawn.
+// Best-effort — if it fails, servers with the toggle on just won't inject.
+ensureAuthlibInjector(DATA_DIR).catch(() => {});
 
 const PORT = 3001;
 server.listen(PORT, () => {

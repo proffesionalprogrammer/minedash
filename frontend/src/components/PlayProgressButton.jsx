@@ -19,6 +19,7 @@ export default function PlayProgressButton({
   disabled = false,
   onClick,
   size = 'lg',
+  leading = null,   // optional node (e.g. a SkinHead) shown before the icon while idle
 }) {
   const [stopHovered, setStopHovered] = useState(false);
   const idle       = phase === 'idle';
@@ -110,6 +111,7 @@ export default function PlayProgressButton({
       </AnimatePresence>
 
       <div className={`relative z-10 flex items-center justify-center gap-3 ${sizing.padX} ${sizing.padY}`}>
+        {idle && leading}
         <Icon
           size={sizing.iconPx}
           className={(cancelling || (running && !showStop)) ? 'animate-spin' : ''}

@@ -1,0 +1,9 @@
+{
+  "offlineWithElyBySkins": {
+    "customArgs": [
+      "-javaagent:/data/MineDash/authlib-injector/authlib-injector.jar=ely.by",
+      "-Dauthlibinjector.yggdrasil.prefetched=UFJFRkVUQ0hfTUVUQURBVEE=",
+      "-Dauthlibinjector.noShowServerName"
+    ]
+  }
+}

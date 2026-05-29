@@ -34,6 +34,19 @@
 require('dns').setDefaultResultOrder('ipv4first');
 
 const { spawn, exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+// Diagnostic log file. Tee'd from the game's stdout/stderr + our own status
+// lines so a launch can be inspected after the fact — the UI currently shows
+// only high-level status, not raw output (notably the [authlib-injector] banner
+// we need to confirm Ely.by skins loaded). Truncated at the start of each
+// launch. Path is set in startLaunch once we know DATA_DIR.
+let logFile = null;
+function appendLogFile(s) {
+  if (!logFile) return;
+  try { fs.appendFileSync(logFile, s.endsWith('\n') ? s : s + '\n'); } catch {}
+}
 
 // Children we've spawned (NeoForge installer, the game JVM). Tracked so the
 // `cancel` IPC handler can kill them before the worker exits — otherwise
@@ -85,6 +98,10 @@ function emit(launchId, event, data = {}) {
   if (process.send) {
     try { process.send({ kind: 'event', launchId, event, ...data }); } catch {}
   }
+  // Tee anything human-readable into the diagnostic log file.
+  if ((event === 'log' || event === 'status' || event === 'error') && data.message) {
+    appendLogFile(event === 'log' ? data.message : `[${event}] ${data.message}`);
+  }
   if ((event === 'close' || event === 'error') && !terminalScheduled) {
     terminalScheduled = true;
     setTimeout(() => process.exit(0), 200);
@@ -126,6 +143,19 @@ process.on('unhandledRejection', (err) => {
 
 async function startLaunch(payload) {
   const { launchId, DATA_DIR, INSTANCES_DIR, discoveredJava, launchArgs } = payload;
+
+  // Open a fresh diagnostic log for this launch. Single rolling file (not
+  // per-launchId) so it's trivial to find: <DATA_DIR>/launcher-last.log.
+  try {
+    logFile = path.join(DATA_DIR, 'launcher-last.log');
+    const acct = launchArgs?.account || {};
+    fs.writeFileSync(logFile,
+      `=== MineDash launch ${new Date().toISOString()} ===\n` +
+      `instance=${launchArgs?.instance?.id} loader=${launchArgs?.instance?.loader} version=${launchArgs?.instance?.version}\n` +
+      `account type=${acct.type} username=${acct.username} elybySkins=${acct.elybySkins} elybyUuid=${acct.elybyUuid}\n` +
+      `elybyLaunch=${launchArgs?.elybyLaunch ? `present (profileUuid=${launchArgs.elybyLaunch.profileUuid})` : 'null (agent will NOT be injected)'}\n\n`,
+    );
+  } catch { logFile = null; }
 
   // Load the launcher module inside the worker and init it with the
   // worker-mode hooks. Events go back to the parent via IPC, cancel is

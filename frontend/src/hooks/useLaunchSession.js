@@ -35,6 +35,11 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('');
   const [fileCount, setFileCount] = useState({ current: 0, total: 0 });
+  // The instance this launch targets (when one was supplied). Lifted here with
+  // the rest of the session so the Instances tab can paint progress on the
+  // right card even after it unmounts/remounts on a tab switch — local card
+  // state would otherwise forget which instance is running.
+  const [instanceId, setInstanceId] = useState(null);
   const stageRef = useRef('');
   const handlerRef = useRef(null);
   const launchIdRef = useRef(null);
@@ -54,6 +59,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   const reset = () => {
     setPhase('idle'); setProgress(0); setStatusText('');
     setFileCount({ current: 0, total: 0 });
+    setInstanceId(null);
     if (handlerRef.current && launchIdRef.current && socket) {
       socket.off(`launcher_${launchIdRef.current}`, handlerRef.current);
     }
@@ -90,6 +96,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     setProgress(2);
     setStatusText('Preparing…');
     setFileCount({ current: 0, total: 0 });
+    setInstanceId(body?.instanceId ?? null);
 
     try {
       const r = await fetch('http://localhost:3001/api/launcher/launch', {
@@ -167,5 +174,5 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     }
   };
 
-  return { phase, progress, statusText, fileCount, launch, cancel };
+  return { phase, progress, statusText, fileCount, instanceId, launch, cancel };
 }

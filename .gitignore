@@ -73,3 +73,9 @@ desktop.ini
 # runtime (Adoptium pool). Hundreds of MB per major version, fully
 # regenerable, and gets re-fetched after a fresh install on the same box.
 backend/runtimes/
+
+# ─── authlib-injector (offline/custom-Yggdrasil skins) ───────────────────
+# The agent jar is downloaded at runtime into <DATA_DIR>/authlib-injector/
+# (the backend/ folder in dev). Regenerable from authlib-injector.js, which
+# also pins a known-good fallback — don't commit the binary.
+backend/authlib-injector/

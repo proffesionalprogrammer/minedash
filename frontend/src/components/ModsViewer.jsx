@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ModrinthBrowser from './ModrinthBrowser';
 import ModalPortal from './ModalPortal';
 
-function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modpackInstalls }) {
+function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modpackInstalls, onOpenDetail }) {
   const [viewMode, setViewMode] = useState('installed');
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -502,15 +502,15 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
       {/* Content */}
       {viewMode === 'browse' ? (
         <div className="flex-1 overflow-hidden p-4 flex flex-col">
-          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="mod" modpackInstalls={modpackInstalls} />
+          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="mod" modpackInstalls={modpackInstalls} onOpenDetail={onOpenDetail} />
         </div>
       ) : viewMode === 'modpacks' ? (
         <div className="flex-1 overflow-hidden p-4 flex flex-col">
-          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="modpack" modpackInstalls={modpackInstalls} />
+          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="modpack" modpackInstalls={modpackInstalls} onOpenDetail={onOpenDetail} />
         </div>
       ) : viewMode === 'datapacks' ? (
         <div className="flex-1 overflow-hidden p-4 flex flex-col">
-          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="datapack" modpackInstalls={modpackInstalls} />
+          <ModrinthBrowser serverId={serverId} serverVersion={serverVersion} serverType={serverType} socket={socket} onInstalled={fetchMods} projectType="datapack" modpackInstalls={modpackInstalls} onOpenDetail={onOpenDetail} />
         </div>
       ) : (
         <>

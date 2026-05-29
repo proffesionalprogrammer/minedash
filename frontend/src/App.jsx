@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import ServersList from './components/ServersList';
 import MainPanel from './components/MainPanel';
@@ -6,14 +6,18 @@ import CreateServerModal from './components/CreateServerModal';
 import TitleBar from './components/TitleBar';
 import JavaSetupModal from './components/JavaSetupModal';
 import PlaySection from './components/PlaySection';
+import BrowseSection from './components/BrowseSection';
+import InstancesSection from './components/InstancesSection';
 import AccountMenu from './components/AccountMenu';
 import { useLaunchSession } from './hooks/useLaunchSession';
 import { useModpackInstalls } from './hooks/useModpackInstalls';
-import SettingsMenu from './components/SettingsMenu';
+import SettingsPage from './components/SettingsPage';
 import UpdateToast from './components/UpdateToast';
+import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
 import OnboardingTour from './components/OnboardingTour';
-import { AlertCircle, X, Gamepad2, Server } from 'lucide-react';
+import ProjectDetailModal from './components/ProjectDetailModal';
+import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const socket = io('http://localhost:3001');
@@ -35,16 +39,25 @@ const applyAppScale = () => {
 };
 
 const TABS = {
-  play:    { label: 'Launcher', subtitle: 'Pick a loader, a version, hit Play.', icon: Gamepad2 },
-  servers: { label: 'Servers',  subtitle: 'Run Minecraft servers on this PC.',  icon: Server   },
+  play:      { label: 'Launcher',  subtitle: 'Pick a loader, a version, hit Play.',            icon: Gamepad2 },
+  browse:    { label: 'Browse',    subtitle: 'Discover modpacks, mods, and resource packs.',   icon: Compass  },
+  instances: { label: 'Instances', subtitle: 'Your installed modpacks and profiles.',          icon: Boxes    },
+  servers:   { label: 'Servers',   subtitle: 'Run Minecraft servers on this PC.',              icon: Server   },
+  // Settings is a destination view but deliberately NOT in TAB_ORDER — it's
+  // reached via the gear icon, not the inactive-pill row. It still needs a
+  // TABS entry so the header title/icon/subtitle resolve when it's active.
+  settings:  { label: 'Settings',  subtitle: 'Memory, Java, accounts, and updates.',            icon: Settings },
 };
 
-function AppHeader({ view, onChange, accountMenuProps, settingsMenuProps }) {
+// Order matters — the row of inactive tab pills renders in this order, so the
+// active one is filtered out at render time and the rest keep their position.
+const TAB_ORDER = ['play', 'browse', 'instances', 'servers'];
+
+function AppHeader({ view, onChange, accountMenuProps }) {
   const active = TABS[view];
-  const inactiveKey = view === 'play' ? 'servers' : 'play';
-  const inactive = TABS[inactiveKey];
   const ActiveIcon = active.icon;
-  const InactiveIcon = inactive.icon;
+  const inactiveKeys = TAB_ORDER.filter(k => k !== view);
+  const settingsActive = view === 'settings';
 
   return (
     <header className="flex items-center justify-between gap-4 px-6 md:px-10 py-4 bg-[#111111] border-b border-[#2D2D2D] flex-shrink-0 relative z-30">
@@ -67,32 +80,54 @@ function AppHeader({ view, onChange, accountMenuProps, settingsMenuProps }) {
 
         <div className="hidden sm:block w-px h-10 bg-[#2D2D2D]" />
 
-        <motion.button
-          onClick={() => onChange(inactiveKey)}
-          whileHover={{ scale: 1.05, y: -1 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-          className="group relative flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors overflow-hidden"
-        >
-          {/* Soft brand-green shimmer that sweeps across on hover. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full bg-gradient-to-r from-transparent via-[#00AF5C]/15 to-transparent transition-transform duration-700 ease-out"
-          />
-          <motion.span
-            initial={false}
-            whileHover={{ rotate: -8, scale: 1.15 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 18 }}
-            className="relative z-10 inline-flex"
-          >
-            <InactiveIcon size={14} />
-          </motion.span>
-          <span className="relative z-10">{inactive.label}</span>
-        </motion.button>
+        <div className="flex items-center gap-2">
+          {inactiveKeys.map(key => {
+            const t = TABS[key];
+            const Icon = t.icon;
+            return (
+              <motion.button
+                key={key}
+                onClick={() => onChange(key)}
+                whileHover={{ scale: 1.05, y: -1 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 22 }}
+                className="group relative flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors overflow-hidden"
+              >
+                {/* Soft brand-green shimmer that sweeps across on hover. */}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full bg-gradient-to-r from-transparent via-[#00AF5C]/15 to-transparent transition-transform duration-700 ease-out"
+                />
+                <motion.span
+                  initial={false}
+                  whileHover={{ rotate: -8, scale: 1.15 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+                  className="relative z-10 inline-flex"
+                >
+                  <Icon size={14} />
+                </motion.span>
+                <span className="relative z-10">{t.label}</span>
+              </motion.button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
-        <SettingsMenu {...settingsMenuProps} />
+        <motion.button
+          onClick={() => onChange(settingsActive ? 'play' : 'settings')}
+          whileHover={{ scale: 1.05, rotate: 30 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: 'tween', duration: 0.08 }}
+          title="Settings"
+          className={`p-2.5 rounded-2xl border transition-all duration-200 ${
+            settingsActive
+              ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
+              : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
+          }`}
+        >
+          <Settings size={18} />
+        </motion.button>
         <AccountMenu {...accountMenuProps} />
       </div>
     </header>
@@ -114,7 +149,7 @@ function App() {
   const [activeAccountId, setActiveAccountId] = useState(null);
   const [microsoftConfigured, setMicrosoftConfigured] = useState(false);
 
-  // Launcher settings — lifted so SettingsMenu and PlaySection share state.
+  // Launcher settings — lifted so SettingsPage and PlaySection share state.
   const [launcherSettings, setLauncherSettings] = useState(null);
 
   // First-run onboarding tour. We show it the first time the settings file
@@ -155,6 +190,166 @@ function App() {
   // LauncherContent both register their installs here and read progress back
   // via key, so the progress bar rehydrates immediately on remount.
   const modpackInstalls = useModpackInstalls(socket);
+
+  // Post-Browse-install jump: when a modpack install initiated from the Browse
+  // tab completes, we surface a "Play now" toast and (on click) navigate the
+  // user to the Launcher tab pre-selecting the new instance. PlaySection picks
+  // up `pendingLauncherSelection` and pushes its loader/version/instanceId
+  // through to its local state.
+  const [pendingLauncherSelection, setPendingLauncherSelection] = useState(null);
+  // Multi-toast stack — modpack install completions AND server-install
+  // progress toasts can coexist (e.g. user clicks Install as server, then
+  // clicks Install on a modpack while the server is still building). Each
+  // toast carries its own `kind` + `phase` so the component can render
+  // appropriately.
+  const [installToasts, setInstallToasts] = useState([]);
+  // Bumped whenever a Browse install finishes — PlaySection useEffect's on
+  // this re-fetch the instance list so the newly-created instance shows up
+  // in the dropdown even if the user was already on the Launcher tab.
+  const [instancesRefreshKey, setInstancesRefreshKey] = useState(0);
+
+  // ProjectDetailModal — opened from any of three surfaces (Browse, Launcher
+  // content, server-side ModrinthBrowser). Hosted at App level so the modal
+  // outlives tab navigation while it's open and isn't clipped by any
+  // animated section wrapper.
+  const [detailModal, setDetailModal] = useState(null);
+  const openDetail = useCallback((opts) => setDetailModal(opts), []);
+  const closeDetail = useCallback(() => setDetailModal(null), []);
+  // Track sessionIds we've already toasted for so a render of `installs`
+  // doesn't re-fire the toast for an already-handled completion.
+  const toastedSessions = useRef(new Set());
+
+  const upsertToast = useCallback((toast) => {
+    setInstallToasts(prev => {
+      const i = prev.findIndex(t => t.id === toast.id);
+      if (i === -1) return [...prev, toast];
+      const next = prev.slice();
+      next[i] = { ...next[i], ...toast };
+      return next;
+    });
+  }, []);
+
+  const removeToast = useCallback((id) => {
+    setInstallToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Watch the modpack install map for browse-source entries reaching done /
+  // error. Done → toast + refresh; error is left to the per-row install entry
+  // to surface inside BrowseSection.
+  useEffect(() => {
+    const installs = modpackInstalls.installs;
+    for (const [key, entry] of Object.entries(installs)) {
+      if (!key.startsWith('browse:')) continue;
+      if (entry?.source !== 'browse') continue;
+      if (entry?.status !== 'done') continue;
+      if (!entry.sessionId) continue;
+      if (toastedSessions.current.has(entry.sessionId)) continue;
+      toastedSessions.current.add(entry.sessionId);
+
+      fetchInstalledProfiles();
+      setInstancesRefreshKey(k => k + 1);
+      upsertToast({
+        id: `modpack-${entry.sessionId}`,
+        kind: 'modpack',
+        phase: 'done',
+        title: entry.title || 'Modpack',
+        loader: entry.loader,
+        version: entry.version,
+        instanceId: entry.instanceId,
+        iconUrl: entry.iconUrl || null,
+        autoDismissAfter: 10_000,
+      });
+    }
+  }, [modpackInstalls.installs, fetchInstalledProfiles, upsertToast]);
+
+  // Auto-dismiss timer per toast. Each toast carries its own
+  // `autoDismissAfter` (ms) and `phase` — only terminal phases get a timer
+  // since an in-flight 'downloading'/'creating' toast should stay until the
+  // flow finishes or the user explicitly dismisses.
+  useEffect(() => {
+    const timers = [];
+    for (const toast of installToasts) {
+      if (!toast.autoDismissAfter) continue;
+      if (toast.phase === 'downloading' || toast.phase === 'creating') continue;
+      const t = setTimeout(() => removeToast(toast.id), toast.autoDismissAfter);
+      timers.push(t);
+    }
+    return () => { for (const t of timers) clearTimeout(t); };
+  }, [installToasts, removeToast]);
+
+  const handleBrowseToastPlay = useCallback((toast) => {
+    if (!toast) return;
+    setPendingLauncherSelection({
+      loader: toast.loader,
+      version: toast.version,
+      instanceId: toast.instanceId,
+    });
+    setView('play');
+    removeToast(toast.id);
+  }, [removeToast]);
+
+  const handleGoToServers = useCallback((toast) => {
+    setView('servers');
+    if (toast) removeToast(toast.id);
+  }, [removeToast]);
+
+  // Server-install pipeline — lifted from BrowseSection so it survives the
+  // user navigating to a different tab while the download is in flight. The
+  // toast shows progress (downloading → creating → done/error) and persists
+  // across view changes; on done it offers "Open Servers" to jump straight
+  // to the new server card.
+  const beginServerInstall = useCallback(async (hit) => {
+    const toastId = `server-${hit.project_id}-${Date.now()}`;
+    upsertToast({
+      id: toastId,
+      kind: 'server',
+      phase: 'downloading',
+      title: hit.title,
+      iconUrl: hit.icon_url || null,
+    });
+    try {
+      const vr = await fetch(`http://localhost:3001/api/modrinth/project/${hit.project_id}/versions`);
+      const vs = await vr.json();
+      if (!vr.ok || !Array.isArray(vs) || vs.length === 0) throw new Error('No version found for this modpack');
+      vs.sort((a, b) => {
+        const rank = { release: 0, beta: 1, alpha: 2 };
+        return (rank[a.version_type] ?? 3) - (rank[b.version_type] ?? 3);
+      });
+      const best = vs[0];
+      const file = (best.files || []).find(f => f.primary) || (best.files || [])[0];
+      if (!file?.url) throw new Error('Modpack version has no downloadable file');
+
+      const dl = await fetch(file.url);
+      if (!dl.ok) throw new Error(`Modpack download failed (${dl.status})`);
+      const blob = await dl.blob();
+      upsertToast({ id: toastId, phase: 'creating' });
+
+      const fd = new FormData();
+      fd.append('mrpack', new File([blob], file.filename || `${hit.project_id}.mrpack`));
+      fd.append('name', hit.title);
+      fd.append('ram', '4');
+
+      const cr = await fetch('http://localhost:3001/api/servers/from-modpack', {
+        method: 'POST',
+        body: fd,
+      });
+      const cd = await cr.json();
+      if (!cr.ok) throw new Error(cd.error || 'Server create failed');
+
+      upsertToast({
+        id: toastId,
+        phase: 'done',
+        autoDismissAfter: 12_000,
+      });
+    } catch (err) {
+      upsertToast({
+        id: toastId,
+        phase: 'error',
+        error: err.message,
+        autoDismissAfter: 8_000,
+      });
+    }
+  }, [upsertToast]);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -323,20 +518,15 @@ function App() {
     accounts,
     activeAccountId,
     microsoftConfigured,
+    elybySkinsDefault: launcherSettings?.elybySkins !== false,
     onChanged: fetchAccounts,
-    onError: showError,
-  };
-
-  const settingsMenuProps = {
-    settings: launcherSettings,
-    onChange: setLauncherSettings,
     onError: showError,
   };
 
   return (
     <div className="flex flex-col h-full bg-[#111111] text-[#FFFFFF] font-sans selection:bg-[#00AF5C]/20">
       <TitleBar />
-      <AppHeader view={view} onChange={setView} accountMenuProps={accountMenuProps} settingsMenuProps={settingsMenuProps} />
+      <AppHeader view={view} onChange={setView} accountMenuProps={accountMenuProps} />
 
       <main className="flex-1 flex flex-col overflow-hidden bg-[#111111] z-10 relative">
         <AnimatePresence mode="wait">
@@ -361,6 +551,62 @@ function App() {
                 onError={showError}
                 launchSession={launchSession}
                 modpackInstalls={modpackInstalls}
+                launcherSelection={pendingLauncherSelection}
+                onSelectionConsumed={() => setPendingLauncherSelection(null)}
+                instancesRefreshKey={instancesRefreshKey}
+                onOpenDetail={openDetail}
+              />
+            </motion.div>
+          ) : view === 'browse' ? (
+            <motion.div
+              key="browse"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="flex-1 flex flex-col overflow-hidden"
+            >
+              <BrowseSection
+                socket={socket}
+                onError={showError}
+                modpackInstalls={modpackInstalls}
+                onProfilesChanged={fetchInstalledProfiles}
+                onInstallAsServer={beginServerInstall}
+                onOpenDetail={openDetail}
+              />
+            </motion.div>
+          ) : view === 'instances' ? (
+            <motion.div
+              key="instances"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="flex-1 flex flex-col overflow-hidden"
+            >
+              <InstancesSection
+                accounts={accounts}
+                activeAccountId={activeAccountId}
+                launchSession={launchSession}
+                modpackInstalls={modpackInstalls}
+                instancesRefreshKey={instancesRefreshKey}
+                onError={showError}
+              />
+            </motion.div>
+          ) : view === 'settings' ? (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="flex-1 flex flex-col overflow-hidden"
+            >
+              <SettingsPage
+                settings={launcherSettings}
+                onChange={setLauncherSettings}
+                onError={showError}
+                accountProps={accountMenuProps}
               />
             </motion.div>
           ) : selectedServer ? (
@@ -382,6 +628,7 @@ function App() {
                 onBack={() => setSelectedServer(null)}
                 requestJavaGate={showJavaGate}
                 modpackInstalls={modpackInstalls}
+                onOpenDetail={openDetail}
               />
             </motion.div>
           ) : (
@@ -444,7 +691,34 @@ function App() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {detailModal && (
+          <ProjectDetailModal
+            key={detailModal.projectId}
+            projectId={detailModal.projectId}
+            type={detailModal.type}
+            seedHit={detailModal.seedHit}
+            loaderContext={detailModal.loaderContext}
+            versionContext={detailModal.versionContext}
+            defaultInstanceId={detailModal.defaultInstanceId}
+            serverContext={detailModal.serverContext}
+            onServerInstall={detailModal.onServerInstall}
+            modpackInstalls={modpackInstalls}
+            onInstallAsServer={beginServerInstall}
+            onProfilesChanged={fetchInstalledProfiles}
+            onError={showError}
+            onClose={closeDetail}
+          />
+        )}
+      </AnimatePresence>
+
       <UpdateToast />
+      <BrowseInstallToast
+        toasts={installToasts}
+        onPlay={handleBrowseToastPlay}
+        onDismiss={removeToast}
+        onGoToServers={handleGoToServers}
+      />
       <WhatsNewModal />
 
       {/* First-run guided tour — auto-shows for new users, re-triggerable from Settings */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as ImageIcon, Sparkles, Trash2, Package, Layers, Database, RefreshCw, FolderOpen, Globe, CheckSquare, Square, X, AlertTriangle, Wrench, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
+import { VersionRow } from './ProjectDetailModal';
 
 const TYPES = [
   { key: 'mod',          label: 'Mods',           icon: Box        },
@@ -20,7 +21,7 @@ function fmt(n) {
 // Browse and install client-side content (mods / resource packs / shaders)
 // into a launcher profile. Trimmed-down counterpart of ModrinthBrowser that
 // targets a `${loader}-${version}` profile directory instead of a server.
-export default function LauncherContent({ loader, version, instanceId, socket, onError, inModal, modpackInstalls }) {
+export default function LauncherContent({ loader, version, instanceId, socket, onError, inModal, modpackInstalls, onOpenDetail }) {
   // Suffix appended to every profile-scoped API call so it targets the right
   // instance. Empty string when the caller didn't pick one — the backend then
   // resolves to the default instance for this loader+version.
@@ -290,6 +291,10 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
           // skipping the SHA1 + Modrinth roundtrip on the next listing.
           gameVersions: best.game_versions || [],
           loaders:      best.loaders       || [],
+          // Backend walks required deps automatically for mod installs;
+          // pass the version's dep array straight through so it doesn't
+          // refetch /version.
+          dependencies: best.dependencies || [],
         }),
       });
       const ict = r.headers.get('content-type') || '';
@@ -379,6 +384,7 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
           title: project.title || null,
           gameVersions: modVersion.game_versions || [],
           loaders:      modVersion.loaders       || [],
+          dependencies: modVersion.dependencies || [],
         }),
       });
       const d = await r.json();
@@ -394,6 +400,133 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   // resource packs / shaders / datapacks don't have a loader-or-version gate.
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState(null);
+
+  // Update detection — keyed by filename. Cached per project-id+loader+version
+  // in a ref so repeated tab opens don't refire the request burst. 1h TTL.
+  const [updateInfo, setUpdateInfo] = useState({}); // { [filename]: { hasUpdate, latestVersion, latestPublished, ... } }
+  const [updating, setUpdating] = useState(false);
+  const updateCache = useRef(new Map()); // key: `${projectId}-${loader}-${version}` -> { at, info }
+  const lastUpdateCheckKey = useRef(null);
+
+  const runUpdateCheck = async (mods) => {
+    const TTL = 60 * 60 * 1000;
+    const now = Date.now();
+    const next = {};
+    const pending = [];
+    for (const f of mods) {
+      if (!f.projectId) continue;
+      const key = `${f.projectId}-${loader}-${version}`;
+      const cached = updateCache.current.get(key);
+      if (cached && (now - cached.at) < TTL) {
+        next[f.filename] = computeUpdateRow(f, cached.info);
+        continue;
+      }
+      pending.push(f);
+    }
+    setUpdateInfo(p => ({ ...p, ...next }));
+
+    // 4-way concurrent pool — Modrinth's 300 req/min limit is shared, so we
+    // cap parallelism instead of letting Promise.all rip through 200 mods at
+    // once. Each check is one /version request.
+    const POOL = 4;
+    let i = 0;
+    const worker = async () => {
+      while (i < pending.length) {
+        const idx = i++;
+        const f = pending[idx];
+        try {
+          const params = new URLSearchParams();
+          if (version) params.set('gameVersion', version);
+          if (['fabric','forge','neoforge'].includes(loader)) params.set('loader', loader);
+          const r = await fetch(`http://localhost:3001/api/modrinth/project/${f.projectId}/versions?${params}`);
+          if (!r.ok) continue;
+          const vs = await r.json();
+          if (!Array.isArray(vs) || vs.length === 0) continue;
+          // Newest by date_published (with type preference).
+          vs.sort((a, b) => {
+            const ra = { release: 0, beta: 1, alpha: 2 }[a.version_type] ?? 3;
+            const rb = { release: 0, beta: 1, alpha: 2 }[b.version_type] ?? 3;
+            if (ra !== rb) return ra - rb;
+            return (Date.parse(b.date_published || '') || 0) - (Date.parse(a.date_published || '') || 0);
+          });
+          const info = { latestVersion: vs[0], allVersions: vs };
+          updateCache.current.set(`${f.projectId}-${loader}-${version}`, { at: Date.now(), info });
+          const row = computeUpdateRow(f, info);
+          setUpdateInfo(p => ({ ...p, [f.filename]: row }));
+        } catch {}
+      }
+    };
+    await Promise.all(Array.from({ length: POOL }, worker));
+  };
+
+  // Compute whether an installed mod is outdated. We compare `installedAt`
+  // (Date.now() at install, falling back to file mtime for files installed
+  // before MineDash tracked it) against the latest version's date_published.
+  // Threshold of 60s avoids flagging a refresh that happens microseconds
+  // after install.
+  function computeUpdateRow(file, info) {
+    const latest = info.latestVersion;
+    if (!latest) return { hasUpdate: false };
+    const installedAt = file.installedAt || 0;
+    const published = Date.parse(latest.date_published || '') || 0;
+    const hasUpdate = published > 0 && installedAt > 0 && (published - installedAt) > 60_000;
+    return {
+      hasUpdate,
+      latestVersion: latest,
+      latestPublished: published,
+      latestVersionNumber: latest.version_number,
+    };
+  }
+
+  // Trigger an update check when the Installed tab opens for mods. The cache
+  // key prevents redundant runs on every re-render — we only retrigger if the
+  // type/loader/version/instance changes or the installed list itself changes.
+  useEffect(() => {
+    if (view !== 'installed' || type !== 'mod' || !version) return;
+    const list = installedFiles.mod || [];
+    if (list.length === 0) { setUpdateInfo({}); return; }
+    const key = `${loader}-${version}-${instanceId || 'default'}-${list.map(f => f.filename).sort().join('|')}`;
+    if (lastUpdateCheckKey.current === key) return;
+    lastUpdateCheckKey.current = key;
+    runUpdateCheck(list);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, type, loader, version, instanceId, installedFiles]);
+
+  const updateCount = useMemo(
+    () => Object.values(updateInfo).filter(u => u && u.hasUpdate).length,
+    [updateInfo],
+  );
+
+  const handleUpdateAll = async () => {
+    if (updating) return;
+    setUpdating(true);
+    const targets = (installedFiles.mod || [])
+      .filter(f => updateInfo[f.filename]?.hasUpdate && updateInfo[f.filename]?.latestVersion);
+    // Run one at a time — same reason as InstalledTabView bulk-delete:
+    // .minedash-launcher.json is a single metadata file and parallel writes
+    // race each other.
+    for (const f of targets) {
+      const latest = updateInfo[f.filename].latestVersion;
+      try {
+        await handleChangeVersion({
+          project_id: f.projectId,
+          title: f.title,
+          icon_url: f.iconUrl,
+        }, latest);
+      } catch {}
+    }
+    // Bust the per-mod cache so the chip disappears once metadata refreshes.
+    for (const f of targets) {
+      updateCache.current.delete(`${f.projectId}-${loader}-${version}`);
+    }
+    setUpdateInfo(p => {
+      const next = { ...p };
+      for (const f of targets) delete next[f.filename];
+      return next;
+    });
+    lastUpdateCheckKey.current = null;
+    setUpdating(false);
+  };
 
   const handleRepairVersions = async () => {
     if (repairing) return;
@@ -575,6 +708,33 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
               )}
             </div>
           )}
+          {type === 'mod' && updateCount > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+              className="mb-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-3"
+            >
+              <div className="p-2 bg-amber-500/15 rounded-xl flex-shrink-0">
+                <Download size={18} className="text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">
+                  {updateCount} mod update{updateCount !== 1 ? 's' : ''} available
+                </p>
+                <p className="text-xs text-[#A0A0A0] mt-0.5">
+                  Newer Modrinth releases were published since you installed.
+                </p>
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                onClick={handleUpdateAll}
+                disabled={updating}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C]/15 hover:bg-[#00AF5C]/25 text-[#00AF5C] border border-[#00AF5C]/30 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex-shrink-0"
+              >
+                {updating ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {updating ? 'Updating…' : 'Update all'}
+              </motion.button>
+            </motion.div>
+          )}
           <InstalledTabView
             items={installedList}
             typeLabel={TYPES.find(t => t.key === type)?.label.toLowerCase() || 'items'}
@@ -582,6 +742,7 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
             onFilterChange={setInstalledFilter}
             onDelete={handleDelete}
             contentType={type}
+            updateInfo={type === 'mod' ? updateInfo : null}
           />
         </>
       ) : (
@@ -642,6 +803,16 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
             {results.map((p, idx) => {
               const isInstalled = installedSet.has(p.project_id);
               const isInstalling = !!installing[p.project_id];
+              // Live modpack install entry (if any) — lifted to row scope so we
+              // can swap the description + counter row in for the per-file
+              // status while installing, matching CurseForge's "Mod 41 of 387:
+              // Chiseled Blocks" treatment instead of hiding it in a tooltip.
+              // mpShowingProgress keeps the progress button rendered at 100%
+              // during the brief 'done' window before the installed-set
+              // refetch flips the row to the "Installed" badge.
+              const mp = type === 'modpack' ? installsMap[installKey(p.project_id)] : null;
+              const mpShowingProgress = !!mp && mp.status !== 'error';
+              const isModpackInstalling = mpShowingProgress && mp.status !== 'done';
               return (
                 <motion.div key={p.project_id}
                   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -655,14 +826,42 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-sm text-[#FFFFFF] truncate">{p.title}</h4>
+                        <button
+                          onClick={() => onOpenDetail?.({
+                            projectId: p.project_id,
+                            type,
+                            seedHit: p,
+                            loaderContext: ['fabric','forge','neoforge'].includes(loader) ? loader : null,
+                            versionContext: version,
+                            defaultInstanceId: instanceId || null,
+                          })}
+                          title="View project details"
+                          className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
+                        >
+                          {p.title}
+                        </button>
                         <span className="text-[10px] text-[#555555] flex-shrink-0">by {p.author}</span>
                       </div>
-                      <p className="text-xs text-[#A0A0A0] line-clamp-1">{p.description}</p>
-                      <div className="flex items-center gap-3 text-[10px] text-[#555555] mt-1">
-                        <span className="flex items-center gap-1"><Download size={10} />{fmt(p.downloads)}</span>
-                        <span className="flex items-center gap-1"><Heart size={10} />{fmt(p.follows)}</span>
-                      </div>
+                      {isModpackInstalling ? (
+                        <>
+                          <p className="text-xs text-[#00AF5C] line-clamp-1 font-bold">
+                            {mp.statusText || 'Installing…'}
+                          </p>
+                          <div className="flex items-center gap-3 text-[10px] text-[#555555] mt-1 tabular-nums">
+                            {mp.total > 0
+                              ? <span>File {mp.task.toLocaleString()} of {mp.total.toLocaleString()}</span>
+                              : <span>Preparing…</span>}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs text-[#A0A0A0] line-clamp-1">{p.description}</p>
+                          <div className="flex items-center gap-3 text-[10px] text-[#555555] mt-1">
+                            <span className="flex items-center gap-1"><Download size={10} />{fmt(p.downloads)}</span>
+                            <span className="flex items-center gap-1"><Heart size={10} />{fmt(p.follows)}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="flex-shrink-0">
                       {isInstalled ? (
@@ -681,9 +880,7 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                         </div>
                       ) : (
                         (() => {
-                          const mp = type === 'modpack' ? installsMap[installKey(p.project_id)] : null;
-                          const isModpackInstalling = type === 'modpack' && mp && mp.status !== 'error';
-                          if (isModpackInstalling) {
+                          if (mpShowingProgress) {
                             const pct = mp.status === 'done' ? 100
                               : (mp.total > 0 ? Math.min(99, Math.round((mp.task / mp.total) * 100)) : 0);
                             return (
@@ -729,21 +926,23 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                         className="overflow-hidden border-t border-[#2D2D2D]">
-                        <div className="px-3 py-2 max-h-40 overflow-y-auto custom-scrollbar">
+                        <div className="px-3 py-2 max-h-72 overflow-y-auto custom-scrollbar">
                           <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-1.5">Select version to install</p>
-                          {projectVersionsList[p.project_id].map(ver => (
-                            <button
-                              key={ver.id}
-                              onClick={() => handleChangeVersion(p, ver)}
-                              className="w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-[#A0A0A0] hover:bg-[#111111] hover:text-[#FFFFFF] transition-colors">
-                              <span className="truncate tabular-nums">{ver.version_number}</span>
-                              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                                ver.version_type === 'release' ? 'bg-[#00AF5C]/10 text-[#00AF5C]' :
-                                ver.version_type === 'beta' ? 'bg-amber-500/10 text-amber-400' :
-                                'bg-[#2D2D2D] text-[#555555]'
-                              }`}>{ver.version_type}</span>
-                            </button>
-                          ))}
+                          <div className="space-y-1.5">
+                            {projectVersionsList[p.project_id].map(ver => (
+                              <VersionRow
+                                key={ver.id}
+                                version={ver}
+                                loaderContext={['fabric','forge','neoforge'].includes(loader) ? loader : null}
+                                versionContext={version}
+                                installable
+                                installing={!!installing[p.project_id]}
+                                expanded={false}
+                                onToggle={() => handleChangeVersion(p, ver)}
+                                onInstall={(v) => handleChangeVersion(p, v)}
+                              />
+                            ))}
+                          </div>
                         </div>
                       </motion.div>
                     )}
@@ -777,7 +976,7 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
 // Long-press (~500 ms) on any row flips the view into multi-select mode —
 // checkboxes appear, every subsequent click toggles selection, and a
 // header bar offers Select All / Clear / Delete selected.
-function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, contentType }) {
+function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, contentType, updateInfo }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -992,6 +1191,14 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                       <span title="This jar is built for a different mod loader than the profile"
                         className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
                         <AlertTriangle size={10} /> Wrong loader
+                      </span>
+                    )}
+                    {updateInfo?.[f.filename]?.hasUpdate && (
+                      <span
+                        title={`Update available: ${updateInfo[f.filename].latestVersionNumber || ''}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md flex-shrink-0"
+                      >
+                        <Download size={10} /> Update available
                       </span>
                     )}
                   </div>

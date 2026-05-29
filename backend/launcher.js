@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
 const AdmZip = require('adm-zip');
 const multer = require('multer');
+const { PNG } = require('pngjs');
 const { Client } = require('minecraft-launcher-core');
 
 // Why mclc downloads can't be hard-cancelled:
@@ -29,9 +30,23 @@ const { Client } = require('minecraft-launcher-core');
 //     honest and doesn't crash the backend.
 const msmc = require('msmc');
 const { Auth } = msmc;
+const { ensureAuthlibInjector, fetchPrefetchMeta } = require('./authlib-injector');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
+
+// Ely.by — we use it ONLY for its public skin system (no Ely.by login/account).
+// Offline accounts can opt into Ely.by skins; we resolve the Ely.by UUID by
+// username here and launch with authlib-injector so the skin shows in-game on
+// servers that support it (see backend/authlib-injector.js).
+const ELYBY_AUTHSERVER = 'https://authserver.ely.by';
+// The authlib-injector API root for Ely.by. We pass this FULL URL to the agent
+// rather than the `ely.by` shorthand: the shorthand only works because the
+// agent fetches https://ely.by and follows its X-Authlib-Injector-API-Location
+// redirect header — but the prefetched-metadata flag we also pass short-circuits
+// that discovery, leaving the root as the literal (wrong) https://ely.by, which
+// makes every auth/session/skin call 404. The explicit root needs no redirect.
+const ELYBY_API_ROOT = `${ELYBY_AUTHSERVER}/api/authlib-injector`;
 const MODRINTH_API = 'https://api.modrinth.com/v2';
 // Modrinth asks for a User-Agent with contact info so they can reach the
 // project (not the end user) if it starts misbehaving. The repo URL is a
@@ -64,6 +79,15 @@ const activeLaunches = new Map();
 // behaviour so it stays accurate even when the worker exits before we ask.
 const cancelledLaunches = new Set();
 const childMap = new Map();          // launchId -> game process (ChildProcess) after launch()
+// Modpack-install cancellation registry. sessionId -> one of:
+//   { launchId, cleanupInstanceId } — worker-backed Browse pre-install (cancel
+//                                      kills the launch worker; the partial
+//                                      instance is wiped on the worker's exit)
+//   { token }                       — direct installModpackIntoProfile run
+//                                      (cancel flips token.cancelled, the
+//                                      download loop bails on its next check)
+// Cleared when the install reaches a terminal state (done / error / cancelled).
+const activeModpackInstalls = new Map();
 
 // Pluggable side-effect hooks. The parent process keeps the defaults below
 // (emit → socket.io, isCancelled → set lookup) so HTTP-mode launches behave
@@ -203,6 +227,74 @@ function pickBestModrinthVersion(versions) {
   return sorted[0];
 }
 
+// Recursively install required Modrinth dependencies into a launcher
+// profile's mods/ folder. Mirrors backend/index.js's resolveAndInstallDeps
+// but writes to .minedash-launcher.json (the launcher's metadata shape)
+// rather than the server-side .minedash-mods.json shape.
+//
+// `meta` is mutated in-place; caller is responsible for writing it back to
+// disk after this returns. Visited set guards against circular dep graphs.
+async function resolveAndInstallLauncherDeps(depProjectIds, gameVersion, loader, modsPath, meta, visited, depth = 0) {
+  if (depth > 4) return [];
+  const installed = [];
+  for (const projectId of depProjectIds) {
+    if (visited.has(projectId)) continue;
+    visited.add(projectId);
+
+    const alreadyInstalled = Object.values(meta).some(m => m && m.projectId === projectId);
+    if (alreadyInstalled) continue;
+
+    try {
+      const params = new URLSearchParams();
+      if (gameVersion) params.set('game_versions', JSON.stringify([gameVersion]));
+      if (loader)      params.set('loaders',       JSON.stringify([loader]));
+      const vRes = await fetch(`${MODRINTH_API}/project/${projectId}/version?${params}`, { headers: MODRINTH_HEADERS });
+      if (!vRes.ok) continue;
+      const versions = await vRes.json();
+      if (!Array.isArray(versions) || versions.length === 0) continue;
+
+      const best = pickBestModrinthVersion(versions);
+      if (!best) continue;
+      const file = (best.files || []).find(f => f.primary) || (best.files || [])[0];
+      if (!file) continue;
+
+      const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+      if (!dlRes.ok) continue;
+      const buffer = Buffer.from(await dlRes.arrayBuffer());
+      await fs.writeFile(path.join(modsPath, file.filename), buffer);
+
+      let iconUrl = null;
+      let title = file.filename;
+      try {
+        const pRes = await fetch(`${MODRINTH_API}/project/${projectId}`, { headers: MODRINTH_HEADERS });
+        if (pRes.ok) { const p = await pRes.json(); iconUrl = p.icon_url || null; title = p.title || file.filename; }
+      } catch (_) {}
+
+      meta[file.filename] = {
+        projectId,
+        iconUrl,
+        title,
+        gameVersions: best.game_versions || [],
+        loaders:      best.loaders       || [],
+        lookedUp: true,
+      };
+      installed.push({ filename: file.filename, title });
+      console.log(`[MineDash Launcher Deps] Installed dep: ${title} (${file.filename})`);
+
+      const subDeps = (best.dependencies || [])
+        .filter(d => d.dependency_type === 'required' && d.project_id)
+        .map(d => d.project_id);
+      if (subDeps.length > 0) {
+        const sub = await resolveAndInstallLauncherDeps(subDeps, gameVersion, loader, modsPath, meta, visited, depth + 1);
+        installed.push(...sub);
+      }
+    } catch (err) {
+      console.error(`[MineDash Launcher Deps] Failed dep ${projectId}:`, err.message);
+    }
+  }
+  return installed;
+}
+
 // Run async tasks with bounded concurrency. Default 4 in flight keeps a
 // 300-mod first-load comfortably under Modrinth's 300 req/min/IP cap (each
 // file is 2 requests, so peak throughput is ~8 req/s = 480/min, but real
@@ -286,6 +378,18 @@ async function writeProfileRegistry(data) {
 async function getInstance(instanceId) {
   const reg = await readProfileRegistry();
   return reg.instances.find(i => i.id === instanceId) || null;
+}
+
+// Remove an instance's on-disk profile folder and drop it from the registry.
+// Used by DELETE /instances/:id and by the cancel-cleanup path when a Browse
+// pre-install is aborted mid-download (the instance is registered up-front so
+// the worker has an id to install into, so a cancel must unwind both).
+async function removeInstanceCompletely(instanceId) {
+  const dir = instanceDir(instanceId);
+  if (await fs.pathExists(dir)) await fs.remove(dir);
+  const reg = await readProfileRegistry();
+  reg.instances = reg.instances.filter(i => i.id !== instanceId);
+  await writeProfileRegistry(reg);
 }
 
 // Returns the instance ID for a per-server launcher profile, creating it on
@@ -382,6 +486,7 @@ const DEFAULT_SETTINGS = {
   afterLaunch: 'hide',       // 'hide' | 'keep' — what MineDash does after Minecraft launches
   showSnapshots: false,      // include snapshots in the vanilla version list
   onlyInstalled: false,      // (client-side filter, persisted here for convenience)
+  elybySkins: true,          // show Ely.by skins for offline accounts (cosmetic, display-only)
   lastLoader: '',            // last loader the user launched — restores the Play form on reopen
   lastVersion: '',           // last version the user launched
   lastInstanceId: '',        // last instance ID launched — narrower than lastLoader+lastVersion when multiple instances exist
@@ -409,7 +514,16 @@ async function writeSettings(s) {
 }
 
 function stripAccount(a) {
-  return { id: a.id, type: a.type, username: a.username, uuid: a.uuid };
+  // Display-only DTO. NEVER include tokens (mcToken / accessToken /
+  // clientToken) — they stay server-side in launcher-accounts.json.
+  return {
+    id: a.id,
+    type: a.type,
+    username: a.username,
+    uuid: a.uuid,
+    ...(a.type === 'offline' && a.elybySkins ? { elybySkins: true } : {}),
+    ...(a.lastUsedAt ? { lastUsedAt: a.lastUsedAt } : {}),
+  };
 }
 
 // Standard Java offline UUID derivation (md5 of "OfflinePlayer:<name>"
@@ -420,6 +534,170 @@ function offlineUuid(name) {
   md5[8] = (md5[8] & 0x3f) | 0x80;
   const h = md5.toString('hex');
   return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
+// ─── Ely.by skins (no account / no login) ───────────────────────────────────
+// We only use Ely.by's PUBLIC skin system. Offline accounts can opt in; we
+// resolve their Ely.by UUID by username and launch with authlib-injector so the
+// skin renders in-game on servers that support it. No password/token is ever
+// involved — Ely.by serves skins publicly by name.
+
+// Normalise an un-hyphenated 32-char id into a hyphenated UUID. Ely.by returns
+// ids without dashes (e.g. "ffb3378c…"); mclc / the game expect the hyphenated
+// form. Already-hyphenated (or non-32-char) ids pass through unchanged.
+function hyphenateUuid(id) {
+  if (!id) return id;
+  const h = id.replace(/-/g, '');
+  if (h.length !== 32) return id;
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
+// Resolve the Ely.by UUID for a username via Ely.by's Mojang-compatible
+// name→profile endpoint. Returns a hyphenated UUID, or null if no Ely.by
+// account owns that name (HTTP 204) or on any error. Used so an offline launch
+// can present the Ely.by UUID — that's what lets authlib-injector resolve the
+// player's skin textures for other players in-game.
+async function resolveElyByUuid(username) {
+  try {
+    const r = await fetch(`${ELYBY_AUTHSERVER}/api/users/profiles/minecraft/${encodeURIComponent(username)}`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (r.status !== 200) return null; // 204 = no such Ely.by account
+    const d = await r.json().catch(() => null);
+    return d?.id ? hyphenateUuid(d.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+// The authlib-injector JVM args, prepended to the JVM arg list so the agent is
+// registered first. We pass the FULL Ely.by API root (not the `ely.by`
+// shorthand) — see ELYBY_API_ROOT for why the shorthand breaks when combined
+// with prefetched metadata. `prefetchB64` (the base64 prefetched ALI metadata)
+// is included when available so the game skips the startup metadata round-trip.
+// noShowServerName suppresses the "[authlib-injector] Ely.by" prefix the agent
+// otherwise prints in MOTDs.
+function buildElyByAgentArgs({ jarPath, prefetchB64 }) {
+  const args = [`-javaagent:${jarPath}=${ELYBY_API_ROOT}`];
+  if (prefetchB64) args.push(`-Dauthlibinjector.yggdrasil.prefetched=${prefetchB64}`);
+  args.push('-Dauthlibinjector.noShowServerName');
+  return args;
+}
+
+// Hard guardrail (risk callout #1/#2): the authlib-injector agent must appear in
+// the JVM args iff we intended it to. A stray -javaagent silently breaks a
+// Microsoft / premium launch; a missing one means a skins launch silently won't
+// show skins. `expectAgent` is computed once at the call site (offline + skins
+// on). Throws loud on any mismatch.
+function assertAgentArgsGate(expectAgent, customArgs) {
+  const hasAgent = (customArgs || []).some(a => typeof a === 'string' && a.includes('-javaagent') && /authlib-injector/i.test(a));
+  if (hasAgent !== !!expectAgent) {
+    throw new Error(
+      `Launch builder bug: authlib-injector agent ${hasAgent ? 'present' : 'absent'} ` +
+      `but expected ${expectAgent ? 'present' : 'absent'}. Refusing to launch.`,
+    );
+  }
+}
+
+// ─── Player head avatars ────────────────────────────────────────────────────
+// In-memory cache only — heads are tiny (a 32px PNG is ~1 KB) and re-fetching
+// on a cold start is cheap, so there's no point persisting them to disk and
+// dealing with cache invalidation. Keyed by `${type}:${username}:${uuid}:${size}`.
+const skinCache = new Map();          // key -> { buf, at }
+const SKIN_TTL_MS = 60 * 60 * 1000;   // 1 hour
+const SKIN_CACHE_MAX = 300;
+
+function skinCacheGet(key) {
+  const e = skinCache.get(key);
+  if (!e) return null;
+  if (Date.now() - e.at > SKIN_TTL_MS) { skinCache.delete(key); return null; }
+  return e.buf;
+}
+function skinCacheSet(key, buf) {
+  if (skinCache.size >= SKIN_CACHE_MAX) {
+    // Drop the oldest entry — Map preserves insertion order.
+    const oldest = skinCache.keys().next().value;
+    if (oldest !== undefined) skinCache.delete(oldest);
+  }
+  skinCache.set(key, { buf, at: Date.now() });
+}
+
+// Crop the 8×8 head face out of a Minecraft skin PNG and composite the hat /
+// overlay layer on top, scaling the result up to `size`×`size` with
+// nearest-neighbour (so the pixels stay crisp). Works for both modern 64×64
+// and legacy 64×32 skins — the head (8,8) and hat (40,8) regions live in the
+// top 32 rows of both. Returns a PNG buffer.
+function cropSkinHead(skinBuffer, size) {
+  const png = PNG.sync.read(skinBuffer); // normalised to RGBA
+  const W = png.width;
+  const sampleAt = (sx, sy) => {
+    const i = (sy * W + sx) << 2;
+    return [png.data[i], png.data[i + 1], png.data[i + 2], png.data[i + 3]];
+  };
+  const out = new PNG({ width: size, height: size });
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const ox = Math.floor((x * 8) / size); // 0..7 within the 8×8 face
+      const oy = Math.floor((y * 8) / size);
+      let [r, g, b, a] = sampleAt(8 + ox, 8 + oy);             // base head face
+      const [hr, hg, hb, ha] = sampleAt(40 + ox, 8 + oy);      // hat / hair overlay
+      if (ha > 0) {                                            // alpha-over composite
+        const af = ha / 255;
+        r = Math.round(hr * af + r * (1 - af));
+        g = Math.round(hg * af + g * (1 - af));
+        b = Math.round(hb * af + b * (1 - af));
+        a = Math.max(a, ha);
+      }
+      const o = (y * size + x) << 2;
+      out.data[o] = r; out.data[o + 1] = g; out.data[o + 2] = b; out.data[o + 3] = a || 255;
+    }
+  }
+  return PNG.sync.write(out);
+}
+
+// Last-resort placeholder: a flat brand-muted square, generated in-process so a
+// head always renders even if mc-heads and Ely.by are both unreachable.
+function flatHead(size) {
+  const out = new PNG({ width: size, height: size });
+  for (let i = 0; i < out.data.length; i += 4) {
+    out.data[i] = 0x2D; out.data[i + 1] = 0x2D; out.data[i + 2] = 0x2D; out.data[i + 3] = 0xFF;
+  }
+  return PNG.sync.write(out);
+}
+
+// Steve fallback — proxy mc-heads' well-known MHF_Steve head at the requested
+// size, falling back to the flat placeholder if that's unreachable too.
+async function steveHead(size) {
+  try {
+    const r = await fetch(`https://mc-heads.net/avatar/MHF_Steve/${size}`);
+    if (r.ok) return Buffer.from(await r.arrayBuffer());
+  } catch {}
+  return flatHead(size);
+}
+
+// Resolve a head avatar for an account by (type, username, uuid). Resolution
+// order mirrors the launcher's account model:
+//   microsoft → mc-heads avatar by Mojang UUID (already a rendered head)
+//   offline   → crop the Ely.by skin IFF this account has Ely.by skins enabled
+//   anything else / failure → Steve placeholder
+// Never throws — on any error it degrades to Steve so the <img> never breaks.
+async function resolveHead({ type, username, uuid, size, elybySkins }) {
+  try {
+    if (type === 'microsoft' && uuid) {
+      const r = await fetch(`https://mc-heads.net/avatar/${encodeURIComponent(uuid)}/${size}`);
+      if (r.ok) return Buffer.from(await r.arrayBuffer());
+      return steveHead(size);
+    }
+    if (type === 'offline' && elybySkins && username) {
+      const r = await fetch(`https://skinsystem.ely.by/skins/${encodeURIComponent(username)}.png`);
+      if (r.ok) {
+        const skin = Buffer.from(await r.arrayBuffer());
+        return cropSkinHead(skin, size);
+      }
+      // 404 = no Ely.by skin set for that name; fall through to Steve.
+    }
+  } catch {}
+  return steveHead(size);
 }
 
 // Endpoint helper — given an :loader/:version route plus optional ?instance=ID,
@@ -445,7 +723,27 @@ function register(app) {
   // instances can share the same loader+version, each with its own mods/configs.
   app.get('/api/launcher/instances', async (req, res) => {
     const reg = await readProfileRegistry();
-    res.json(reg.instances);
+    // Enrich modpack-source instances with their currently-installed pack
+    // version. Lets the frontend compare against Modrinth's latest and offer
+    // an "Update to vX.Y.Z" CTA without a per-instance roundtrip just to
+    // figure out the local version. Cheap on warm boot since the file is
+    // ~few KB and we only read it for browse-modpack instances.
+    const enriched = await Promise.all(reg.instances.map(async (inst) => {
+      if (inst.source !== 'browse-modpack' || !inst.modpackProjectId) return inst;
+      try {
+        const rec = await fs.readJson(path.join(instanceDir(inst.id), '.minedash-modpacks.json'));
+        const entry = Object.values(rec || {}).find(e => e && e.projectId === inst.modpackProjectId);
+        if (!entry) return inst;
+        return {
+          ...inst,
+          currentModpackVersionId:     entry.versionId     || null,
+          currentModpackVersionNumber: entry.versionNumber || null,
+        };
+      } catch {
+        return inst;
+      }
+    }));
+    res.json(enriched);
   });
 
   app.post('/api/launcher/instances', async (req, res) => {
@@ -518,6 +816,86 @@ function register(app) {
   // payload pass a `..`-laced path through to explorer. If the directory
   // doesn't exist yet (instance was created but never launched), create it
   // so the user always lands on a real folder instead of a "not found" error.
+  // Update a browse-installed modpack instance to a newer revision.
+  // Body: { versionId? } — if omitted, picks the latest release for this
+  // modpack project. Fetches the new .mrpack, diffs against the previous
+  // revision's tracked file list, removes the gone files, installs the new
+  // ones. Returns { sessionId } so the frontend can hook the existing
+  // modpackInstalls progress tracker and surface a Toast.
+  app.post('/api/launcher/instances/:id/modpack/update', async (req, res) => {
+    const { id } = req.params;
+    const { versionId } = req.body || {};
+
+    const reg = await readProfileRegistry();
+    const inst = reg.instances.find(i => i.id === id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    if (inst.source !== 'browse-modpack' || !inst.modpackProjectId) {
+      return res.status(400).json({ error: 'Only browse-installed modpacks can be updated this way.' });
+    }
+
+    // Pick the target version. If the caller didn't specify, use the latest
+    // release-shaped version compatible with this instance's loader.
+    let chosen;
+    try {
+      const vUrl = `${MODRINTH_API}/project/${encodeURIComponent(inst.modpackProjectId)}/version`;
+      const vRes = await fetch(vUrl, { headers: MODRINTH_HEADERS });
+      if (!vRes.ok) return res.status(502).json({ error: `Modrinth /version returned ${vRes.status}` });
+      const versions = await vRes.json();
+      if (!Array.isArray(versions) || versions.length === 0) {
+        return res.status(404).json({ error: 'No versions found for this project' });
+      }
+      chosen = versionId ? versions.find(v => v.id === versionId) : null;
+      if (!chosen) chosen = pickBestModrinthVersion(versions);
+      if (!chosen) return res.status(404).json({ error: 'Could not pick a version' });
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'Failed to resolve version' });
+    }
+
+    const file = (chosen.files || []).find(f => f.primary) || (chosen.files || [])[0];
+    if (!file || !file.url) return res.status(400).json({ error: 'Modpack version has no downloadable file' });
+
+    // Load previous tracked files so the installer can prune what's gone.
+    let previousFiles = [];
+    let previousIconUrl = inst.iconUrl || null;
+    let previousTitle = inst.displayName;
+    try {
+      const rec = await fs.readJson(path.join(instanceDir(id), '.minedash-modpacks.json'));
+      const prev = Object.values(rec || {}).find(e => e && e.projectId === inst.modpackProjectId);
+      if (prev) {
+        previousFiles = Array.isArray(prev.files) ? prev.files : [];
+        previousIconUrl = prev.iconUrl || previousIconUrl;
+        previousTitle = prev.title || previousTitle;
+      }
+    } catch {}
+
+    const profileDir = instanceDir(id);
+    const sessionId = crypto.randomUUID();
+    const cancelToken = { cancelled: false };
+    activeModpackInstalls.set(sessionId, { token: cancelToken });
+
+    res.json({ ok: true, sessionId, versionId: chosen.id, versionNumber: chosen.version_number });
+
+    installModpackIntoProfile({
+      sessionId,
+      profileDir,
+      url: file.url,
+      filename: file.filename || `${inst.modpackProjectId}.mrpack`,
+      projectId: inst.modpackProjectId,
+      iconUrl: previousIconUrl,
+      title: previousTitle,
+      versionId: chosen.id || null,
+      versionNumber: chosen.version_number || null,
+      previousFiles,
+      cancelToken,
+    })
+      .then(summary => { activeModpackInstalls.delete(sessionId); emitModpack(sessionId, 'done', summary); })
+      .catch(err => {
+        activeModpackInstalls.delete(sessionId);
+        if (err && err.cancelled) emitModpack(sessionId, 'cancelled', {});
+        else emitModpack(sessionId, 'error', { message: err.message || String(err) });
+      });
+  });
+
   app.post('/api/launcher/instances/:id/open-folder', async (req, res) => {
     const { id } = req.params;
     const inst = await getInstance(id);
@@ -582,10 +960,14 @@ function register(app) {
   });
 
   // Install a Modrinth file (mod / resourcepack / shader) into a profile.
+  // When `dependencies` (the chosen Modrinth version's deps array) is provided
+  // and projectType is 'mod', required deps are auto-installed into the same
+  // mods/ folder afterwards. Resource packs / shaders / datapacks don't have
+  // meaningful Modrinth deps, so we skip the walk for those.
   app.post('/api/launcher/profiles/:loader/:version/install', async (req, res) => {
     const { loader, version } = req.params;
     const instanceId = req.query.instance || null;
-    const { url, filename, projectType, projectId, iconUrl, title, gameVersions, loaders } = req.body || {};
+    const { url, filename, projectType, projectId, iconUrl, title, gameVersions, loaders, dependencies } = req.body || {};
     if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
     if (!LOADERS.includes(loader)) {
       return res.status(400).json({ error: 'Invalid loader' });
@@ -631,12 +1013,188 @@ function register(app) {
         gameVersions: Array.isArray(gameVersions) ? gameVersions : [],
         loaders:      Array.isArray(loaders)      ? loaders      : [],
         lookedUp: true,
+        installedAt: Date.now(),
       };
+
+      // Walk required deps for mods only — other content types don't pull
+      // anything sensible from Modrinth's dependency graph. We honour an
+      // explicit `dependencies` array from the frontend (no refetch), and
+      // fall back to leaving the list empty if the caller didn't supply it.
+      let installedDeps = [];
+      if (projectType === 'mod' && Array.isArray(dependencies) && dependencies.length > 0) {
+        const required = dependencies
+          .filter(d => d && d.dependency_type === 'required' && d.project_id)
+          .map(d => d.project_id);
+        if (required.length > 0) {
+          installedDeps = await resolveAndInstallLauncherDeps(
+            required,
+            version,
+            ['fabric', 'forge', 'neoforge'].includes(loader) ? loader : null,
+            targetDir,
+            meta,
+            new Set([projectId].filter(Boolean)),
+          );
+        }
+      }
+
       await fs.writeJson(metaPath, meta, { spaces: 2 });
 
-      res.json({ ok: true, installed: filename });
+      res.json({
+        ok: true,
+        installed: filename,
+        dependencies: installedDeps,
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Install a Modrinth modpack from the top-level Browse view — the user
+  // hasn't picked a loader or version, so we derive both from the modpack
+  // version's metadata and create a fresh instance named after the pack. This
+  // is the path that lets Browse feel like a launcher instead of a profile
+  // editor: pick a pack, click Install, get a working profile.
+  //
+  // Returns { sessionId, instanceId, loader, version, displayName } immediately
+  // so the frontend can hook the existing modpackInstalls progress tracker
+  // and surface a "Play now" toast on completion.
+  app.post('/api/launcher/browse/install-modpack', async (req, res) => {
+    const { projectId, versionId } = req.body || {};
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    try {
+      // Fetch every version (no game-version/loader filter — we want the full
+      // list to pick from). Modrinth returns oldest → newest by default.
+      const vUrl = `https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`;
+      const vRes = await fetch(vUrl, { headers: { 'User-Agent': 'MineDash/1.0 (local server manager)' } });
+      if (!vRes.ok) return res.status(502).json({ error: `Modrinth /version returned ${vRes.status}` });
+      const versions = await vRes.json();
+      if (!Array.isArray(versions) || versions.length === 0) {
+        return res.status(404).json({ error: 'No versions found for this project' });
+      }
+
+      // Honour an explicit versionId if the frontend asked for one (version
+      // picker UI in a future slice). Otherwise pick the best release.
+      let chosen = versionId ? versions.find(v => v.id === versionId) : null;
+      if (!chosen) chosen = pickBestModrinthVersion(versions);
+      if (!chosen) return res.status(404).json({ error: 'Could not pick a version' });
+
+      // Derive loader from version.loaders — modpack versions list exactly
+      // one loader (forge / fabric / neoforge / quilt). Quilt is unsupported
+      // by the install pipeline (see /install-modpack), so refuse early with
+      // a clear error rather than discovering it mid-install.
+      const loaderRaw = (chosen.loaders || []).find(l => ['fabric', 'forge', 'neoforge', 'quilt'].includes(l));
+      if (!loaderRaw) return res.status(400).json({ error: 'Modpack version has no recognized loader' });
+      if (loaderRaw === 'quilt') return res.status(400).json({ error: 'Quilt modpacks are not supported yet — only Fabric, Forge, and NeoForge.' });
+      const loader = loaderRaw;
+
+      // Derive Minecraft version — same heuristic as the BrowseSection chip:
+      // newest release-shaped version (1.x or 1.x.y) the modpack supports.
+      const gameVersions = Array.isArray(chosen.game_versions) ? chosen.game_versions : [];
+      let mcVersion = null;
+      for (let i = gameVersions.length - 1; i >= 0; i--) {
+        if (/^1\.\d+(\.\d+)?$/.test(gameVersions[i])) { mcVersion = gameVersions[i]; break; }
+      }
+      if (!mcVersion) mcVersion = gameVersions[gameVersions.length - 1];
+      if (!mcVersion) return res.status(400).json({ error: 'Modpack version does not declare a Minecraft version' });
+
+      // Pick the primary file (the .mrpack itself — non-primary entries are
+      // server jars or other auxiliaries we don't want here).
+      const file = (chosen.files || []).find(f => f.primary) || (chosen.files || [])[0];
+      if (!file || !file.url) return res.status(400).json({ error: 'Modpack version has no downloadable file' });
+
+      // Build a unique display name. Modrinth gives us the pack title via the
+      // request body (frontend already has it from the search hit) — fall
+      // back to the version's friendly name if missing. Append " (2)" /
+      // " (3)" if the user already has an instance with the same name.
+      const wantedBase = (req.body?.displayName || chosen.name || `Modpack ${projectId}`).trim().slice(0, 60);
+      const reg = await readProfileRegistry();
+      const existing = new Set(reg.instances.map(i => (i.displayName || '').toLowerCase()));
+      let displayName = wantedBase;
+      let suffix = 2;
+      while (existing.has(displayName.toLowerCase())) {
+        displayName = `${wantedBase} (${suffix++})`;
+        if (suffix > 99) { displayName = `${wantedBase} (${Date.now()})`; break; }
+      }
+
+      // Create the instance. New UUID id — the legacy `${loader}-${version}`
+      // id is reserved for the default instance per loader+version, and we
+      // explicitly want Browse-installed packs to be siblings of the default,
+      // not replacements for it.
+      const id = crypto.randomUUID();
+      const inst = {
+        id,
+        loader,
+        version: mcVersion,
+        displayName,
+        createdAt: Date.now(),
+        // Mark the origin so a later "My Modpacks" surface can group these
+        // visually as packs vs. hand-curated instances.
+        source: 'browse-modpack',
+        modpackProjectId: projectId,
+        iconUrl: req.body?.iconUrl || null,
+      };
+      reg.instances.push(inst);
+      await writeProfileRegistry(reg);
+
+      const sessionId = crypto.randomUUID();
+
+      res.json({
+        ok: true,
+        sessionId,
+        instanceId: id,
+        loader,
+        version: mcVersion,
+        displayName,
+      });
+
+      // Full pre-install: download the Minecraft client + loader FIRST, then
+      // drop the modpack's mods/overrides on top, leaving a ready-to-play
+      // instance. We reuse the launch worker's runLaunch in `prepareOnly` mode
+      // (it installs everything mclc would at launch, then kills the JVM before
+      // it shows a window) so this stays out-of-process and cancellable like a
+      // real launch. Worker events are bridged onto modpack_install_<sessionId>
+      // (see forkLaunchWorker) so the Browse install card shows the loader /
+      // Minecraft / mod-download phases on one progress bar.
+      const settings = await readSettings();
+      const launchId = crypto.randomUUID();
+      // Register for cancellation. The DELETE /modpack-install/:sessionId
+      // handler looks the sessionId up here and kills the worker; cleanupInstanceId
+      // tells the worker-exit handler to wipe the half-installed instance.
+      activeModpackInstalls.set(sessionId, { launchId, cleanupInstanceId: id });
+      forkLaunchWorker({
+        launchId,
+        modpackSessionId: sessionId,
+        cleanupInstanceId: id,
+        DATA_DIR,
+        INSTANCES_DIR,
+        discoveredJava: (getJavaPath ? getJavaPath() : null) || 'java',
+        launchArgs: {
+          launchId,
+          instance: inst,
+          // Offline synthetic identity — the JVM is killed the instant it
+          // spawns, so the auth is never used for anything real. This keeps
+          // pre-install working with no signed-in account and never touches
+          // Microsoft token refresh.
+          account: { type: 'offline', username: 'Player', uuid: crypto.randomUUID() },
+          accountsDoc: { accounts: [], activeAccountId: null },
+          syncServer: null,
+          settings,
+          prepareOnly: true,
+          modpackInstall: {
+            url: file.url,
+            filename: file.filename || `${projectId}.mrpack`,
+            projectId,
+            iconUrl: req.body?.iconUrl || null,
+            title: req.body?.title || displayName,
+            versionId: chosen.id || null,
+            versionNumber: chosen.version_number || null,
+          },
+        },
+      });
+    } catch (err) {
+      console.error('browse/install-modpack error:', err);
+      res.status(500).json({ error: err.message || 'Browse install failed' });
     }
   });
 
@@ -658,11 +1216,17 @@ function register(app) {
     catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
 
     const sessionId = crypto.randomUUID();
+    const cancelToken = { cancelled: false };
+    activeModpackInstalls.set(sessionId, { token: cancelToken });
     res.json({ ok: true, sessionId });
 
-    installModpackIntoProfile({ sessionId, profileDir, url, filename, projectId, iconUrl, title })
-      .then(summary => emitModpack(sessionId, 'done', summary))
-      .catch(err => emitModpack(sessionId, 'error', { message: err.message || String(err) }));
+    installModpackIntoProfile({ sessionId, profileDir, url, filename, projectId, iconUrl, title, cancelToken })
+      .then(summary => { activeModpackInstalls.delete(sessionId); emitModpack(sessionId, 'done', summary); })
+      .catch(err => {
+        activeModpackInstalls.delete(sessionId);
+        if (err && err.cancelled) emitModpack(sessionId, 'cancelled', {});
+        else emitModpack(sessionId, 'error', { message: err.message || String(err) });
+      });
   });
 
   // List launcher-installed content for a profile, grouped by type.
@@ -728,7 +1292,18 @@ function register(app) {
               if (realLoaders.length > 0 && !realLoaders.includes(loader)) wrongLoader = true;
             }
           }
-          result[type].push({ filename: f, ...m, wrongVersion, wrongLoader });
+          // Resolve an installedAt timestamp. Files installed before MineDash
+          // started tracking this fall back to the on-disk mtime, which is a
+          // reasonable proxy — the file landed on disk at that time. Used by
+          // the launcher Updates check so it knows what counts as "newer".
+          let installedAt = m.installedAt;
+          if (!installedAt) {
+            try {
+              const st = await fs.stat(path.join(dir, f));
+              installedAt = st.mtimeMs;
+            } catch {}
+          }
+          result[type].push({ filename: f, ...m, installedAt, wrongVersion, wrongLoader });
         }
       } catch {}
     }
@@ -1101,14 +1676,41 @@ function register(app) {
     if (accounts.accounts.some(a => a.type === 'offline' && a.username.toLowerCase() === username.toLowerCase())) {
       return res.status(409).json({ error: 'An offline account with that username already exists.' });
     }
+    // Per-account Ely.by skins toggle. Defaults to the global setting when the
+    // body doesn't say (so the Add-Offline checkbox can pre-tick from settings).
+    let elybySkins;
+    if (typeof req.body?.elybySkins === 'boolean') elybySkins = req.body.elybySkins;
+    else elybySkins = (await readSettings()).elybySkins !== false;
+
     const account = {
       id: crypto.randomUUID(),
       type: 'offline',
       username,
       uuid: offlineUuid(username),
+      elybySkins,
+      // Ely.by UUID for this name (null if no Ely.by account owns it). Used at
+      // launch so in-game skins resolve. Only looked up when skins are enabled.
+      elybyUuid: elybySkins ? await resolveElyByUuid(username) : null,
     };
     accounts.accounts.push(account);
     if (!accounts.activeAccountId) accounts.activeAccountId = account.id;
+    await writeAccounts(accounts);
+    res.json(stripAccount(account));
+  });
+
+  // Toggle Ely.by skins on an existing offline account (re-resolving the Ely.by
+  // UUID when turning it on). PATCH is in the CORS method whitelist.
+  app.patch('/api/launcher/accounts/:id', async (req, res) => {
+    const accounts = await readAccounts();
+    const account = accounts.accounts.find(a => a.id === req.params.id);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+    if (account.type !== 'offline') {
+      return res.status(400).json({ error: 'Ely.by skins only apply to offline accounts.' });
+    }
+    if (typeof req.body?.elybySkins === 'boolean') {
+      account.elybySkins = req.body.elybySkins;
+      account.elybyUuid = account.elybySkins ? await resolveElyByUuid(account.username) : null;
+    }
     await writeAccounts(accounts);
     res.json(stripAccount(account));
   });
@@ -1131,6 +1733,40 @@ function register(app) {
     }
     await writeAccounts(accounts);
     res.json({ activeAccountId: accounts.activeAccountId });
+  });
+
+  // Player head avatar. Cosmetic only. Query params come straight off the
+  // account object the frontend already has (type, uuid); username is the path
+  // segment. For offline accounts we honour the global elybySkins toggle.
+  app.get('/api/launcher/skins/:username/head', async (req, res) => {
+    const username = req.params.username;
+    let size = parseInt(req.query.size, 10);
+    if (!Number.isFinite(size)) size = 32;
+    size = Math.max(8, Math.min(512, size));
+    const type = req.query.type || '';
+    const uuid = req.query.uuid || '';
+
+    // Per-account Ely.by-skins override: if there's an offline account with this
+    // username, honour its own toggle; otherwise fall back to the global setting.
+    let elybySkins = true;
+    if (type === 'offline') {
+      try {
+        const { accounts } = await readAccounts();
+        const acct = accounts.find(a => a.type === 'offline' && a.username.toLowerCase() === username.toLowerCase());
+        if (acct && typeof acct.elybySkins === 'boolean') elybySkins = acct.elybySkins;
+        else elybySkins = (await readSettings()).elybySkins !== false;
+      } catch { elybySkins = true; }
+    }
+
+    const key = `${type}:${username}:${uuid}:${size}:${elybySkins ? 1 : 0}`;
+    let buf = skinCacheGet(key);
+    if (!buf) {
+      buf = await resolveHead({ type, username, uuid, size, elybySkins });
+      skinCacheSet(key, buf);
+    }
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buf);
   });
 
   // Launch the game. Either:
@@ -1193,6 +1829,34 @@ function register(app) {
       syncServer = servers.find(s => s.id === syncFromServerId) || null;
     }
 
+    // Ely.by-skins prep happens HERE, in the parent, BEFORE we fork — so the
+    // network bits (authlib-injector download, prefetch fetch, UUID lookup)
+    // happen where we still have the toast/log pipeline and the worker's job
+    // stays pure (download + spawn). Skins are cosmetic, so any failure here is
+    // NON-fatal: we just skip the agent and launch normally (vanilla Steve).
+    let elybyLaunch = null;
+    const useElySkins = account.type === 'offline'
+      && (typeof account.elybySkins === 'boolean' ? account.elybySkins : settings.elybySkins !== false);
+    if (useElySkins) {
+      try {
+        const jarPath = await ensureAuthlibInjector(DATA_DIR);
+        const prefetchB64 = await fetchPrefetchMeta();
+        // The Ely.by UUID is what lets the skin resolve in-game. Prefer the one
+        // captured at account-creation; resolve lazily if it's missing. Fall
+        // back to the offline UUID (skin still shows in the launcher; in-game it
+        // just won't resolve, which is the best we can do without an Ely.by name).
+        let profileUuid = account.elybyUuid || await resolveElyByUuid(account.username);
+        elybyLaunch = { jarPath, prefetchB64, profileUuid: profileUuid || account.uuid };
+      } catch {
+        elybyLaunch = null; // injector/prefetch unavailable — launch without skins
+      }
+    }
+
+    // Track when this account was last used to play (display-only, surfaced in
+    // Settings → Accounts). Best-effort persist.
+    account.lastUsedAt = Date.now();
+    try { await writeAccounts(accounts); } catch {}
+
     const launchId = crypto.randomUUID();
     res.json({ ok: true, launchId });
 
@@ -1224,6 +1888,10 @@ function register(app) {
         syncServer,
         settings,
         quickPlayHost,
+        // Pre-resolved Ely.by skins bundle (jar path + prefetched metadata +
+        // Ely.by UUID). Null unless this is an offline account with Ely.by skins
+        // enabled — the worker only injects the agent when this is present.
+        elybyLaunch,
       },
     });
   });
@@ -1278,6 +1946,25 @@ function forkLaunchWorker(payload) {
 
   activeLaunches.set(payload.launchId, { worker });
 
+  // Full pre-install runs through the same worker/runLaunch path (so it's
+  // cancellable and out-of-process like a normal launch), but the Browse UI
+  // tracks it on the `modpack_install_<sessionId>` socket channel. When a
+  // modpackSessionId is present we translate the worker's launch events onto
+  // that channel instead of `launcher_<launchId>` so the existing install card
+  // lights up unchanged: status→status, progress→progress, close→done,
+  // error→error, and everything else (log, launched, mod_sync) is dropped.
+  const routeEvent = (launchId, event, data) => {
+    if (!payload.modpackSessionId) { _emit(launchId, event, data); return; }
+    if (event === 'status' || event === 'progress') {
+      emitModpack(payload.modpackSessionId, event, data);
+    } else if (event === 'close') {
+      emitModpack(payload.modpackSessionId, 'done', data);
+    } else if (event === 'error') {
+      emitModpack(payload.modpackSessionId, 'error', data);
+    }
+    // log / launched / mod_sync are noise for the install card — ignore.
+  };
+
   worker.stdout?.on('data', (d) => process.stdout.write(`[launcher-worker ${payload.launchId.slice(0,8)}] ${d}`));
   worker.stderr?.on('data', (d) => process.stderr.write(`[launcher-worker ${payload.launchId.slice(0,8)}] ${d}`));
 
@@ -1294,7 +1981,7 @@ function forkLaunchWorker(payload) {
         const entry = activeLaunches.get(payload.launchId);
         if (entry) entry.terminalEmitted = true;
       }
-      _emit(launchId, event, data);
+      routeEvent(launchId, event, data);
     } else if (msg.kind === 'jvm_started') {
       const entry = activeLaunches.get(payload.launchId);
       if (entry) entry.jvmPid = msg.pid;
@@ -1325,18 +2012,18 @@ function forkLaunchWorker(payload) {
     if (wasCancelled) {
       // Cancel path — the close event was deferred until the worker actually
       // died. Emit it now so the UI flips back to idle.
-      _emit(payload.launchId, 'close', { code: 'cancelled' });
+      routeEvent(payload.launchId, 'close', { code: 'cancelled' });
       return;
     }
     // If the worker died abnormally (signal kill or non-zero exit) without
     // a prior `close`/`error` IPC event, the UI would otherwise sit on a
     // running-state forever. Emit a synthetic error so it resets.
     if (code !== 0 && code !== null) {
-      _emit(payload.launchId, 'error', {
+      routeEvent(payload.launchId, 'error', {
         message: `Launcher worker exited unexpectedly (code ${code}${signal ? `, signal ${signal}` : ''})`,
       });
     } else if (signal && signal !== 'SIGTERM') {
-      _emit(payload.launchId, 'error', {
+      routeEvent(payload.launchId, 'error', {
         message: `Launcher worker was terminated (${signal})`,
       });
     }
@@ -1345,7 +2032,7 @@ function forkLaunchWorker(payload) {
   worker.on('error', (err) => {
     activeLaunches.delete(payload.launchId);
     cancelledLaunches.delete(payload.launchId);
-    _emit(payload.launchId, 'error', { message: err.message || String(err) });
+    routeEvent(payload.launchId, 'error', { message: err.message || String(err) });
   });
 
   // Kick off the launch. Done after the listeners are attached so we don't
@@ -1355,7 +2042,7 @@ function forkLaunchWorker(payload) {
     worker.send({ type: 'init', payload });
   } catch (err) {
     activeLaunches.delete(payload.launchId);
-    _emit(payload.launchId, 'error', { message: 'Failed to send init to worker: ' + err.message });
+    routeEvent(payload.launchId, 'error', { message: 'Failed to send init to worker: ' + err.message });
     try { worker.kill('SIGKILL'); } catch {}
   }
 }
@@ -1378,7 +2065,7 @@ function emitModpack(sessionId, event, data = {}) {
   if (io) io.emit(`modpack_install_${sessionId}`, { event, ...data });
 }
 
-async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, depAttempted }) {
+async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, depAttempted, prepareOnly, modpackInstall, elybyLaunch }) {
   const { loader, version, id: instanceId } = instance;
   const profileRoot = instanceDir(instanceId);
   await fs.ensureDir(profileRoot);
@@ -1396,16 +2083,28 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   // doesn't satisfy the missing dep (e.g., wrong projectId match).
   const triedIds = depAttempted instanceof Set ? depAttempted : new Set();
 
+  // Branch by account type. The ONLY place Ely.by skins touch the launch is the
+  // offline path, gated on `elybyLaunch` (resolved in the parent before fork).
+  // Microsoft is never given the authlib-injector agent — keeping the agent
+  // concentrated to this one offline branch is what prevents a skins change from
+  // ever touching a premium launch (risk callout #2).
   let authorization;
+  let elybyAgentArgs = [];
   if (account.type === 'offline') {
     authorization = {
       access_token: '0',
       client_token: crypto.randomUUID(),
-      uuid: account.uuid,
+      // When launching with Ely.by skins, present the Ely.by UUID so the skin
+      // resolves in-game (on servers that run authlib-injector). Otherwise the
+      // standard offline (MD5) UUID.
+      uuid: (elybyLaunch && elybyLaunch.profileUuid) || account.uuid,
       name: account.username,
       user_properties: '{}',
       meta: { type: 'mojang', demo: false },
     };
+    if (elybyLaunch && elybyLaunch.jarPath) {
+      elybyAgentArgs = buildElyByAgentArgs(elybyLaunch);
+    }
   } else {
     emit(launchId, 'status', { message: 'Refreshing Microsoft session…' });
     try {
@@ -1485,7 +2184,23 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   };
   if (versionCustom) opts.version.custom = versionCustom;
   if (forgeInstaller) opts.forge = forgeInstaller;
-  if (neoForgeJvmArgs && neoForgeJvmArgs.length > 0) opts.customArgs = neoForgeJvmArgs;
+  // customArgs gets the Ely.by authlib-injector agent (if any) PLUS NeoForge's
+  // required JVM args (if any). mclc concats opts.customArgs into the JVM args.
+  // The agent is prepended so it registers ahead of NeoForge's module path.
+  const customArgs = [...elybyAgentArgs, ...(neoForgeJvmArgs || [])];
+  if (customArgs.length > 0) opts.customArgs = customArgs;
+  // Guardrail: the authlib-injector agent must appear iff we resolved an Ely.by
+  // skins bundle for this (offline) launch. Throws loud otherwise so a builder
+  // bug can never silently break a Microsoft launch (risk callouts #1 & #2).
+  assertAgentArgsGate(elybyAgentArgs.length > 0, opts.customArgs);
+  // Diagnostic: surface the resolved Ely.by-skins state into the launch log so
+  // we can confirm (a) the agent is actually injected and (b) which UUID the
+  // game is launched with. The [authlib-injector] banner that follows in the
+  // game's own stdout confirms the agent initialised against Ely.by.
+  emit(launchId, 'log', {
+    message: `[minedash] Ely.by agent: ${elybyAgentArgs.length ? 'INJECTED' : 'not injected'}; ` +
+      `launch uuid=${authorization.uuid}; jvm agent args=${JSON.stringify(elybyAgentArgs)}\n`,
+  });
   if (quickPlayHost) {
     opts.quickPlay = { type: 'multiplayer', identifier: quickPlayHost };
   }
@@ -1512,6 +2227,11 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   // Intentionally NOT forwarding `download-status` (per-file events) to the UI —
   // they fire ~100 events/sec with long filenames and just produce visual noise.
   launcher.on('close', async (code) => {
+    // Prepare-only launches kill the JVM the instant it spawns (we only wanted
+    // the downloads), and emit their own terminal event after the modpack
+    // install runs. So ignore mclc's close here — running dep-crash recovery or
+    // emitting a second close would corrupt the prepare flow.
+    if (prepareOnly) return;
     const tracked = childMap.get(launchId);
     if (tracked) _untrackChild(tracked);
     childMap.delete(launchId);
@@ -1547,7 +2267,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
             runLaunch({
               launchId, instance, account, accountsDoc,
               syncServer: null, settings, quickPlayHost,
-              depAttempted: triedIds,
+              depAttempted: triedIds, elybyLaunch,
             }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
             return;
           }
@@ -1574,6 +2294,38 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
       emit(launchId, 'close', { code: 'cancelled' });
       return;
     }
+
+    // Full pre-install path: by here mclc has finished downloading the vanilla
+    // client, libraries, natives and assets, and the loader install already ran
+    // above — so the instance is now playable. We only wanted the downloads, so
+    // kill the JVM before it paints a window, then (optionally) drop the
+    // modpack's mods/overrides on top. We emit our own terminal event; the
+    // mclc 'close' handler is a no-op under prepareOnly.
+    if (prepareOnly) {
+      try {
+        if (process.platform === 'win32' && child.pid) {
+          exec(`taskkill /F /T /PID ${child.pid}`, () => {});
+        } else {
+          child.kill('SIGKILL');
+        }
+      } catch {}
+      try {
+        if (modpackInstall && modpackInstall.url) {
+          await installModpackIntoProfile({
+            profileDir: profileRoot,
+            ...modpackInstall,
+            emitEvent: (event, data) => emit(launchId, event, data),
+          });
+        }
+        emit(launchId, 'close', { code: 'prepared' });
+      } catch (err) {
+        emit(launchId, 'error', { message: err.message || String(err) });
+      } finally {
+        activeLaunches.delete(launchId);
+      }
+      return;
+    }
+
     childMap.set(launchId, child);
     _trackChild(child);
     emit(launchId, 'launched', {});
@@ -1992,15 +2744,36 @@ async function buildNeoForgeJvmArgs(versionId, profileRoot) {
 // Emits progress events via emitModpack(sessionId, …) when a sessionId is set:
 //   - status   { message }      — phase change ("Downloading modpack", "Extracting overrides", …)
 //   - progress { task, total }  — files completed so far
-async function installModpackIntoProfile({ sessionId, profileDir, url, filename, projectId, iconUrl, title }) {
+async function installModpackIntoProfile({ sessionId, profileDir, url, filename, projectId, iconUrl, title, versionId, versionNumber, previousFiles, emitEvent, cancelToken }) {
   await fs.ensureDir(profileDir);
+
+  // Bail point for user-initiated cancellation. The download loop checks this
+  // between files so a cancel stops within one file rather than after the whole
+  // pack. Throws a tagged error the caller routes to a `cancelled` event.
+  const bailIfCancelled = () => {
+    if (cancelToken?.cancelled) {
+      const e = new Error('Install cancelled');
+      e.cancelled = true;
+      throw e;
+    }
+  };
+
+  // Progress sink. The normal (in-process) callers stream over the
+  // `modpack_install_<sessionId>` socket channel via emitModpack. When this
+  // runs inside the launcher worker (full pre-install path), io is null there,
+  // so the caller passes `emitEvent` to route status/progress out over IPC and
+  // the parent bridges them onto the same socket channel. Either way the
+  // frontend's useModpackInstalls hook sees identical events.
+  const emitFn = typeof emitEvent === 'function'
+    ? emitEvent
+    : (event, data) => { if (sessionId) emitModpack(sessionId, event, data); };
 
   const tempDir = path.join(profileDir, '.modpack-tmp');
   await fs.ensureDir(tempDir);
   const mrpackPath = path.join(tempDir, filename);
 
   try {
-    if (sessionId) emitModpack(sessionId, 'status', { message: 'Downloading modpack…' });
+    emitFn('status', { message: 'Downloading modpack…' });
     const r = await fetch(url, { headers: MODRINTH_HEADERS });
     if (!r.ok) throw new Error(`Modpack download failed (${r.status})`);
     await fs.writeFile(mrpackPath, Buffer.from(await r.arrayBuffer()));
@@ -2045,11 +2818,12 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
 
     const total = eligible.length + overrideEntries.length;
     let done = 0;
-    if (sessionId) emitModpack(sessionId, 'status', { message: 'Downloading mods…' });
-    if (sessionId) emitModpack(sessionId, 'progress', { task: 0, total });
+    emitFn('status', { message: 'Downloading mods…' });
+    emitFn('progress', { task: 0, total });
 
     // Download each eligible file.
     for (const f of eligible) {
+      bailIfCancelled();
       const targetRel = String(f.path).replace(/^[/\\]+/, '');
       const target = path.join(profileDir, targetRel);
       await fs.ensureDir(path.dirname(target));
@@ -2069,14 +2843,15 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
         trackedPaths.push(targetRel);
       } else failed.push(targetRel);
       done++;
-      if (sessionId) emitModpack(sessionId, 'progress', { task: done, total });
+      emitFn('progress', { task: done, total });
     }
 
     // Extract overrides/ and client-overrides/ on top of the profile.
-    if (sessionId && overrideEntries.length > 0) {
-      emitModpack(sessionId, 'status', { message: 'Extracting overrides…' });
+    if (overrideEntries.length > 0) {
+      emitFn('status', { message: 'Extracting overrides…' });
     }
     for (const entry of overrideEntries) {
+      bailIfCancelled();
       const name = entry.entryName.replace(/\\/g, '/');
       const stripPrefix = name.startsWith('overrides/') ? 'overrides/' : 'client-overrides/';
       const rel = name.slice(stripPrefix.length);
@@ -2087,19 +2862,60 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
       // the modpack brought along, and a real "uninstall" needs to wipe them.
       trackedPaths.push(rel);
       done++;
-      if (sessionId) emitModpack(sessionId, 'progress', { task: done, total });
+      emitFn('progress', { task: done, total });
+    }
+
+    // Before recording the new install, clean up files from a previous version
+    // of the same modpack that aren't part of this revision. Without this,
+    // updating Better MC v22.0 → v22.1 would leave the v22.0 mod jars sitting
+    // alongside the v22.1 ones — duplicate JARs cause mod loaders to crash.
+    if (Array.isArray(previousFiles) && previousFiles.length > 0) {
+      emitFn('status', { message: 'Cleaning previous version…' });
+      const keep = new Set(trackedPaths);
+      const toRemove = previousFiles.filter(p => p && !keep.has(p));
+      for (const rel of toRemove) {
+        if (!rel || rel.includes('..')) continue;
+        const target = path.join(profileDir, rel);
+        if (!target.startsWith(profileDir)) continue;
+        try {
+          await fs.remove(target);
+          // Walk up pruning empty directories (matches the DELETE handler's
+          // shape so an update leaves no orphaned folders).
+          let dir = path.dirname(target);
+          while (dir.startsWith(profileDir) && dir !== profileDir) {
+            try {
+              const entries = await fs.readdir(dir);
+              if (entries.length > 0) break;
+              await fs.rmdir(dir);
+              dir = path.dirname(dir);
+            } catch { break; }
+          }
+        } catch {}
+      }
     }
 
     // Record the install so the UI can show it as "Installed".
     // `files` is the full list of relative paths the modpack wrote — used by
     // the DELETE handler to clean the profile when the user removes the pack.
+    // `versionId` + `versionNumber` let the Instances tab compare against
+    // Modrinth's latest and offer an "Update to vX.Y.Z" CTA.
     const recordPath = path.join(profileDir, '.minedash-modpacks.json');
     let record = {};
     try { record = await fs.readJson(recordPath); } catch {}
+    // If the prior install lived under a different .mrpack filename (a new
+    // revision usually does), drop the stale entry pointing at the old name
+    // so the registry doesn't show two records for the same projectId.
+    if (Array.isArray(previousFiles) && previousFiles.length > 0) {
+      for (const k of Object.keys(record)) {
+        if (record[k]?.projectId === projectId && k !== filename) delete record[k];
+      }
+    }
     record[filename] = {
       projectId,
       iconUrl,
       title,
+      versionId:     versionId     || null,
+      versionNumber: versionNumber || null,
       installedAt: Date.now(),
       files: trackedPaths,
     };
@@ -2111,4 +2927,8 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
   }
 }
 
-module.exports = { init, register, runLaunch };
+module.exports = {
+  init, register, runLaunch,
+  // Pure helpers exported for the launch-args snapshot test (backend/test/).
+  buildElyByAgentArgs, assertAgentArgsGate, hyphenateUuid, offlineUuid,
+};

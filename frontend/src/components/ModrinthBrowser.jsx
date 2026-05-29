@@ -32,7 +32,7 @@ const TYPE_COLORS = {
   alpha: 'bg-[#FF5555]/10 text-[#FF5555] border-[#FF5555]/20',
 };
 
-export default function ModrinthBrowser({ serverId, serverVersion, serverType, socket, onInstalled, projectType = 'mod', modpackInstalls }) {
+export default function ModrinthBrowser({ serverId, serverVersion, serverType, socket, onInstalled, projectType = 'mod', modpackInstalls, onOpenDetail }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -524,7 +524,21 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, s
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <h4 className="font-bold text-[#FFFFFF] text-sm truncate">{mod.title}</h4>
+                    <button
+                      onClick={() => onOpenDetail?.({
+                        projectId: mod.project_id,
+                        type: projectType,
+                        seedHit: mod,
+                        loaderContext: ['fabric','forge','neoforge'].includes(serverType) ? serverType : null,
+                        versionContext: serverVersion,
+                        serverContext: { serverId, serverVersion, serverType },
+                        onServerInstall: () => { handleInstall(mod); },
+                      })}
+                      title="View project details"
+                      className="font-bold text-[#FFFFFF] hover:text-[#00AF5C] text-sm truncate text-left transition-colors"
+                    >
+                      {mod.title}
+                    </button>
                     <span className="text-xs text-[#555555] flex-shrink-0">by {mod.author}</span>
                   </div>
                   <p className="text-xs text-[#A0A0A0] line-clamp-1 mb-1.5">{mod.description}</p>

@@ -1,12 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { User, Trash2, Check, Loader2, ExternalLink, X, ShieldCheck, UserCircle2, AlertCircle } from 'lucide-react';
+import { User, Trash2, Check, Loader2, ExternalLink, X, ShieldCheck, UserCircle2, AlertCircle, Image } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import SkinHead from './SkinHead';
 
-export default function AccountManager({ accounts, activeAccountId, microsoftConfigured, onChanged, onError }) {
+// Compact relative time for the "last used" line. Returns '' for no timestamp.
+function timeAgo(ts) {
+  if (!ts) return '';
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return d < 30 ? `${d}d ago` : `${Math.floor(d / 30)}mo ago`;
+}
+
+export default function AccountManager({ accounts, activeAccountId, microsoftConfigured, elybySkinsDefault = true, onChanged, onError }) {
   const [offlineOpen, setOfflineOpen] = useState(false);
   const [offlineName, setOfflineName] = useState('');
+  const [offlineSkins, setOfflineSkins] = useState(elybySkinsDefault);
   const [offlineBusy, setOfflineBusy] = useState(false);
   const [offlineErr, setOfflineErr] = useState('');
+  // Which offline account's per-account skins toggle is mid-PATCH (disables it).
+  const [skinToggleBusy, setSkinToggleBusy] = useState(null);
+
+  const openOffline = () => { setOfflineName(''); setOfflineErr(''); setOfflineSkins(elybySkinsDefault); setOfflineOpen(true); };
+
+  const handleToggleAccountSkins = async (id, next) => {
+    setSkinToggleBusy(id);
+    try {
+      const r = await fetch(`http://localhost:3001/api/launcher/accounts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ elybySkins: next }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Failed to update skins setting');
+      onChanged?.();
+    } catch (err) {
+      onError?.(err.message);
+    }
+    setSkinToggleBusy(null);
+  };
 
   const [msSession, setMsSession] = useState(null); // { id, link, status, error }
   const [msStarting, setMsStarting] = useState(false);
@@ -55,7 +91,7 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
       const r = await fetch('http://localhost:3001/api/launcher/accounts/offline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: offlineName.trim() }),
+        body: JSON.stringify({ username: offlineName.trim(), elybySkins: offlineSkins }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed to add account');
@@ -108,7 +144,7 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
             </motion.button>
           )}
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-            onClick={() => setOfflineOpen(true)}
+            onClick={openOffline}
             className="flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-xs font-bold transition-all">
             <UserCircle2 size={14} /> Add Offline
           </motion.button>
@@ -128,17 +164,31 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
             return (
               <div key={a.id}
                 className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${active ? 'bg-[#00AF5C]/5 border-[#00AF5C]/30' : 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#555555]'}`}>
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${a.type === 'microsoft' ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[#2D2D2D] text-[#A0A0A0]'}`}>
-                  {a.type === 'microsoft' ? <ShieldCheck size={18} /> : <UserCircle2 size={18} />}
-                </div>
+                <SkinHead username={a.username} uuid={a.uuid} type={a.type} elybySkins={a.elybySkins} size={40} rounded="rounded-xl" />
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm text-[#FFFFFF] truncate">{a.username}</span>
                     {active && <span className="text-[10px] font-bold uppercase tracking-wider text-[#00AF5C]">Active</span>}
                   </div>
-                  <p className="text-[10px] text-[#555555] uppercase tracking-wider font-bold">{a.type}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] text-[#555555] uppercase tracking-wider font-bold">{a.type}</span>
+                    {a.lastUsedAt && (
+                      <span className="text-[10px] text-[#555555] font-bold">· Last used {timeAgo(a.lastUsedAt)}</span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  {a.type === 'offline' && (
+                    <button onClick={() => handleToggleAccountSkins(a.id, !a.elybySkins)}
+                      disabled={skinToggleBusy === a.id}
+                      title={a.elybySkins ? 'Ely.by skins on — click to turn off' : 'Ely.by skins off — click to turn on'}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all disabled:opacity-50 ${
+                        a.elybySkins ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
+                      }`}>
+                      {skinToggleBusy === a.id ? <Loader2 size={12} className="animate-spin" /> : <Image size={12} />}
+                      Skin
+                    </button>
+                  )}
                   {!active && (
                     <button onClick={() => handleActivate(a.id)}
                       className="px-3 py-1.5 text-xs font-bold text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-lg transition-all">
@@ -249,6 +299,21 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
                 disabled={offlineBusy}
                 className={`w-full bg-[#111111] border ${offlineErr ? 'border-[#FF5555] focus:ring-[#FF5555]/10' : 'border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 transition-all font-medium`} />
               {offlineErr && <p className="text-xs text-[#FF5555] font-medium mt-2">{offlineErr}</p>}
+
+              <label className="flex items-start gap-2.5 mt-4 cursor-pointer group">
+                <span className="custom-checkbox-wrapper mt-0.5">
+                  <input type="checkbox" className="custom-checkbox" checked={offlineSkins}
+                    onChange={e => setOfflineSkins(e.target.checked)} disabled={offlineBusy} />
+                  <span className="custom-checkbox-visual" />
+                </span>
+                <span className="min-w-0">
+                  <span className="text-sm font-bold text-[#FFFFFF] group-hover:text-[#FFFFFF]">Use Ely.by skins</span>
+                  <span className="block text-[11px] text-[#A0A0A0] leading-snug mt-0.5">
+                    Shows the skin uploaded to the free Ely.by account with this username — in MineDash, and in-game on servers that support it. No Ely.by login needed.
+                  </span>
+                </span>
+              </label>
+
               <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
                 <button onClick={() => setOfflineOpen(false)} disabled={offlineBusy}
                   className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all disabled:opacity-50">
@@ -264,6 +329,7 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
           </motion.div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }
