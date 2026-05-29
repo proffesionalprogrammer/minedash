@@ -2,6 +2,14 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.94 — 2026-05-29
+
+### Added
+
+- **Player skins now show for everyone — no login required.** MineDash now ships CustomSkinLoader into every modded client (Fabric/Forge/NeoForge/Quilt) at launch, pointed at Ely.by. Skins are resolved by username, so offline accounts render each other's skins even on offline-mode servers — something the Ely.by login path couldn't do. Set your skin once at ely.by (your in-game name must match your Ely.by account name) and everyone running MineDash sees it.
+
+---
+
 ## v1.0.93 — 2026-05-27
 
 ### Added

@@ -522,6 +522,9 @@ function stripAccount(a) {
     username: a.username,
     uuid: a.uuid,
     ...(a.type === 'offline' && a.elybySkins ? { elybySkins: true } : {}),
+    // Public Ely.by id (not a secret) — lets the head avatar key its URL to the
+    // resolved skin so a head first shown as Steve refreshes once the id exists.
+    ...(a.elybyUuid ? { elybyUuid: a.elybyUuid } : {}),
     ...(a.lastUsedAt ? { lastUsedAt: a.lastUsedAt } : {}),
   };
 }
@@ -675,13 +678,33 @@ async function steveHead(size) {
   return flatHead(size);
 }
 
+// Resolve the raw skin-texture URL for an Ely.by profile via the authlib
+// sessionserver profile endpoint — the SAME source the in-game launch uses.
+// We go through the UUID-keyed profile (not the username-keyed /skins/{name}
+// route) on purpose: Ely.by's /skins route is CASE-SENSITIVE on the canonical
+// name, so an offline account stored as "dream" 404s even though "Dream" owns a
+// skin; the profile lookup is case-insensitive and always matches in-game.
+// Returns the skin PNG URL, or null on any miss.
+async function elyBySkinUrl({ elybyUuid, username }) {
+  let id = elybyUuid || (username ? await resolveElyByUuid(username) : null);
+  if (!id) return null;
+  id = String(id).replace(/-/g, ''); // Ely.by's profile route wants the bare 32-char id
+  const r = await fetch(`${ELYBY_API_ROOT}/sessionserver/session/minecraft/profile/${id}`);
+  if (r.status !== 200) return null;
+  const profile = await r.json();
+  const tex = (profile.properties || []).find(p => p.name === 'textures');
+  if (!tex?.value) return null;
+  const decoded = JSON.parse(Buffer.from(tex.value, 'base64').toString('utf8'));
+  return decoded?.textures?.SKIN?.url || null;
+}
+
 // Resolve a head avatar for an account by (type, username, uuid). Resolution
 // order mirrors the launcher's account model:
 //   microsoft → mc-heads avatar by Mojang UUID (already a rendered head)
 //   offline   → crop the Ely.by skin IFF this account has Ely.by skins enabled
 //   anything else / failure → Steve placeholder
 // Never throws — on any error it degrades to Steve so the <img> never breaks.
-async function resolveHead({ type, username, uuid, size, elybySkins }) {
+async function resolveHead({ type, username, uuid, size, elybySkins, elybyUuid }) {
   try {
     if (type === 'microsoft' && uuid) {
       const r = await fetch(`https://mc-heads.net/avatar/${encodeURIComponent(uuid)}/${size}`);
@@ -689,12 +712,15 @@ async function resolveHead({ type, username, uuid, size, elybySkins }) {
       return steveHead(size);
     }
     if (type === 'offline' && elybySkins && username) {
-      const r = await fetch(`https://skinsystem.ely.by/skins/${encodeURIComponent(username)}.png`);
-      if (r.ok) {
-        const skin = Buffer.from(await r.arrayBuffer());
-        return cropSkinHead(skin, size);
+      const skinUrl = await elyBySkinUrl({ elybyUuid, username });
+      if (skinUrl) {
+        const r = await fetch(skinUrl);
+        if (r.ok) {
+          const skin = Buffer.from(await r.arrayBuffer());
+          return cropSkinHead(skin, size);
+        }
       }
-      // 404 = no Ely.by skin set for that name; fall through to Steve.
+      // No Ely.by skin for this name; fall through to Steve.
     }
   } catch {}
   return steveHead(size);
@@ -1748,24 +1774,32 @@ function register(app) {
 
     // Per-account Ely.by-skins override: if there's an offline account with this
     // username, honour its own toggle; otherwise fall back to the global setting.
+    // We also carry its pre-resolved Ely.by UUID so the head matches the in-game
+    // skin regardless of the username's casing (see elyBySkinUrl).
     let elybySkins = true;
+    let elybyUuid = null;
     if (type === 'offline') {
       try {
         const { accounts } = await readAccounts();
         const acct = accounts.find(a => a.type === 'offline' && a.username.toLowerCase() === username.toLowerCase());
         if (acct && typeof acct.elybySkins === 'boolean') elybySkins = acct.elybySkins;
         else elybySkins = (await readSettings()).elybySkins !== false;
+        if (acct && acct.elybyUuid) elybyUuid = acct.elybyUuid;
       } catch { elybySkins = true; }
     }
 
-    const key = `${type}:${username}:${uuid}:${size}:${elybySkins ? 1 : 0}`;
+    const key = `${type}:${username}:${uuid}:${size}:${elybySkins ? 1 : 0}:${elybyUuid || ''}`;
     let buf = skinCacheGet(key);
     if (!buf) {
-      buf = await resolveHead({ type, username, uuid, size, elybySkins });
+      buf = await resolveHead({ type, username, uuid, size, elybySkins, elybyUuid });
       skinCacheSet(key, buf);
     }
     res.set('Content-Type', 'image/png');
-    res.set('Cache-Control', 'private, max-age=3600');
+    // Short TTL: the head URL is stable (username+uuid), so a head first resolved
+    // as Steve (e.g. before an offline account's Ely.by UUID was resolved) would
+    // otherwise stay Steve in the browser for a full hour even after the skin
+    // becomes resolvable. 5 min lets it self-heal without hammering Ely.by.
+    res.set('Cache-Control', 'private, max-age=300');
     res.send(buf);
   });
 
@@ -2183,6 +2217,22 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     }
   }
 
+  // Ship Ely.by skins to every modded client, no login required. CustomSkinLoader
+  // resolves skins by username, so offline accounts render skins on offline-mode
+  // servers (which the authlib-injector login path can't do). Runs after the mod
+  // sync so the cleanup pass has already happened; it registers CSL in
+  // client-extras so future syncs leave it alone. Best-effort — a failure here
+  // must never block a launch.
+  try {
+    await ensureClientSkinMod({
+      profileRoot, loader, version,
+      onStatus: (m) => emit(launchId, 'status', { message: m }),
+      onLog: (msg) => emit(launchId, 'log', { message: msg }),
+    });
+  } catch (err) {
+    emit(launchId, 'log', { message: `[skins] CustomSkinLoader setup skipped: ${err.message}` });
+  }
+
   // Resolve Java path early — NeoForge needs it to run its headless installer.
   // Explicit setting wins, else fall back to backend discovery.
   let javaPath = settings?.javaPath && settings.javaPath.trim();
@@ -2584,6 +2634,95 @@ async function installMissingClientMods({ profileRoot, loader, version, missingI
     await writeClientExtras(profileRoot, { files: Array.from(extrasFiles) });
   }
   return installed;
+}
+
+// Ely.by skins for EVERYONE, no login required.
+//
+// The authlib-injector path (elybyLaunch) only renders a skin when the server
+// already knows the player's real Ely.by UUID — which never happens for no-login
+// offline accounts on an offline-mode server (the username-derived UUID is
+// unknown to Ely.by). CustomSkinLoader sidesteps that entirely: it's a
+// client-side mod that fetches skins BY USERNAME from Ely.by, so every player
+// renders every other player's skin regardless of UUID or login. We ship it into
+// every modded client profile at launch and register it in client-extras so
+// syncClientMods' cleanup leaves it in place.
+// Minimal but complete CustomSkinLoader config. Notes from reading CSL's source
+// (config/Config.java, loader/JsonAPILoader.java, loader/MojangAPILoader.java):
+//   - `loadlist` is the only field that must be set; every other setting falls
+//     back to CSL's own `= true` field defaults, and CSL normalizes/rewrites this
+//     file (adding version/buildNumber) on first launch. So we omit `version`
+//     (it's a String, not an int) and the boolean toggles.
+//   - ElyByAPI is a JsonAPILoader: it BAILS if `root` is empty, and the hardcoded
+//     Ely.by root only applies to CSL's auto-generated default profile — not to a
+//     loadlist entry we write. So `root` MUST be set explicitly here.
+//   - MojangAPI auto-fills its api/session roots in init(), so name+type suffice.
+const CUSTOM_SKIN_LOADER_CONFIG = {
+  loadlist: [
+    { name: 'ElyBy', type: 'ElyByAPI', root: 'http://skinsystem.ely.by/textures/' }, // resolves <root><username>
+    { name: 'Mojang', type: 'MojangAPI' }, // fallback so premium accounts still resolve
+  ],
+};
+
+// Loaders CustomSkinLoader publishes for on Modrinth. Quilt is served by the
+// Fabric jar; forge/neoforge by the Universal/ForgeV3 jar.
+const SKIN_MOD_LOADERS = new Set(['fabric', 'quilt', 'forge', 'neoforge']);
+
+async function ensureClientSkinMod({ profileRoot, loader, version, onStatus, onLog }) {
+  if (!loader || !SKIN_MOD_LOADERS.has(loader)) return; // vanilla has no mod loader
+  const targetDir = path.join(profileRoot, 'mods');
+  await fs.ensureDir(targetDir);
+
+  // Resolve the right CustomSkinLoader build for this loader + MC version.
+  const vParams = new URLSearchParams();
+  if (version) vParams.set('game_versions', JSON.stringify([version]));
+  vParams.set('loaders', JSON.stringify([loader]));
+  const vRes = await fetch(`${MODRINTH_LOOKUP_API}/project/customskinloader/version?${vParams}`, { headers: MODRINTH_LOOKUP_HEADERS });
+  if (!vRes.ok) throw new Error(`Modrinth returned ${vRes.status}`);
+  const versions = await vRes.json();
+  if (!Array.isArray(versions) || versions.length === 0) {
+    onLog?.(`[skins] No CustomSkinLoader build for ${loader} ${version}.\n`);
+    return;
+  }
+  const best = pickBestModrinthVersion(versions);
+  const file = best && (best.files.find(f => f.primary) || best.files[0]);
+  if (!file) return;
+
+  const extras = await readClientExtras(profileRoot);
+  const extrasFiles = new Set(extras.files || []);
+  const beforeExtras = JSON.stringify(Array.from(extrasFiles));
+
+  // Drop any stale CustomSkinLoader jar of a different version — two copies
+  // loading at once crashes the game. Remove the file and its extras entry.
+  for (const f of await fs.readdir(targetDir)) {
+    if (/^CustomSkinLoader.*\.jar$/i.test(f) && f !== file.filename) {
+      try { await fs.remove(path.join(targetDir, f)); } catch {}
+      extrasFiles.delete(f);
+    }
+  }
+
+  const dst = path.join(targetDir, file.filename);
+  if (!await fs.pathExists(dst)) {
+    onStatus?.('Installing skins support (CustomSkinLoader)…');
+    const dlRes = await fetch(file.url, { headers: MODRINTH_LOOKUP_HEADERS });
+    if (!dlRes.ok) throw new Error(`download failed (${dlRes.status})`);
+    await fs.writeFile(dst, Buffer.from(await dlRes.arrayBuffer()));
+    onLog?.(`[skins] ✓ Installed ${file.filename}\n`);
+  }
+
+  // Keep it out of syncClientMods' cleanup crosshairs.
+  extrasFiles.add(file.filename);
+  if (JSON.stringify(Array.from(extrasFiles)) !== beforeExtras) {
+    await writeClientExtras(profileRoot, { files: Array.from(extrasFiles) });
+  }
+
+  // Point CustomSkinLoader at Ely.by (name-based). Write once; don't clobber a
+  // user's hand-edited config on later launches.
+  const cfgPath = path.join(profileRoot, 'CustomSkinLoader', 'CustomSkinLoader.json');
+  if (!await fs.pathExists(cfgPath)) {
+    await fs.ensureDir(path.dirname(cfgPath));
+    await fs.writeJson(cfgPath, CUSTOM_SKIN_LOADER_CONFIG, { spaces: 2 });
+    onLog?.(`[skins] Wrote Ely.by CustomSkinLoader config.\n`);
+  }
 }
 
 async function installFabricProfile(mcVersion, profileRoot) {

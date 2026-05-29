@@ -218,6 +218,10 @@ function App() {
   // Track sessionIds we've already toasted for so a render of `installs`
   // doesn't re-fire the toast for an already-handled completion.
   const toastedSessions = useRef(new Set());
+  // AbortControllers for in-flight "install as server" downloads, keyed by
+  // toast id. The download + upload run browser-side (see beginServerInstall),
+  // so aborting the controller is how we cancel them.
+  const serverInstallAborts = useRef({});
 
   const upsertToast = useCallback((toast) => {
     setInstallToasts(prev => {
@@ -310,6 +314,8 @@ function App() {
   // to the new server card.
   const beginServerInstall = useCallback(async (hit) => {
     const toastId = `server-${hit.project_id}-${Date.now()}`;
+    const controller = new AbortController();
+    serverInstallAborts.current[toastId] = controller;
     upsertToast({
       id: toastId,
       kind: 'server',
@@ -318,7 +324,7 @@ function App() {
       iconUrl: hit.icon_url || null,
     });
     try {
-      const vr = await fetch(`http://localhost:3001/api/modrinth/project/${hit.project_id}/versions`);
+      const vr = await fetch(`http://localhost:3001/api/modrinth/project/${hit.project_id}/versions`, { signal: controller.signal });
       const vs = await vr.json();
       if (!vr.ok || !Array.isArray(vs) || vs.length === 0) throw new Error('No version found for this modpack');
       vs.sort((a, b) => {
@@ -329,7 +335,7 @@ function App() {
       const file = (best.files || []).find(f => f.primary) || (best.files || [])[0];
       if (!file?.url) throw new Error('Modpack version has no downloadable file');
 
-      const dl = await fetch(file.url);
+      const dl = await fetch(file.url, { signal: controller.signal });
       if (!dl.ok) throw new Error(`Modpack download failed (${dl.status})`);
       const blob = await dl.blob();
       upsertToast({ id: toastId, phase: 'creating' });
@@ -342,6 +348,7 @@ function App() {
       const cr = await fetch('http://localhost:3001/api/servers/from-modpack', {
         method: 'POST',
         body: fd,
+        signal: controller.signal,
       });
       const cd = await cr.json();
       if (!cr.ok) throw new Error(cd.error || 'Server create failed');
@@ -352,14 +359,30 @@ function App() {
         autoDismissAfter: 12_000,
       });
     } catch (err) {
+      // User-initiated cancel: the toast is already removed by the cancel
+      // handler, so don't flip it into an error state.
+      if (err.name === 'AbortError') return;
       upsertToast({
         id: toastId,
         phase: 'error',
         error: err.message,
         autoDismissAfter: 8_000,
       });
+    } finally {
+      delete serverInstallAborts.current[toastId];
     }
   }, [upsertToast]);
+
+  // Cancel an in-flight "install as server" download/upload. Aborts the fetch
+  // chain (which rejects beginServerInstall's await) and clears the toast.
+  const cancelServerInstall = useCallback((toastId) => {
+    const controller = serverInstallAborts.current[toastId];
+    if (controller) {
+      try { controller.abort(); } catch {}
+      delete serverInstallAborts.current[toastId];
+    }
+    removeToast(toastId);
+  }, [removeToast]);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -727,6 +750,7 @@ function App() {
         toasts={installToasts}
         onPlay={handleBrowseToastPlay}
         onDismiss={removeToast}
+        onCancel={cancelServerInstall}
         onGoToServers={handleGoToServers}
       />
       <WhatsNewModal />

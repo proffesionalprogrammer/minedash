@@ -17,6 +17,7 @@ export default function SkinHead({
   className = '',
   rounded = 'rounded-md',
   elybySkins,   // optional: when provided, busts the cache so a per-account toggle re-fetches
+  elybyUuid,    // optional: offline account's resolved Ely.by id; keys the URL to the skin's identity
 }) {
   if (!username) {
     return (
@@ -29,6 +30,10 @@ export default function SkinHead({
   const qs = new URLSearchParams({ size: String(Math.round(size * 2)) });
   if (type) qs.set('type', type);
   if (uuid) qs.set('uuid', uuid);
+  // The Ely.by id only changes the URL — the backend resolves the skin from disk.
+  // Including it means a head first cached as Steve (before the id resolved)
+  // re-fetches once the account gains an Ely.by id, instead of serving stale.
+  if (elybyUuid) qs.set('eu', elybyUuid);
   // The backend resolves the per-account setting from disk; this param only
   // differentiates the URL so the browser re-fetches after a toggle.
   if (typeof elybySkins === 'boolean') qs.set('v', elybySkins ? '1' : '0');

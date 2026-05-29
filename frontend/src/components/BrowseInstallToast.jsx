@@ -10,7 +10,7 @@ import { Play, X, Check, Loader2, AlertTriangle, Server } from 'lucide-react';
 //
 // Accepts an array of toasts so multiple completions don't fight for the
 // corner. Each toast renders independently with its own callbacks.
-export default function BrowseInstallToast({ toasts = [], onPlay, onDismiss, onGoToServers }) {
+export default function BrowseInstallToast({ toasts = [], onPlay, onDismiss, onCancel, onGoToServers }) {
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 items-end pointer-events-none">
       <AnimatePresence>
@@ -25,7 +25,7 @@ export default function BrowseInstallToast({ toasts = [], onPlay, onDismiss, onG
               toast.phase === 'error' ? 'border-[#FF5555]/30' : 'border-[#00AF5C]/30'
             }`}
           >
-            {renderToastBody(toast, { onPlay, onDismiss, onGoToServers })}
+            {renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers })}
           </motion.div>
         ))}
       </AnimatePresence>
@@ -33,7 +33,7 @@ export default function BrowseInstallToast({ toasts = [], onPlay, onDismiss, onG
   );
 }
 
-function renderToastBody(toast, { onPlay, onDismiss, onGoToServers }) {
+function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) {
   const phase = toast.phase || 'done';
   const isError = phase === 'error';
   const inFlight = phase === 'downloading' || phase === 'creating';
@@ -82,9 +82,10 @@ function renderToastBody(toast, { onPlay, onDismiss, onGoToServers }) {
           )}
         </div>
         <button
-          onClick={() => onDismiss?.(toast.id)}
+          onClick={() => (inFlight ? onCancel?.(toast.id) : onDismiss?.(toast.id))}
           className="p-1.5 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors flex-shrink-0"
-          aria-label="Dismiss"
+          aria-label={inFlight ? 'Cancel' : 'Dismiss'}
+          title={inFlight ? 'Cancel install' : 'Dismiss'}
         >
           <X size={14} />
         </button>
@@ -99,6 +100,21 @@ function renderToastBody(toast, { onPlay, onDismiss, onGoToServers }) {
             transition={{ repeat: Infinity, duration: 1.4, ease: 'linear' }}
             style={{ width: '40%' }}
           />
+        </div>
+      )}
+
+      {/* Cancel row — while a server install is still downloading/creating, give
+          the user an explicit Stop so they don't have to wait out a big pack. */}
+      {toast.kind === 'server' && inFlight && (
+        <div className="flex border-t border-[#2D2D2D]">
+          <motion.button
+            onClick={() => onCancel?.(toast.id)}
+            whileTap={{ scale: 0.97 }}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 text-sm font-bold transition-colors"
+          >
+            <X size={14} />
+            Cancel
+          </motion.button>
         </div>
       )}
 

@@ -342,7 +342,11 @@ export default function InstancesSection({
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {liveInstalls.map(({ key, entry }) => (
-                <InstallingCard key={key} entry={entry} />
+                <InstallingCard
+                  key={key}
+                  entry={entry}
+                  onCancel={() => modpackInstalls?.cancelInstall?.(key)}
+                />
               ))}
               {visibleInstances.map((inst, idx) => (
                 <InstanceCard
@@ -407,7 +411,8 @@ function EmptyState({ hasQuery }) {
 // Skeleton card representing a Browse install still in flight. Reads its
 // progress from the modpackInstalls entry so the user sees mod-by-mod
 // progress without leaving the Instances tab.
-function InstallingCard({ entry }) {
+function InstallingCard({ entry, onCancel }) {
+  const cancelling = entry.status === 'cancelling';
   const pct = entry.status === 'done' ? 100
     : (entry.total > 0 ? Math.min(99, Math.round((entry.task / entry.total) * 100)) : 0);
   return (
@@ -416,18 +421,34 @@ function InstallingCard({ entry }) {
       animate={{ opacity: 1, y: 0 }}
       className="bg-[#1A1A1A] border border-[#00AF5C]/30 rounded-2xl overflow-hidden flex flex-col"
     >
-      <div className="aspect-square bg-[#111111] flex items-center justify-center relative overflow-hidden">
+      <div className="group/icon aspect-square bg-[#111111] flex items-center justify-center relative overflow-hidden">
         {entry.iconUrl
           ? <img src={entry.iconUrl} alt="" className="w-full h-full object-cover opacity-60" />
           : <Download size={36} className="text-[#00AF5C]/50" />}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#1A1A1A] flex items-end justify-center pb-3">
           <Loader2 size={20} className="text-[#00AF5C] animate-spin" />
         </div>
+        {/* Cancel overlay — appears on hover so the download can be stopped
+            mid-flight. Always visible while cancelling so the user gets feedback. */}
+        <div className={`absolute inset-0 flex items-center justify-center bg-[#000000]/60 transition-opacity ${
+          cancelling ? 'opacity-100' : 'opacity-0 group-hover/icon:opacity-100'
+        }`}>
+          <motion.button
+            onClick={(e) => { e.stopPropagation(); onCancel?.(); }}
+            disabled={cancelling}
+            whileHover={cancelling ? {} : { scale: 1.05 }}
+            whileTap={cancelling ? {} : { scale: 0.95 }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#1E1E1E] text-[#A0A0A0] hover:text-[#FF5555] border border-[#2D2D2D] hover:border-[#FF5555]/40 transition-colors disabled:opacity-60"
+          >
+            <Square size={12} fill="currentColor" />
+            {cancelling ? 'Stopping…' : 'Cancel'}
+          </motion.button>
+        </div>
       </div>
       <div className="p-3">
         <p className="text-sm font-bold text-[#FFFFFF] truncate">{entry.title || 'Installing modpack…'}</p>
         <p className="text-[10px] text-[#00AF5C] font-bold truncate mt-0.5">
-          {entry.statusText || 'Starting…'}
+          {cancelling ? 'Cancelling…' : (entry.statusText || 'Starting…')}
         </p>
         <div className="mt-2 h-1 bg-[#2D2D2D] rounded-full overflow-hidden">
           <motion.div

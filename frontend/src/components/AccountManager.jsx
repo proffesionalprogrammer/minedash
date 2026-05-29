@@ -164,7 +164,7 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
             return (
               <div key={a.id}
                 className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${active ? 'bg-[#00AF5C]/5 border-[#00AF5C]/30' : 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#555555]'}`}>
-                <SkinHead username={a.username} uuid={a.uuid} type={a.type} elybySkins={a.elybySkins} size={40} rounded="rounded-xl" />
+                <SkinHead username={a.username} uuid={a.uuid} type={a.type} elybySkins={a.elybySkins} elybyUuid={a.elybyUuid} size={40} rounded="rounded-xl" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm text-[#FFFFFF] truncate">{a.username}</span>

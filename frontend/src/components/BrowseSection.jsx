@@ -508,6 +508,7 @@ export default function BrowseSection({ socket, onError, modpackInstalls, onProf
                     selectedVersions={selectedMcVersions}
                     onInstall={() => handleInstall(hit)}
                     onInstallAsServer={() => handleInstallAsServer(hit)}
+                    onCancel={() => modpackInstalls?.cancelInstall?.(`browse:${hit.project_id}`)}
                     onOpenDetail={() => onOpenDetail?.({ projectId: hit.project_id, type, seedHit: hit })}
                   />
                 ))}
@@ -709,7 +710,7 @@ function FilterChip({ label, onClear }) {
 // One result row. Designed for density: editorial badge, 56px icon, title +
 // author + description + category chips on the left, info bar (downloads /
 // age / MC version / loader) and install buttons stacked on the right.
-function BrowseRow({ hit, index, type, installEntry, installing, selectedVersions, onInstall, onInstallAsServer, onOpenDetail }) {
+function BrowseRow({ hit, index, type, installEntry, installing, selectedVersions, onInstall, onInstallAsServer, onCancel, onOpenDetail }) {
   const badge = editorialBadge(hit);
   const cats = (hit.display_categories || hit.categories || [])
     .filter(c => !['fabric', 'forge', 'neoforge', 'quilt'].includes(c))
@@ -724,6 +725,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
   // before that. We keep showing the progress bar at 100% during the brief
   // 'done' window before the listing refetches.
   const inProgress = !!installEntry && installEntry.status !== 'error';
+  const cancelling = installEntry?.status === 'cancelling';
   const pct = installEntry
     ? (installEntry.status === 'done' ? 100
         : (installEntry.total > 0 ? Math.min(99, Math.round((installEntry.task / installEntry.total) * 100)) : 0))
@@ -838,25 +840,38 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
               </motion.button>
             )}
 
-            {/* Install button */}
+            {/* Install button — while installing, the progress pill is paired
+                with a Stop button so the user can abort a long modpack download. */}
             {inProgress ? (
-              <div
-                title={`${installEntry.statusText || 'Installing…'}${installEntry.total ? ` (${installEntry.task} / ${installEntry.total} files)` : ''}`}
-                className="relative overflow-hidden flex items-center gap-1.5 px-4 py-2 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
-                style={{ background: '#1E1E1E' }}
-              >
-                <motion.div
-                  initial={false}
-                  animate={{ width: `${pct}%` }}
-                  transition={{ ease: [0.22, 1, 0.36, 1], duration: 0.4 }}
-                  className="absolute inset-y-0 left-0 z-0"
-                  style={{ background: '#00AF5C' }}
-                />
-                <span className="relative z-10 flex items-center gap-1.5">
-                  <Loader2 size={12} className="animate-spin" />
-                  <span className="tabular-nums">{pct}%</span>
-                </span>
-              </div>
+              <>
+                <div
+                  title={`${installEntry.statusText || 'Installing…'}${installEntry.total ? ` (${installEntry.task} / ${installEntry.total} files)` : ''}`}
+                  className="relative overflow-hidden flex items-center gap-1.5 px-4 py-2 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
+                  style={{ background: '#1E1E1E' }}
+                >
+                  <motion.div
+                    initial={false}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ ease: [0.22, 1, 0.36, 1], duration: 0.4 }}
+                    className="absolute inset-y-0 left-0 z-0"
+                    style={{ background: '#00AF5C' }}
+                  />
+                  <span className="relative z-10 flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin" />
+                    <span className="tabular-nums">{cancelling ? 'Stopping…' : `${pct}%`}</span>
+                  </span>
+                </div>
+                <motion.button
+                  onClick={onCancel}
+                  disabled={cancelling}
+                  whileHover={cancelling ? {} : { scale: 1.05 }}
+                  whileTap={cancelling ? {} : { scale: 0.95 }}
+                  title="Cancel download"
+                  className="flex items-center justify-center p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#FF5555]/40 rounded-xl text-[#A0A0A0] hover:text-[#FF5555] transition-colors disabled:opacity-50"
+                >
+                  <XIcon size={14} />
+                </motion.button>
+              </>
             ) : type === 'modpack' ? (
               <motion.button
                 onClick={onInstall}
