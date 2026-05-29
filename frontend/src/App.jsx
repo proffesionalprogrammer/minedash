@@ -241,9 +241,19 @@ function App() {
     for (const [key, entry] of Object.entries(installs)) {
       if (!key.startsWith('browse:')) continue;
       if (entry?.source !== 'browse') continue;
-      if (entry?.status !== 'done') continue;
       if (!entry.sessionId) continue;
       if (toastedSessions.current.has(entry.sessionId)) continue;
+
+      // A cancelled install left a partial instance the backend just deleted —
+      // refetch so it drops out of the list, but show no "complete" toast.
+      if (entry.status === 'cancelled') {
+        toastedSessions.current.add(entry.sessionId);
+        fetchInstalledProfiles();
+        setInstancesRefreshKey(k => k + 1);
+        continue;
+      }
+
+      if (entry?.status !== 'done') continue;
       toastedSessions.current.add(entry.sessionId);
 
       fetchInstalledProfiles();

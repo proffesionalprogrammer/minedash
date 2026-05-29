@@ -40,17 +40,19 @@ export function useModpackInstalls(socket) {
           if (!prev[key]) return prev;
           return { ...prev, [key]: { ...prev[key], task: payload.task, total: payload.total } };
         });
-      } else if (payload.event === 'done' || payload.event === 'error') {
+      } else if (payload.event === 'done' || payload.event === 'error' || payload.event === 'cancelled') {
         socket.off(channel, handler);
         delete handlersRef.current[sessionId];
         const isError = payload.event === 'error';
+        const isCancelled = payload.event === 'cancelled';
+        const status = isError ? 'error' : isCancelled ? 'cancelled' : 'done';
         setInstalls(prev => {
           if (!prev[key]) return prev;
           return {
             ...prev,
             [key]: {
               ...prev[key],
-              status: isError ? 'error' : 'done',
+              status,
               task: prev[key].total || prev[key].task,
               errorMessage: isError ? payload.message : undefined,
               summary: isError ? undefined : payload,
@@ -58,7 +60,9 @@ export function useModpackInstalls(socket) {
           };
         });
         // Brief hold so callers can react to the terminal state, then clear.
-        // Error stays longer than success so the user has a chance to read it.
+        // Error stays longest (user reads it); cancel clears fast since the user
+        // already knows they stopped it.
+        const holdMs = isError ? 4500 : isCancelled ? 600 : 1200;
         setTimeout(() => {
           setInstalls(prev => {
             if (!prev[key]) return prev;
@@ -66,12 +70,31 @@ export function useModpackInstalls(socket) {
             delete n[key];
             return n;
           });
-        }, isError ? 4500 : 1200);
+        }, holdMs);
       }
     };
     handlersRef.current[sessionId] = { key, handler };
     socket.on(channel, handler);
   }, [socket]);
+
+  // Cancel an in-flight install by its tracking key. Looks up the sessionId we
+  // stashed when tracking started and asks the backend to stop it; the actual
+  // teardown of the entry happens when the resulting `cancelled` socket event
+  // arrives (above). Optimistically flips the entry to `cancelling` so the
+  // button can show progress immediately. No-op if the entry already finished.
+  const cancelInstall = useCallback((key) => {
+    let sessionId;
+    setInstalls(prev => {
+      const entry = prev[key];
+      if (!entry || !entry.sessionId) return prev;
+      sessionId = entry.sessionId;
+      if (entry.status === 'cancelling') return prev;
+      return { ...prev, [key]: { ...entry, status: 'cancelling' } };
+    });
+    if (!sessionId) return;
+    fetch(`http://localhost:3001/api/launcher/modpack-install/${sessionId}`, { method: 'DELETE' })
+      .catch(() => { /* the cancelled/terminal event still clears the entry */ });
+  }, []);
 
   // On unmount (or socket swap), drop every listener so we don't leak.
   useEffect(() => () => {
@@ -82,5 +105,5 @@ export function useModpackInstalls(socket) {
     handlersRef.current = {};
   }, [socket]);
 
-  return { installs, trackInstall };
+  return { installs, trackInstall, cancelInstall };
 }
