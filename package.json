@@ -1,6 +1,6 @@
 {
   "name": "minedash",
-  "version": "1.0.95",
+  "version": "1.0.96",
   "description": "MineDash — Local Minecraft Server Manager",
   "main": "electron/main.js",
   "scripts": {
@@ -29,6 +29,7 @@
     "multer": "^2.1.1",
     "node-os-utils": "^2.0.3",
     "pidusage": "^4.0.1",
+    "pngjs": "^7.0.0",
     "socket.io": "^4.8.3"
   },
   "build": {

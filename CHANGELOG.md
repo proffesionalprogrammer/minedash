@@ -2,12 +2,12 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
-## v1.0.95 — 2026-06-02
+## v1.0.96 — 2026-06-02
 
 ### Fixed
 
 - **MineDash no longer launches a duplicate window.** Opening MineDash while it's already running (including from the tray) now brings the existing window to the front instead of starting a second copy.
-- **"Failed to fetch" on startup in v1.0.94.** The previous build shipped without the `pngjs` module the launcher-skins feature needs, so the backend crashed on boot and the app loaded with no server behind it. The module is now bundled correctly and the backend starts cleanly.
+- **"Failed to fetch" on startup in v1.0.94.** The previous build shipped without the `pngjs` module the launcher-skins feature needs, so the backend crashed on boot and the app loaded with no server behind it. `pngjs` is now declared as a top-level dependency so it's bundled into the packaged app, and the backend starts cleanly.
 
 ---
 
