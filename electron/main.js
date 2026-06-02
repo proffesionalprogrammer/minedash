@@ -16,6 +16,26 @@ let tray = null;
 let updatePollTimer = null;
 const UPDATE_POLL_INTERVAL_MS = 60 * 1000;
 
+// ─── Single-instance lock ────────────────────────────────────────────────────
+// MineDash must be a singleton: a second copy would fork its own backend on the
+// same port 3001 (the listen would fail) and confuse the user with a duplicate
+// window. If we don't hold the lock, another instance is already running —
+// quit immediately and let that instance surface itself via 'second-instance'.
+const gotInstanceLock = app.requestSingleInstanceLock();
+if (!gotInstanceLock) {
+  app.quit();
+} else {
+  // Fired in the primary instance when the user launches MineDash again
+  // (or hits a shortcut). Restore + show + focus the existing window instead
+  // of letting a duplicate spawn.
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 // Render at 100% regardless of Windows display scaling — otherwise the UI
 // inherits the OS scale factor and overflows on 125% / 150% laptop screens.
 app.commandLine.appendSwitch('force-device-scale-factor', '1');
@@ -307,6 +327,9 @@ function showFromTray() {
 
 // ─── App Lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // If we lost the single-instance race, app.quit() is already in flight —
+  // don't fork a backend that would fight for port 3001.
+  if (!gotInstanceLock) return;
   // Log the running version up front so the auto-update flow is debuggable
   // from the log file alone — if the toast misfires you can grep this line to
   // see which version actually got loaded vs. what's on the releases feed.
