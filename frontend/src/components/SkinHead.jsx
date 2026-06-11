@@ -18,6 +18,7 @@ export default function SkinHead({
   rounded = 'rounded-md',
   elybySkins,   // optional: when provided, busts the cache so a per-account toggle re-fetches
   elybyUuid,    // optional: offline account's resolved Ely.by id; keys the URL to the skin's identity
+  bust,         // optional: opaque value (e.g. a timestamp) that forces an immediate re-fetch when it changes
 }) {
   if (!username) {
     return (
@@ -37,6 +38,9 @@ export default function SkinHead({
   // The backend resolves the per-account setting from disk; this param only
   // differentiates the URL so the browser re-fetches after a toggle.
   if (typeof elybySkins === 'boolean') qs.set('v', elybySkins ? '1' : '0');
+  // Changes the URL after a "Refresh skin", so the already-mounted <img>
+  // re-fetches instead of waiting for a remount.
+  if (bust) qs.set('t', String(bust));
   const src = `http://localhost:3001/api/launcher/skins/${encodeURIComponent(username)}/head?${qs.toString()}`;
   return (
     <img

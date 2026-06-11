@@ -640,6 +640,7 @@ function App() {
                 onChange={setLauncherSettings}
                 onError={showError}
                 accountProps={accountMenuProps}
+                socket={socket}
               />
             </motion.div>
           ) : selectedServer ? (

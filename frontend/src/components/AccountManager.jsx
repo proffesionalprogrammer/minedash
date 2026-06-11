@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Trash2, Check, Loader2, ExternalLink, X, ShieldCheck, UserCircle2, AlertCircle, Image } from 'lucide-react';
+import { User, Trash2, Check, Loader2, ExternalLink, X, ShieldCheck, UserCircle2, AlertCircle, Image, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SkinHead from './SkinHead';
 
@@ -24,6 +24,24 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
   const [offlineErr, setOfflineErr] = useState('');
   // Which offline account's per-account skins toggle is mid-PATCH (disables it).
   const [skinToggleBusy, setSkinToggleBusy] = useState(null);
+  // Per-account cache-bust values: bumping one forces that account's SkinHead
+  // to re-fetch after a skin refresh (the backend cache is purged first).
+  const [skinBust, setSkinBust] = useState({});
+  const [skinRefreshBusy, setSkinRefreshBusy] = useState(null);
+
+  // Purge the backend's cached head for this username, then bump the bust
+  // value so the <img> re-fetches immediately. Lets the user pull in a skin
+  // they just changed on ely.by (or Mojang) without waiting out the cache.
+  const handleRefreshSkin = async (account) => {
+    setSkinRefreshBusy(account.id);
+    try {
+      await fetch(`http://localhost:3001/api/launcher/skins/${encodeURIComponent(account.username)}/refresh`, { method: 'POST' });
+      setSkinBust(prev => ({ ...prev, [account.id]: Date.now() }));
+    } catch (err) {
+      onError?.(err.message);
+    }
+    setSkinRefreshBusy(null);
+  };
 
   const openOffline = () => { setOfflineName(''); setOfflineErr(''); setOfflineSkins(elybySkinsDefault); setOfflineOpen(true); };
 
@@ -164,7 +182,7 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
             return (
               <div key={a.id}
                 className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${active ? 'bg-[#00AF5C]/5 border-[#00AF5C]/30' : 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#555555]'}`}>
-                <SkinHead username={a.username} uuid={a.uuid} type={a.type} elybySkins={a.elybySkins} elybyUuid={a.elybyUuid} size={40} rounded="rounded-xl" />
+                <SkinHead username={a.username} uuid={a.uuid} type={a.type} elybySkins={a.elybySkins} elybyUuid={a.elybyUuid} bust={skinBust[a.id]} size={40} rounded="rounded-xl" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm text-[#FFFFFF] truncate">{a.username}</span>
@@ -178,6 +196,12 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => handleRefreshSkin(a)}
+                    disabled={skinRefreshBusy === a.id}
+                    title="Refresh skin — re-fetch the head if you changed your skin"
+                    className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-lg transition-all disabled:opacity-50">
+                    <RefreshCw size={14} className={skinRefreshBusy === a.id ? 'animate-spin' : ''} />
+                  </button>
                   {a.type === 'offline' && (
                     <button onClick={() => handleToggleAccountSkins(a.id, !a.elybySkins)}
                       disabled={skinToggleBusy === a.id}
