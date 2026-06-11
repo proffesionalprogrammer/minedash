@@ -44,7 +44,26 @@ app.use(express.json());
 // ─── Data Directory (supports packaged Electron via MINEDASH_DATA_DIR) ─────────
 // In development:  data lives in backend/ alongside the source
 // In production:   Electron passes userData path (e.g. AppData\Roaming\MineDash)
-const DATA_DIR = process.env.MINEDASH_DATA_DIR || __dirname;
+//
+// The user can relocate the heavy data (instances, launcher profiles, backups,
+// runtimes) to another drive via Settings → Storage. The chosen path lives in
+// a small pointer file that ALWAYS stays in the default location — it has to,
+// since it's what tells us where the real data dir is. Any problem reading the
+// pointer or creating the target (unplugged drive, permissions, …) falls back
+// to the default so a bad pointer can never brick startup.
+const DEFAULT_DATA_DIR = process.env.MINEDASH_DATA_DIR || __dirname;
+const STORAGE_POINTER_FILE = path.join(DEFAULT_DATA_DIR, 'storage-location.json');
+let DATA_DIR = DEFAULT_DATA_DIR;
+try {
+  const ptr = fs.readJsonSync(STORAGE_POINTER_FILE);
+  if (ptr && typeof ptr.dataDir === 'string' && ptr.dataDir.trim() && path.isAbsolute(ptr.dataDir)) {
+    fs.ensureDirSync(ptr.dataDir);
+    DATA_DIR = ptr.dataDir;
+    console.log(`[MineDash] Using custom data directory: ${DATA_DIR}`);
+  }
+} catch (e) {
+  if (e.code !== 'ENOENT') console.warn('[MineDash] storage-location.json ignored:', e.message);
+}
 
 // Set up multer for file uploads
 const upload = multer({ dest: path.join(DATA_DIR, 'temp_uploads') });
@@ -4466,6 +4485,163 @@ app.delete('/api/servers/:id/scheduled-tasks/:taskId', async (req, res) => {
   }
 });
 
+// ─── Storage location (Settings → Storage) ─────────────────────────────────────
+// Lets the user move all MineDash data (server instances, launcher profiles,
+// backups, managed Java runtimes) to another folder/drive. The move happens
+// live with progress on the `storage_migration` socket channel; on success the
+// pointer file is written and the app must restart to pick up the new paths —
+// every module-level path const (SERVERS_FILE, INSTANCES_DIR, …) was computed
+// from the old DATA_DIR at boot.
+const STORAGE_MIGRATE_ITEMS = [
+  'servers.json',
+  'instances',
+  'backups',
+  'runtimes',
+  'launcher-clients',
+  'launcher-accounts.json',
+  'launcher-settings.json',
+  'launcher-profiles.json',
+  'authlib-injector',
+];
+let storageMigrationActive = false;
+
+app.get('/api/storage-location', (req, res) => {
+  // If the pointer on disk disagrees with the DATA_DIR this process booted
+  // with, a move completed but the app hasn't restarted yet — surface that so
+  // the UI can keep showing the "restart to apply" prompt across reloads.
+  let pendingRestart = null;
+  try {
+    const ptr = fs.readJsonSync(STORAGE_POINTER_FILE);
+    if (ptr && typeof ptr.dataDir === 'string' && ptr.dataDir.trim()) {
+      pendingRestart = path.resolve(ptr.dataDir);
+    }
+  } catch {}
+  if (!pendingRestart) pendingRestart = path.resolve(DEFAULT_DATA_DIR);
+  if (pendingRestart === path.resolve(DATA_DIR)) pendingRestart = null;
+
+  res.json({
+    current: DATA_DIR,
+    default: DEFAULT_DATA_DIR,
+    isCustom: path.resolve(DATA_DIR) !== path.resolve(DEFAULT_DATA_DIR),
+    migrating: storageMigrationActive,
+    pendingRestart,
+  });
+});
+
+app.post('/api/storage-location', async (req, res) => {
+  const raw = (req.body && typeof req.body.dataDir === 'string') ? req.body.dataDir.trim() : '';
+  // Empty path = reset to the default location.
+  const target = path.resolve(raw || DEFAULT_DATA_DIR);
+
+  if (storageMigrationActive) {
+    return res.status(409).json({ error: 'A storage move is already in progress.' });
+  }
+  // A previous move already completed but hasn't been applied yet (the pointer
+  // on disk no longer matches the DATA_DIR this process booted with). Every
+  // path in this process is stale until restart — a second move now would run
+  // against the wrong folders and orphan the data that was just moved.
+  let effectiveDir = path.resolve(DEFAULT_DATA_DIR);
+  try {
+    const ptr = fs.readJsonSync(STORAGE_POINTER_FILE);
+    if (ptr && typeof ptr.dataDir === 'string' && ptr.dataDir.trim()) effectiveDir = path.resolve(ptr.dataDir);
+  } catch {}
+  if (effectiveDir !== path.resolve(DATA_DIR)) {
+    return res.status(409).json({ error: 'A previous move is waiting for a restart. Restart MineDash first.' });
+  }
+  if (raw && !path.isAbsolute(raw)) {
+    return res.status(400).json({ error: 'Please enter a full absolute path (e.g. D:\\MineDash).' });
+  }
+  if (target === path.resolve(DATA_DIR)) {
+    return res.status(400).json({ error: 'Data is already stored there.' });
+  }
+  // Moving the data dir into itself (or into one of the folders being moved)
+  // would eat its own tail — block any target inside the current data dir.
+  const rel = path.relative(path.resolve(DATA_DIR), target);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return res.status(400).json({ error: 'The new location cannot be inside the current data folder.' });
+  }
+  if (Object.keys(activeProcesses).length > 0) {
+    return res.status(400).json({ error: 'Stop all running servers before moving the data folder.' });
+  }
+  // `launcher` is declared below — fine at request time, the module is loaded
+  // long before any request can hit this route.
+  if (launcher.isBusy()) {
+    return res.status(400).json({ error: 'Wait for the game launch / download to finish (or stop it) before moving the data folder.' });
+  }
+
+  // Validate the target is creatable and writable before touching anything.
+  try {
+    await fs.ensureDir(target);
+    const probe = path.join(target, `.minedash-write-test-${Date.now()}`);
+    await fs.writeFile(probe, 'ok');
+    await fs.remove(probe);
+  } catch (err) {
+    return res.status(400).json({ error: `Can't write to that folder: ${err.message}` });
+  }
+
+  // Refuse to clobber: if the target already holds MineDash data, the user
+  // should pick an empty folder (or clean it up) rather than have us guess
+  // which copy wins. Exception: negligible leftovers — an empty directory or
+  // an empty `[]` servers.json. The running backend recreates those in the
+  // OLD location between a move and the restart (getServers() rewrites the
+  // file on ENOENT every schedule tick), and without this tolerance "move
+  // back to default" would be permanently blocked by a file we wrote ourselves.
+  const isNegligible = async (p) => {
+    try {
+      const st = await fs.stat(p);
+      if (st.isDirectory()) return (await fs.readdir(p)).length === 0;
+      if (path.basename(p) === 'servers.json') {
+        const d = await fs.readJson(p);
+        return Array.isArray(d) && d.length === 0;
+      }
+    } catch {}
+    return false;
+  };
+  const toMove = [];
+  for (const item of STORAGE_MIGRATE_ITEMS) {
+    if (await fs.pathExists(path.join(DATA_DIR, item))) {
+      const targetItem = path.join(target, item);
+      if (await fs.pathExists(targetItem)) {
+        if (!(await isNegligible(targetItem))) {
+          return res.status(400).json({ error: `That folder already contains MineDash data (${item}). Choose an empty folder.` });
+        }
+        await fs.remove(targetItem);
+      }
+      toMove.push(item);
+    }
+  }
+
+  storageMigrationActive = true;
+  res.json({ ok: true, started: true, items: toMove.length });
+
+  const emitMig = (event, data = {}) => io.emit('storage_migration', { event, ...data });
+  const moved = [];
+  try {
+    for (let i = 0; i < toMove.length; i++) {
+      const item = toMove[i];
+      emitMig('progress', { item, index: i, total: toMove.length });
+      // fs-extra's move falls back to copy+delete across drives, which is the
+      // common case here (C: → another disk). Can take a while for big packs.
+      await fs.move(path.join(DATA_DIR, item), path.join(target, item));
+      moved.push(item);
+    }
+    if (target === path.resolve(DEFAULT_DATA_DIR)) {
+      await fs.remove(STORAGE_POINTER_FILE);
+    } else {
+      await fs.writeJson(STORAGE_POINTER_FILE, { dataDir: target }, { spaces: 2 });
+    }
+    emitMig('done', { dataDir: target });
+  } catch (err) {
+    console.error('[MineDash] Storage move failed:', err);
+    // Best-effort rollback so the app still finds its data where it expects.
+    for (const item of moved.reverse()) {
+      try { await fs.move(path.join(target, item), path.join(DATA_DIR, item)); } catch {}
+    }
+    emitMig('error', { message: err.message });
+  }
+  storageMigrationActive = false;
+});
+
 // ─── Launcher (Microsoft + offline accounts, mod sync, game launch) ────────────
 const launcher = require('./launcher');
 launcher.init({
@@ -4489,7 +4665,9 @@ launcher.register(app);
 // Best-effort — if it fails, servers with the toggle on just won't inject.
 ensureAuthlibInjector(DATA_DIR).catch(() => {});
 
-const PORT = 3001;
+// Env override is for development only (e.g. running a second backend beside
+// a live MineDash) — the frontend and Electron shell always talk to 3001.
+const PORT = Number(process.env.MINEDASH_PORT) || 3001;
 server.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
 });

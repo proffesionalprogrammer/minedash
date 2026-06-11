@@ -44,6 +44,11 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   const handlerRef = useRef(null);
   const launchIdRef = useRef(null);
   const resetTimerRef = useRef(null);
+  // Set when the user hits Stop before POST /launch has returned a launchId
+  // (the backend does network prep — e.g. the Ely.by skins jar download —
+  // before responding, so this window can last seconds). launch() fires the
+  // DELETE as soon as the id arrives.
+  const cancelRequestedRef = useRef(false);
   // Tracks whether *this launch* hid the window to tray — set on 'launched'
   // when the "After launching: hide" setting fires, cleared on close. We only
   // auto-show when we hid; otherwise we'd surprise users who minimised manually.
@@ -74,11 +79,18 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   // sub-children like a NeoForge installer or the JVM, then escalates).
   const cancel = () => {
     const launchId = launchIdRef.current;
-    if (!launchId) { reset(); return; }
     setPhase('cancelling');
     setStatusText('Stopping…');
-    fetch(`http://localhost:3001/api/launcher/launch/${launchId}`, { method: 'DELETE' })
-      .catch(() => {});
+    if (!launchId) {
+      // No launchId yet — the POST is still in flight. Just resetting here
+      // would flip the UI to idle while the download carries on invisibly
+      // until it finished and flipped the version to "Installed". Queue the
+      // cancel instead; launch() sends the DELETE once the id arrives.
+      cancelRequestedRef.current = true;
+    } else {
+      fetch(`http://localhost:3001/api/launcher/launch/${launchId}`, { method: 'DELETE' })
+        .catch(() => {});
+    }
     // Safety net in case the backend goes away without ever emitting close
     // (e.g. parent process crash). 10s is plenty — the normal path is well
     // under 3s end-to-end.
@@ -91,6 +103,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   //   { joinServerId }                                      (per-server Play)
   const launch = async (body) => {
     if (phase !== 'idle') return;
+    cancelRequestedRef.current = false;
     stageRef.current = '';
     setPhase('running');
     setProgress(2);
@@ -166,7 +179,18 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
       };
       handlerRef.current = handler;
       socket.on(`launcher_${launchId}`, handler);
+
+      // The user hit Stop while the POST was still in flight — fire the
+      // queued cancel now that we know which launch to kill. The handler is
+      // already subscribed, so the backend's `close { code: 'cancelled' }`
+      // resets the UI through the normal path.
+      if (cancelRequestedRef.current) {
+        cancelRequestedRef.current = false;
+        fetch(`http://localhost:3001/api/launcher/launch/${launchId}`, { method: 'DELETE' })
+          .catch(() => {});
+      }
     } catch (err) {
+      cancelRequestedRef.current = false;
       onError?.(err.message);
       setPhase('idle');
       setProgress(0);

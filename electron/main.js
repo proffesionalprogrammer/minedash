@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, screen, Tray, Menu, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -275,6 +275,25 @@ ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized() ?? false);
 // Settings and decide whether to show the "What's new" popup. Source of truth
 // is package.json (electron-builder bakes its `version` field into the app).
 ipcMain.handle('app-get-version', () => app.getVersion());
+
+// Native folder picker — used by Settings → Storage to choose where game and
+// server files live. Returns the absolute path, or null if the user cancelled.
+ipcMain.handle('dialog-select-folder', async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose MineDash data folder',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
+// Full app relaunch — needed after the data folder moves, since the backend
+// computes every path at boot. before-quit kills the backend cleanly.
+ipcMain.on('app-relaunch', () => {
+  app.relaunch();
+  app.quit();
+});
 
 // Hide MineDash to the system tray. Called from useLaunchSession when the
 // user's "After launching" setting is 'hide' — keeping the backend alive

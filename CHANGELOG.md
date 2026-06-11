@@ -12,6 +12,19 @@ All notable changes to MineDash are listed here. The version-specific section fo
 
 ---
 
+## v1.0.97 — 2026-06-11
+
+### Added
+
+- **Choose where MineDash stores its downloads.** A new **Settings → Storage** section lets you move all MineDash data — game files, server instances, backups, and managed Java runtimes — to another folder or drive (great if C: is filling up). Pick a folder, click *Move data here*, and restart when prompted; *Move back to default* undoes it. MineDash refuses to move while servers or downloads are running, and falls back to the default location if the chosen drive ever goes missing.
+- **Refresh skin button.** Changed your skin on ely.by and MineDash still shows the old one? Each account in **Settings → Accounts** now has a refresh button that re-fetches your head instantly. Cached skins also expire much sooner on their own.
+
+### Fixed
+
+- **Stop download now actually stops the download.** Clicking *Stop download* right after launching could reset the button while the download quietly carried on in the background until the version showed up as "Installed". Cancels are now honoured no matter how early you click.
+
+---
+
 ## v1.0.96 — 2026-06-02
 
 ### Fixed
