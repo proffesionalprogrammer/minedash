@@ -2,6 +2,15 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.99 — 2026-06-11
+
+### Changed
+
+- **MineDash is now open source!** The full source code lives at [github.com/proffesionalprogrammer/minedash](https://github.com/proffesionalprogrammer/minedash) under the MIT license. Issues and pull requests are welcome.
+- **Updates now come straight from the main repository.** Releases are published on the main `minedash` repo instead of the separate `minedash-releases` mirror. This update is the switchover — once you're on v1.0.99, all future updates arrive from the new location automatically. Nothing to do on your end.
+
+---
+
 ## v1.0.98 — 2026-06-11
 
 ### Changed

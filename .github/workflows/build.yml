@@ -12,6 +12,11 @@ jobs:
   build-windows:
     runs-on: windows-latest
 
+    # Releases are published on THIS repo (proffesionalprogrammer/minedash),
+    # so the default GITHUB_TOKEN is enough — it just needs contents:write.
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -53,14 +58,13 @@ jobs:
         run: npm install
 
       # electron-builder runs build:frontend internally via the release script
-      # and then publishes to the minedash-releases public repo. GH_TOKEN must
-      # have `contents: write` on minedash-releases — the default GITHUB_TOKEN
-      # only authorizes the current repo, so we use a fine-grained PAT stored
-      # as the RELEASES_TOKEN secret.
+      # and then publishes a draft release on this repo (the `publish` block in
+      # package.json points at proffesionalprogrammer/minedash, which is also
+      # what app-update.yml — the updater's feed — is generated from).
       - name: Build and publish Electron installer
         run: npm run build:release
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Pull the section for this version out of CHANGELOG.md and stash it as
       # release-notes.md. If the section is missing (e.g. someone tagged a
@@ -102,7 +106,31 @@ jobs:
       - name: Publish draft release with notes
         shell: pwsh
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release edit $tag --repo proffesionalprogrammer/minedash --draft=false --notes-file release-notes.md
+
+      # ── Legacy mirror — remove once pre-v1.0.99 installs have died out ──
+      # Installs older than v1.0.99 shipped with app-update.yml pointing at the
+      # old minedash-releases distribution repo. They only learn about the new
+      # location by installing an update *from the old one*, so every release
+      # is mirrored there too (latest.yml + installer + blockmap is all
+      # electron-updater needs). Uses RELEASES_TOKEN (fine-grained PAT with
+      # contents:write on minedash-releases) — GITHUB_TOKEN can't write to
+      # another repo.
+      - name: Mirror release to legacy minedash-releases repo
+        shell: pwsh
+        env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          gh release edit $tag --repo proffesionalprogrammer/minedash-releases --draft=false --notes-file release-notes.md
+          $files = Get-ChildItem dist-electron -File |
+            Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' } |
+            ForEach-Object { $_.FullName }
+          if (-not $files) {
+            Write-Error "No release artifacts found in dist-electron — nothing to mirror."
+            exit 1
+          }
+          Write-Output "Mirroring to minedash-releases: $($files -join ', ')"
+          gh release create $tag $files --repo proffesionalprogrammer/minedash-releases --title $tag --notes-file release-notes.md
