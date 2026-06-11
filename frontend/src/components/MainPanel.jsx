@@ -24,7 +24,7 @@ function pushHistory(prev, sample) {
   return next;
 }
 
-function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged, onBack, requestJavaGate, modpackInstalls, onOpenDetail }) {
+function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBack, requestJavaGate, modpackInstalls, onOpenDetail }) {
   const joinSession = useLaunchSession({ socket, settings, onProfilesChanged, onError });
   const handleJoin = () => joinSession.launch({ joinServerId: server.id });
   const launcherSupported = ['vanilla', 'fabric', 'forge', 'neoforge'].includes(server.type);
@@ -136,28 +136,19 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
           const res = await fetch(`http://localhost:3001/api/servers/${server.id}/stats`);
           const data = await res.json();
           if (res.ok) setServerStats(data);
-          
-          const storageRes = await fetch(`http://localhost:3001/api/servers/${server.id}/storage`);
-          const storageData = await storageRes.json();
-          if (storageRes.ok) setStorageSize(storageData.size);
         } catch (e) {
           // ignore
         }
       };
-      
+
       fetchServerStats();
       interval = setInterval(fetchServerStats, 1000);
-      
+
       socket.on(`players_update_${server.id}`, (players) => {
         setServerStats(prev => ({ ...prev, players }));
       });
     } else {
       setServerStats({ uptime: '0m', players: [] });
-      // Still fetch storage even if offline
-      fetch(`http://localhost:3001/api/servers/${server.id}/storage`)
-        .then(r => r.json())
-        .then(d => setStorageSize(d.size))
-        .catch(() => {});
     }
 
     return () => {
@@ -165,6 +156,20 @@ function MainPanel({ server, socket, onError, stats, settings, onProfilesChanged
       socket.off(`players_update_${server.id}`);
     };
   }, [server.id, isOnline, socket]);
+
+  // Storage is a recursive disk walk on the backend — poll it gently, on its
+  // own cadence, instead of riding the 1s stats loop.
+  React.useEffect(() => {
+    const fetchStorage = () => {
+      fetch(`http://localhost:3001/api/servers/${server.id}/storage`)
+        .then(r => r.json())
+        .then(d => setStorageSize(d.size))
+        .catch(() => {});
+    };
+    fetchStorage();
+    const interval = setInterval(fetchStorage, 30000);
+    return () => clearInterval(interval);
+  }, [server.id, isOnline]);
 
   const handleStart = async () => {
     setLoading(true);

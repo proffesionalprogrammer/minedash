@@ -48,13 +48,26 @@ function ConsoleViewer({ serverId, socket }) {
       .then(history => { if (Array.isArray(history) && history.length > 0) setLogs(history); })
       .catch(err => console.error('Failed to fetch log history:', err));
 
+    // Server startup floods hundreds of console chunks per second; rendering
+    // a 500-line list per chunk locks up the UI. Buffer incoming lines and
+    // flush at most ~12 times a second.
+    let pending = [];
+    let flushTimer = null;
+    const flush = () => {
+      flushTimer = null;
+      const batch = pending;
+      pending = [];
+      setLogs(prev => {
+        const next = prev.concat(batch);
+        return next.length > 500 ? next.slice(next.length - 500) : next;
+      });
+    };
+
     const handleLog = (msg) => {
       // Auto-dismiss crash banner when server successfully starts again
       if (/Done \(/.test(msg)) setCrashBanner(null);
-      setLogs(prev => {
-        const next = [...prev, msg];
-        return next.length > 500 ? next.slice(next.length - 500) : next;
-      });
+      pending.push(msg);
+      if (!flushTimer) flushTimer = setTimeout(flush, 80);
     };
 
     const handleCrash = (data) => setCrashBanner(data);
@@ -64,6 +77,7 @@ function ConsoleViewer({ serverId, socket }) {
     return () => {
       socket.off(`console_${serverId}`, handleLog);
       socket.off(`crash_detected_${serverId}`, handleCrash);
+      if (flushTimer) clearTimeout(flushTimer);
     };
   }, [serverId, socket]);
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as ImageIcon, Sparkles, Trash2, Package, Layers, Database, RefreshCw, FolderOpen, Globe, CheckSquare, Square, X, AlertTriangle, Wrench, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
-import { VersionRow } from './ProjectDetailModal';
+import { VersionRow } from './VersionRow';
 
 const TYPES = [
   { key: 'mod',          label: 'Mods',           icon: Box        },

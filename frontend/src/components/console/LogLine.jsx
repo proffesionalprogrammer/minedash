@@ -1,6 +1,7 @@
 // Per-line log rendering: pick a colour class, optionally wrap matches in
 // <mark>, and let ConsoleViewer attach a ref so the active match can be
 // scrolled into view.
+import { memo } from 'react';
 
 // Detect the log level of a single line. Vanilla / Paper / Fabric / Forge
 // all converge on the "[HH:MM:SS] [Thread/LEVEL]" prefix or include the bare
@@ -65,7 +66,9 @@ function highlightMatches(line, regex) {
 
 // Single rendered line. ConsoleViewer wires the `setRef` callback so it can
 // scroll the current match into view when the user clicks prev/next.
-export function LogLine({ log, originalIdx, isMatch, isCurrent, searchRegex, setRef }) {
+// Memoized — while the log buffer is still filling, appended lines leave
+// existing lines' props untouched, so they skip re-rendering entirely.
+export const LogLine = memo(function LogLine({ log, originalIdx, isMatch, isCurrent, searchRegex, setRef }) {
   const colorClass = colorClassForLog(log);
   return (
     <div
@@ -79,4 +82,4 @@ export function LogLine({ log, originalIdx, isMatch, isCurrent, searchRegex, set
       </span>
     </div>
   );
-}
+});

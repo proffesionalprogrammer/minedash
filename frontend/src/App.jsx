@@ -1,24 +1,29 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { io } from 'socket.io-client';
 import ServersList from './components/ServersList';
-import MainPanel from './components/MainPanel';
-import CreateServerModal from './components/CreateServerModal';
 import TitleBar from './components/TitleBar';
 import JavaSetupModal from './components/JavaSetupModal';
 import PlaySection from './components/PlaySection';
-import BrowseSection from './components/BrowseSection';
-import InstancesSection from './components/InstancesSection';
 import AccountMenu from './components/AccountMenu';
 import { useLaunchSession } from './hooks/useLaunchSession';
 import { useModpackInstalls } from './hooks/useModpackInstalls';
-import SettingsPage from './components/SettingsPage';
 import UpdateToast from './components/UpdateToast';
 import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
-import OnboardingTour from './components/OnboardingTour';
-import ProjectDetailModal from './components/ProjectDetailModal';
 import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+
+// Heavy views and modals are code-split — only the Play view (the default
+// landing screen) is in the main bundle. Each of these loads its chunk the
+// first time it's rendered; Suspense fallbacks are null because chunks load
+// from local disk in milliseconds.
+const MainPanel = lazy(() => import('./components/MainPanel'));
+const CreateServerModal = lazy(() => import('./components/CreateServerModal'));
+const BrowseSection = lazy(() => import('./components/BrowseSection'));
+const InstancesSection = lazy(() => import('./components/InstancesSection'));
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
+const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
+const ProjectDetailModal = lazy(() => import('./components/ProjectDetailModal'));
 
 const socket = io('http://localhost:3001');
 
@@ -141,8 +146,10 @@ function App() {
   const [playInitialServerId, setPlayInitialServerId] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [systemStats, setSystemStats] = useState({ cpu: '0%', ram: '0 MB', ramTotal: '0 MB' });
   const [javaModal, setJavaModal] = useState(null);
+  // Last servers payload from the 3s poll — used to skip identical updates so
+  // the whole tree doesn't re-render when nothing changed.
+  const lastServersJsonRef = useRef('');
 
   // Launcher accounts — lifted up so the header AccountMenu and PlaySection share state.
   const [accounts, setAccounts] = useState([]);
@@ -478,13 +485,15 @@ function App() {
     socket.on('server_created', handleServerCreated);
     socket.on('server_status_change', handleStatusChange);
     socket.on('server_updated', handleServerUpdated);
-    socket.on('system_stats', setSystemStats);
     socket.on('server_deleted', handleServerDeleted);
 
     const pollInterval = setInterval(() => {
       fetch('http://localhost:3001/api/servers')
         .then(r => r.json())
         .then(data => {
+          const json = JSON.stringify(data);
+          if (json === lastServersJsonRef.current) return;
+          lastServersJsonRef.current = json;
           setServers(data);
           setSelectedServer(prev => {
             if (!prev) return prev;
@@ -502,7 +511,6 @@ function App() {
       socket.off('server_created', handleServerCreated);
       socket.off('server_status_change', handleStatusChange);
       socket.off('server_updated', handleServerUpdated);
-      socket.off('system_stats', setSystemStats);
       socket.off('server_deleted', handleServerDeleted);
       clearInterval(pollInterval);
     };
@@ -599,14 +607,16 @@ function App() {
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               className="flex-1 flex flex-col overflow-hidden"
             >
-              <BrowseSection
-                socket={socket}
-                onError={showError}
-                modpackInstalls={modpackInstalls}
-                onProfilesChanged={fetchInstalledProfiles}
-                onInstallAsServer={beginServerInstall}
-                onOpenDetail={openDetail}
-              />
+              <Suspense fallback={null}>
+                <BrowseSection
+                  socket={socket}
+                  onError={showError}
+                  modpackInstalls={modpackInstalls}
+                  onProfilesChanged={fetchInstalledProfiles}
+                  onInstallAsServer={beginServerInstall}
+                  onOpenDetail={openDetail}
+                />
+              </Suspense>
             </motion.div>
           ) : view === 'instances' ? (
             <motion.div
@@ -617,14 +627,16 @@ function App() {
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               className="flex-1 flex flex-col overflow-hidden"
             >
-              <InstancesSection
-                accounts={accounts}
-                activeAccountId={activeAccountId}
-                launchSession={launchSession}
-                modpackInstalls={modpackInstalls}
-                instancesRefreshKey={instancesRefreshKey}
-                onError={showError}
-              />
+              <Suspense fallback={null}>
+                <InstancesSection
+                  accounts={accounts}
+                  activeAccountId={activeAccountId}
+                  launchSession={launchSession}
+                  modpackInstalls={modpackInstalls}
+                  instancesRefreshKey={instancesRefreshKey}
+                  onError={showError}
+                />
+              </Suspense>
             </motion.div>
           ) : view === 'settings' ? (
             <motion.div
@@ -635,12 +647,14 @@ function App() {
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               className="flex-1 flex flex-col overflow-hidden"
             >
-              <SettingsPage
-                settings={launcherSettings}
-                onChange={setLauncherSettings}
-                onError={showError}
-                accountProps={accountMenuProps}
-              />
+              <Suspense fallback={null}>
+                <SettingsPage
+                  settings={launcherSettings}
+                  onChange={setLauncherSettings}
+                  onError={showError}
+                  accountProps={accountMenuProps}
+                />
+              </Suspense>
             </motion.div>
           ) : selectedServer ? (
             <motion.div
@@ -651,18 +665,19 @@ function App() {
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               className="flex-1 flex flex-col overflow-hidden"
             >
-              <MainPanel
-                server={selectedServer}
-                socket={socket}
-                onError={showError}
-                stats={systemStats}
-                settings={launcherSettings}
-                onProfilesChanged={fetchInstalledProfiles}
-                onBack={() => setSelectedServer(null)}
-                requestJavaGate={showJavaGate}
-                modpackInstalls={modpackInstalls}
-                onOpenDetail={openDetail}
-              />
+              <Suspense fallback={null}>
+                <MainPanel
+                  server={selectedServer}
+                  socket={socket}
+                  onError={showError}
+                  settings={launcherSettings}
+                  onProfilesChanged={fetchInstalledProfiles}
+                  onBack={() => setSelectedServer(null)}
+                  requestJavaGate={showJavaGate}
+                  modpackInstalls={modpackInstalls}
+                  onOpenDetail={openDetail}
+                />
+              </Suspense>
             </motion.div>
           ) : (
             <motion.div
@@ -698,12 +713,14 @@ function App() {
 
       <AnimatePresence>
         {isCreateModalOpen && (
-          <CreateServerModal
-            onClose={() => setIsCreateModalOpen(false)}
-            onCreate={handleCreateServer}
-            existingNames={servers.map(s => s.name.toLowerCase())}
-            requestJavaGate={showJavaGate}
-          />
+          <Suspense fallback={null}>
+            <CreateServerModal
+              onClose={() => setIsCreateModalOpen(false)}
+              onCreate={handleCreateServer}
+              existingNames={servers.map(s => s.name.toLowerCase())}
+              requestJavaGate={showJavaGate}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -726,8 +743,8 @@ function App() {
 
       <AnimatePresence>
         {detailModal && (
+          <Suspense key={detailModal.projectId} fallback={null}>
           <ProjectDetailModal
-            key={detailModal.projectId}
             projectId={detailModal.projectId}
             type={detailModal.type}
             seedHit={detailModal.seedHit}
@@ -742,6 +759,7 @@ function App() {
             onError={showError}
             onClose={closeDetail}
           />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -757,10 +775,12 @@ function App() {
 
       {/* First-run guided tour — auto-shows for new users, re-triggerable from Settings */}
       {showOnboarding && (
-        <OnboardingTour
-          onClose={() => setShowOnboarding(false)}
-          onComplete={handleOnboardingComplete}
-        />
+        <Suspense fallback={null}>
+          <OnboardingTour
+            onClose={() => setShowOnboarding(false)}
+            onComplete={handleOnboardingComplete}
+          />
+        </Suspense>
       )}
     </div>
   );
