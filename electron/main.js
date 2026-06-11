@@ -174,10 +174,11 @@ async function createWindow() {
 }
 
 // ─── Auto Updater ──────────────────────────────────────────────────────────────
-// Reads releases from proffesionalprogrammer/minedash-releases (public). The
-// publish config in package.json generates app-update.yml at build time so
+// Reads releases from the main proffesionalprogrammer/minedash repo (public
+// since v1.0.99 — releases previously lived in the minedash-releases mirror).
+// The publish config in package.json generates app-update.yml at build time so
 // electron-updater knows where to look. No GitHub token is needed at runtime
-// because the releases repo is public — only the CI workflow needs a token
+// because the repo is public — only the CI workflow needs a token
 // (to *write* releases).
 //
 // Flow: on launch, check the releases feed. If a newer version exists, download

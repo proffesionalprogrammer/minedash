@@ -1,6 +1,6 @@
 {
   "name": "minedash",
-  "version": "1.0.98",
+  "version": "1.0.99",
   "description": "MineDash — Local Minecraft Server Manager",
   "main": "electron/main.js",
   "scripts": {
@@ -113,7 +113,7 @@
       {
         "provider": "github",
         "owner": "proffesionalprogrammer",
-        "repo": "minedash-releases"
+        "repo": "minedash"
       }
     ]
   }
