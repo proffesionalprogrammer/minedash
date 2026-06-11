@@ -3573,12 +3573,31 @@ async function getFolderSize(dir) {
 }
 
 // Storage Endpoint
+// The recursive walk is expensive on modded instances (tens of thousands of
+// world/library files), so results are cached briefly and concurrent requests
+// share one in-flight walk.
+const folderSizeCache = {}; // id -> { size, at } | { promise }
+const FOLDER_SIZE_TTL_MS = 15000;
 app.get('/api/servers/:id/storage', async (req, res) => {
   const { id } = req.params;
   const serverPath = path.join(INSTANCES_DIR, id);
   if (!fs.existsSync(serverPath)) return res.json({ size: '0 MB' });
-  const sizeBytes = await getFolderSize(serverPath);
-  res.json({ size: (sizeBytes / (1024 * 1024)).toFixed(2) + ' MB' });
+
+  const cached = folderSizeCache[id];
+  if (cached?.size !== undefined && Date.now() - cached.at < FOLDER_SIZE_TTL_MS) {
+    return res.json({ size: cached.size });
+  }
+  if (cached?.promise) {
+    return res.json({ size: await cached.promise });
+  }
+
+  const promise = getFolderSize(serverPath).then((sizeBytes) => {
+    const size = (sizeBytes / (1024 * 1024)).toFixed(2) + ' MB';
+    folderSizeCache[id] = { size, at: Date.now() };
+    return size;
+  });
+  folderSizeCache[id] = { promise };
+  res.json({ size: await promise });
 });
 
 // Properties Endpoints

@@ -2,6 +2,16 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.0.98 — 2026-06-11
+
+### Changed
+
+- **Faster startup and a lighter, snappier app.** MineDash now loads only the screen you land on and pulls in the rest (Browse, Instances, Settings, the server dashboard, and modpack details) on demand, so the app opens noticeably quicker.
+- **Smoother server consoles.** The live console no longer stutters when a server floods the log during startup — incoming lines are batched and drawn together, so even a busy modded boot stays responsive.
+- **Lower background CPU and disk usage.** While a server page is open, MineDash was re-scanning the whole instance folder once a second to size it; storage is now measured on a gentler schedule and cached, and the dashboard no longer re-renders the entire app every couple of seconds. Idle resource use is meaningfully lower.
+
+---
+
 ## v1.0.97 — 2026-06-11
 
 ### Added
