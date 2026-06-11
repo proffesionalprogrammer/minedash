@@ -7,6 +7,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // of truth (package.json via electron-builder) so renderer and updater agree.
   getAppVersion: () => ipcRenderer.invoke('app-get-version'),
 
+  // Native folder picker (Settings → Storage). Resolves to a path or null.
+  selectFolder: () => ipcRenderer.invoke('dialog-select-folder'),
+
+  // Restart MineDash entirely — applies a moved data folder.
+  relaunchApp: () => ipcRenderer.send('app-relaunch'),
+
   windowControls: {
     minimize:        () => ipcRenderer.send('window-minimize'),
     maximize:        () => ipcRenderer.send('window-maximize'),

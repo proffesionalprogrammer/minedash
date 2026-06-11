@@ -607,8 +607,28 @@ function assertAgentArgsGate(expectAgent, customArgs) {
 // on a cold start is cheap, so there's no point persisting them to disk and
 // dealing with cache invalidation. Keyed by `${type}:${username}:${uuid}:${size}`.
 const skinCache = new Map();          // key -> { buf, at }
-const SKIN_TTL_MS = 60 * 60 * 1000;   // 1 hour
+// 10 minutes, not an hour — this TTL is the longest a changed skin (uploaded
+// on ely.by / Mojang) can stay stale in MineDash without the user hitting the
+// per-account Refresh button, and heads are ~1 KB so re-resolving is cheap.
+const SKIN_TTL_MS = 10 * 60 * 1000;
 const SKIN_CACHE_MAX = 300;
+
+// Drop every cached head for a username (all types/sizes/uuids). Backs the
+// refresh-skin endpoint so "I just changed my skin on ely.by" has a one-click
+// fix instead of a wait-for-TTL. Keys are `${type}:${username}:…` and
+// usernames can't contain ':' (offline names are [A-Za-z0-9_], Mojang names
+// likewise), so splitting on ':' is safe.
+function skinCachePurgeUser(username) {
+  const want = String(username || '').toLowerCase();
+  let purged = 0;
+  for (const key of Array.from(skinCache.keys())) {
+    if ((key.split(':')[1] || '').toLowerCase() === want) {
+      skinCache.delete(key);
+      purged++;
+    }
+  }
+  return purged;
+}
 
 function skinCacheGet(key) {
   const e = skinCache.get(key);
@@ -1795,12 +1815,21 @@ function register(app) {
       skinCacheSet(key, buf);
     }
     res.set('Content-Type', 'image/png');
-    // Short TTL: the head URL is stable (username+uuid), so a head first resolved
-    // as Steve (e.g. before an offline account's Ely.by UUID was resolved) would
-    // otherwise stay Steve in the browser for a full hour even after the skin
-    // becomes resolvable. 5 min lets it self-heal without hammering Ely.by.
-    res.set('Cache-Control', 'private, max-age=300');
+    // no-cache (revalidate every load) rather than a max-age: the head URL is
+    // stable (username+uuid), so any browser-side freshness window keeps a
+    // just-changed skin stale everywhere until it expires — even after the
+    // backend cache was purged via the refresh endpoint. The backend's
+    // in-memory cache absorbs the refetches and it's all localhost anyway.
+    res.set('Cache-Control', 'no-cache');
     res.send(buf);
+  });
+
+  // Force-refresh a player's head: drop every cached buffer for the username
+  // so the next /head request re-resolves from Ely.by / mc-heads. Used by the
+  // per-account Refresh button after the user changes their skin upstream.
+  app.post('/api/launcher/skins/:username/refresh', (req, res) => {
+    const purged = skinCachePurgeUser(req.params.username);
+    res.json({ ok: true, purged });
   });
 
   // Launch the game. Either:
@@ -1901,6 +1930,17 @@ function register(app) {
       await writeSettings(persisted);
     } catch {}
 
+    // The user may have hit Stop while we were between res.json and here (the
+    // settings write above awaits, and the frontend can DELETE the moment it
+    // reads the launchId off the response). The DELETE handler found no worker
+    // to kill and left the cancel flag set — honour it now instead of forking
+    // a worker the user already asked us to stop.
+    if (cancelledLaunches.has(launchId)) {
+      cancelledLaunches.delete(launchId);
+      emit(launchId, 'close', { code: 'cancelled' });
+      return;
+    }
+
     // Fork a worker process to run the actual launch. Doing this out-of-process
     // means a SIGKILL on the worker terminates mclc's in-flight HTTP download
     // instantly — no more "Stopping — current file has to finish first" wait,
@@ -1953,10 +1993,15 @@ function register(app) {
         }
       }, 2500);
     } else {
-      // No live worker — nothing to kill, but the UI still needs to flip out
-      // of `cancelling` state. Emit close directly.
+      // No live worker — either the launch already finished, or it hasn't
+      // forked yet (the POST handler awaits between issuing the launchId and
+      // forking). Emit close so the UI flips out of `cancelling`, but KEEP
+      // the flag for a grace window so the pre-fork check in the launch
+      // route still sees it — deleting it here was a race that let the
+      // download proceed to completion after the user hit Stop. The timer
+      // reaps the flag for launchIds that were already terminal.
       emit(launchId, 'close', { code: 'cancelled' });
-      cancelledLaunches.delete(launchId);
+      setTimeout(() => cancelledLaunches.delete(launchId), 30000);
     }
     res.json({ ok: true, queued: !!worker });
   });
@@ -3121,8 +3166,15 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
   }
 }
 
+// True while any launch worker or modpack install is alive — used by the
+// storage-move endpoint to refuse relocating folders that have open file
+// handles under them.
+function isBusy() {
+  return activeLaunches.size > 0 || activeModpackInstalls.size > 0;
+}
+
 module.exports = {
-  init, register, runLaunch,
+  init, register, runLaunch, isBusy,
   // Pure helpers exported for the launch-args snapshot test (backend/test/).
   buildElyByAgentArgs, assertAgentArgsGate, hyphenateUuid, offlineUuid,
 };

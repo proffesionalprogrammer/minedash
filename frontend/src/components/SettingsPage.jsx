@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical,
   Loader2, Sparkles, ChevronUp, ChevronDown, Compass, SlidersHorizontal,
-  Users, DownloadCloud, Info, Image, Check,
+  Users, DownloadCloud, Info, Image, Check, HardDrive, FolderOpen,
+  AlertTriangle, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AccountManager from './AccountManager';
@@ -68,10 +69,196 @@ const DEFAULTS = {
 const SECTIONS = [
   { key: 'general',  label: 'General',  icon: SlidersHorizontal },
   { key: 'java',     label: 'Java',     icon: Coffee },
+  { key: 'storage',  label: 'Storage',  icon: HardDrive },
   { key: 'accounts', label: 'Accounts', icon: Users },
   { key: 'updates',  label: 'Updates',  icon: DownloadCloud },
   { key: 'about',    label: 'About',    icon: Info },
 ];
+
+// Settings → Storage. Lets the user move all MineDash data (server instances,
+// launcher game files, backups, managed Java runtimes) to another folder or
+// drive. The backend does the move live and reports progress on the
+// `storage_migration` socket channel; a restart applies the new paths.
+function StorageSection({ socket, onError }) {
+  const [loc, setLoc] = useState(null);        // { current, default, isCustom, migrating, pendingRestart }
+  const [pathInput, setPathInput] = useState('');
+  const [moving, setMoving] = useState(false);
+  const [progress, setProgress] = useState(null); // { item, index, total }
+  const [pendingRestart, setPendingRestart] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await fetch('http://localhost:3001/api/storage-location');
+      const d = await r.json();
+      setLoc(d);
+      setPathInput(d.current);
+      setMoving(!!d.migrating);
+      setPendingRestart(d.pendingRestart || null);
+    } catch { /* backend unreachable — leave the section in its loading state */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (p) => {
+      if (p.event === 'progress') {
+        setMoving(true);
+        setProgress(p);
+      } else if (p.event === 'done') {
+        setMoving(false);
+        setProgress(null);
+        setPendingRestart(p.dataDir);
+      } else if (p.event === 'error') {
+        setMoving(false);
+        setProgress(null);
+        onError?.(`Storage move failed: ${p.message}`);
+        load();
+      }
+    };
+    socket.on('storage_migration', handler);
+    return () => socket.off('storage_migration', handler);
+  }, [socket, onError]);
+
+  const startMove = async (dir) => {
+    setBusy(true);
+    try {
+      const r = await fetch('http://localhost:3001/api/storage-location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataDir: dir }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Failed to move data');
+      setMoving(true);
+      setProgress(null);
+    } catch (err) {
+      onError?.(err.message);
+    }
+    setBusy(false);
+  };
+
+  const browse = async () => {
+    try {
+      const p = await window.electronAPI.selectFolder();
+      if (p) setPathInput(p);
+    } catch { /* dialog dismissed or IPC unavailable — keep the typed path */ }
+  };
+
+  const restart = () => {
+    if (window.electronAPI?.relaunchApp) window.electronAPI.relaunchApp();
+  };
+
+  if (!loc) {
+    return (
+      <Group icon={HardDrive} title="Storage location">
+        <div className="flex items-center gap-2 text-xs text-[#555555] font-bold">
+          <Loader2 size={12} className="animate-spin" /> Loading…
+        </div>
+      </Group>
+    );
+  }
+
+  const dirty = pathInput.trim() !== '' && pathInput.trim() !== loc.current;
+
+  return (
+    <>
+      <Group icon={HardDrive} title="Storage location"
+        hint="Where MineDash keeps everything it downloads — game files, server instances, backups and managed Java runtimes. Move it to another drive if C: is filling up.">
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Data folder</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={pathInput}
+                onChange={(e) => setPathInput(e.target.value)}
+                disabled={moving || !!pendingRestart}
+                placeholder={loc.default}
+                spellCheck={false}
+                className="flex-1 min-w-0 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono disabled:opacity-50"
+              />
+              {window.electronAPI?.selectFolder && (
+                <button onClick={browse} disabled={moving || !!pendingRestart}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#555555] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-xs font-bold transition-all disabled:opacity-50">
+                  <FolderOpen size={14} /> Browse
+                </button>
+              )}
+            </div>
+            {loc.isCustom && (
+              <p className="text-[11px] text-[#555555] mt-1.5 font-medium">
+                Default: <span className="font-mono">{loc.default}</span>
+              </p>
+            )}
+          </div>
+
+          {!moving && !pendingRestart && (
+            <>
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-400 leading-snug font-medium">
+                  All servers must be stopped before moving. Everything is moved to the new
+                  folder (this can take a while for large modpacks), then MineDash needs a restart.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => startMove(pathInput.trim())} disabled={!dirty || busy}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                  {busy ? <Loader2 size={14} className="animate-spin" /> : <HardDrive size={14} />}
+                  Move data here
+                </button>
+                {loc.isCustom && (
+                  <button onClick={() => startMove('')} disabled={busy}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#555555] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-xs font-bold transition-all disabled:opacity-40">
+                    <RotateCcw size={14} /> Move back to default
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+          {moving && (
+            <div className="px-3 py-3 bg-[#111111] border border-[#2D2D2D] rounded-xl">
+              <div className="flex items-center gap-2 text-xs font-bold text-[#FFFFFF]">
+                <Loader2 size={14} className="animate-spin text-[#00AF5C]" />
+                Moving data…
+              </div>
+              {progress && (
+                <p className="text-[11px] text-[#A0A0A0] mt-1.5 font-medium tabular-nums">
+                  {progress.index + 1} / {progress.total} · <span className="font-mono">{progress.item}</span>
+                </p>
+              )}
+              <p className="text-[11px] text-[#555555] mt-1.5 font-medium">
+                Don't close MineDash while files are moving.
+              </p>
+            </div>
+          )}
+
+          {!moving && pendingRestart && (
+            <div className="px-3 py-3 bg-[#00AF5C]/10 border border-[#00AF5C]/20 rounded-xl">
+              <div className="flex items-center gap-2 text-xs font-bold text-[#00AF5C]">
+                <Check size={14} /> Data moved
+              </div>
+              <p className="text-[11px] text-[#A0A0A0] mt-1.5 font-medium leading-snug">
+                New location: <span className="font-mono">{pendingRestart}</span>
+              </p>
+              {window.electronAPI?.relaunchApp ? (
+                <button onClick={restart}
+                  className="flex items-center gap-2 px-4 py-2 mt-2.5 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl text-xs font-bold transition-all">
+                  <RefreshCw size={14} /> Restart MineDash to apply
+                </button>
+              ) : (
+                <p className="text-[11px] text-amber-400 mt-2 font-bold">
+                  Restart the backend to apply the new location.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </Group>
+    </>
+  );
+}
 
 // Card shell used by every settings group on the right pane.
 function Group({ icon: Icon, title, hint, children }) {
@@ -87,7 +274,7 @@ function Group({ icon: Icon, title, hint, children }) {
   );
 }
 
-export default function SettingsPage({ settings, onChange, onError, accountProps }) {
+export default function SettingsPage({ settings, onChange, onError, accountProps, socket }) {
   const [section, setSection] = useState('general');
   const [draft, setDraft] = useState(settings || DEFAULTS);
   const [saving, setSaving] = useState(false);
@@ -272,6 +459,10 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                     )}
                   </div>
                 </Group>
+              )}
+
+              {section === 'storage' && (
+                <StorageSection socket={socket} onError={onError} />
               )}
 
               {section === 'accounts' && (
