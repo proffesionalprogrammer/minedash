@@ -11,6 +11,7 @@ const fs = require('fs-extra');
 const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
 const AdmZip = require('adm-zip');
+const archiver = require('archiver');
 const multer = require('multer');
 const { PNG } = require('pngjs');
 const { Client } = require('minecraft-launcher-core');
@@ -31,6 +32,10 @@ const { Client } = require('minecraft-launcher-core');
 const msmc = require('msmc');
 const { Auth } = msmc;
 const { ensureAuthlibInjector, fetchPrefetchMeta } = require('./authlib-injector');
+// Shared managed-JDK pool (DATA_DIR/runtimes/jdk-{major}/). Required directly
+// (not passed through init opts) so the forked launch worker — which loads
+// this module without index.js — gets the same pool. Initialised in init().
+const javaPool = require('./java-pool');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
@@ -105,6 +110,10 @@ let _untrackChild = () => {};
 function init(opts) {
   DATA_DIR = opts.DATA_DIR;
   INSTANCES_DIR = opts.INSTANCES_DIR;
+  // Idempotent — the parent process already init'd the pool with the same dir
+  // (RUNTIMES_DIR in index.js is DATA_DIR/runtimes); this matters in the
+  // launch worker, where this init() is the only one that runs.
+  javaPool.init(path.join(DATA_DIR, 'runtimes'));
   getJavaPath = opts.getJavaPath;
   getServers = opts.getServers;
   io = opts.io;
@@ -763,6 +772,84 @@ async function resolveProfileDir({ loader, version, instanceId }) {
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────
+// Resolve a single child name inside a directory, rejecting separators and
+// dot-walks so a crafted world/screenshot name can't escape the instance
+// folder. Returns the absolute path, or null when the name is unsafe.
+function safeChildPath(baseDir, name) {
+  if (typeof name !== 'string' || !name.trim() || name === '.' || name === '..'
+      || name.includes('/') || name.includes('\\') || name.includes('\0')) return null;
+  const p = path.join(baseDir, name);
+  if (!path.resolve(p).startsWith(path.resolve(baseDir) + path.sep)) return null;
+  return p;
+}
+
+// Recursive on-disk size of a directory. Worlds can hold thousands of region
+// files, so this walks iteratively and swallows per-entry races (chunks being
+// written while the game runs).
+async function dirSizeBytes(dir) {
+  let total = 0;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    let entries = [];
+    try { entries = await fs.readdir(cur, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const p = path.join(cur, e.name);
+      try {
+        if (e.isDirectory()) stack.push(p);
+        else if (e.isFile()) total += (await fs.stat(p)).size;
+      } catch {}
+    }
+  }
+  return total;
+}
+
+// Figure out the loader version an instance actually has installed, for the
+// .mrpack `dependencies` block. Primary source is the profile's versions/
+// folder (written by the Fabric/NeoForge installers on first launch); Forge
+// and Fabric fall back to their public meta APIs when the folder isn't there.
+async function detectLoaderVersion(profileRoot, loader, mcVersion) {
+  let entries = [];
+  try { entries = await fs.readdir(path.join(profileRoot, 'versions')); } catch {}
+  if (loader === 'fabric') {
+    for (const e of entries) {
+      const m = e.match(/^fabric-loader-([\d.]+)/);
+      if (m) return m[1];
+    }
+    try {
+      const r = await fetch(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(mcVersion)}`);
+      if (r.ok) {
+        const d = await r.json();
+        const stable = (d || []).find(x => x?.loader?.stable) || (d || [])[0];
+        if (stable?.loader?.version) return stable.loader.version;
+      }
+    } catch {}
+  } else if (loader === 'neoforge') {
+    for (const e of entries) {
+      const m = e.match(/^neoforge-(.+)$/);
+      if (m) return m[1];
+    }
+  } else if (loader === 'forge') {
+    for (const e of entries) {
+      const m = e.match(/forge-([\d.]+)$/);
+      if (m) return m[1];
+    }
+    try {
+      const r = await fetch('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json');
+      if (r.ok) {
+        const d = await r.json();
+        const v = d?.promos?.[`${mcVersion}-recommended`] || d?.promos?.[`${mcVersion}-latest`];
+        if (v) return v;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// Map MineDash loader names to the dependency keys the Modrinth pack format
+// expects in modrinth.index.json.
+const MRPACK_LOADER_KEY = { fabric: 'fabric-loader', forge: 'forge', neoforge: 'neoforge' };
+
 function register(app) {
   // ── Instance management ──────────────────────────────────────────
   // First-class instances — every profile is identified by its `id`. Multiple
@@ -809,18 +896,55 @@ function register(app) {
 
   app.patch('/api/launcher/instances/:id', async (req, res) => {
     const { id } = req.params;
-    const { displayName } = req.body || {};
-    if (typeof displayName !== 'string') return res.status(400).json({ error: 'displayName is required' });
-    const name = displayName.trim();
-    if (!name) return res.status(400).json({ error: 'displayName cannot be empty' });
-    if (name.length > 60) return res.status(400).json({ error: 'displayName too long' });
+    const { displayName, java } = req.body || {};
+    if (typeof displayName !== 'string' && typeof java !== 'string') {
+      return res.status(400).json({ error: 'Nothing to update — pass displayName and/or java' });
+    }
+    let name = null;
+    if (typeof displayName === 'string') {
+      name = displayName.trim();
+      if (!name) return res.status(400).json({ error: 'displayName cannot be empty' });
+      if (name.length > 60) return res.status(400).json({ error: 'displayName too long' });
+    }
+    // Java choice: '' (inherit global setting), 'auto', 'jdk-<major>' (managed
+    // pool — downloaded on demand at launch), or an absolute java(.exe) path.
+    let javaChoice = null;
+    if (typeof java === 'string') {
+      javaChoice = java.trim();
+      if (javaChoice.length > 400) return res.status(400).json({ error: 'java path too long' });
+      const isKeyword = javaChoice === '' || javaChoice === 'auto' || /^jdk-\d+$/.test(javaChoice);
+      if (!isKeyword && !path.isAbsolute(javaChoice)) {
+        return res.status(400).json({ error: "java must be 'auto', 'jdk-<major>', or an absolute path" });
+      }
+    }
 
     const reg = await readProfileRegistry();
     const inst = reg.instances.find(i => i.id === id);
     if (!inst) return res.status(404).json({ error: 'Instance not found' });
-    inst.displayName = name;
+    if (name !== null) inst.displayName = name;
+    if (javaChoice !== null) {
+      if (javaChoice === '') delete inst.java;
+      else inst.java = javaChoice;
+    }
     await writeProfileRegistry(reg);
     res.json(inst);
+  });
+
+  // Java pool overview for the launcher settings UI: what's installed in the
+  // managed pool, what the system Java is, and (when ?version= is supplied)
+  // which major that MC version needs — so the picker can mark the match.
+  app.get('/api/launcher/java', async (req, res) => {
+    const version = typeof req.query.version === 'string' ? req.query.version : null;
+    const sysPath = (getJavaPath ? getJavaPath() : null) || null;
+    const sysMajor = sysPath && sysPath !== 'java' ? javaPool.getJavaVersionForPath(sysPath) : null;
+    res.json({
+      managed: javaPool.listManagedJavas(),
+      system: sysPath && sysPath !== 'java' ? { path: sysPath, major: sysMajor } : null,
+      required: version ? await mojangRequiredJavaMajor(version) : null,
+      // Majors worth offering in a manual picker — every bucket MC has ever
+      // needed. Anything not in `managed` will download on first use.
+      knownMajors: [8, 16, 17, 21, 25],
+    });
   });
 
   app.delete('/api/launcher/instances/:id', async (req, res) => {
@@ -955,6 +1079,249 @@ function register(app) {
         : `xdg-open "${dir}"`;
     exec(cmd);
     res.json({ ok: true, path: dir });
+  });
+
+  // ── Worlds (client-side saves) ───────────────────────────────────
+  // List the singleplayer worlds in an instance's saves/ folder. A directory
+  // counts as a world iff it has a level.dat — stray folders are skipped.
+  app.get('/api/launcher/instances/:id/worlds', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const savesDir = path.join(instanceDir(inst.id), 'saves');
+    let entries = [];
+    try { entries = await fs.readdir(savesDir); } catch { return res.json([]); }
+    const out = [];
+    for (const name of entries) {
+      const dir = safeChildPath(savesDir, name);
+      if (!dir) continue;
+      try {
+        if (!(await fs.stat(dir)).isDirectory()) continue;
+        const levelStat = await fs.stat(path.join(dir, 'level.dat')).catch(() => null);
+        if (!levelStat) continue;
+        out.push({
+          name,
+          sizeBytes: await dirSizeBytes(dir),
+          lastPlayed: levelStat.mtimeMs,
+          hasIcon: await fs.pathExists(path.join(dir, 'icon.png')),
+        });
+      } catch {}
+    }
+    out.sort((a, b) => b.lastPlayed - a.lastPlayed);
+    res.json(out);
+  });
+
+  // World thumbnail — the 64×64 icon.png Minecraft writes on first save.
+  app.get('/api/launcher/instances/:id/worlds/:name/icon', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const dir = safeChildPath(path.join(instanceDir(inst.id), 'saves'), req.params.name);
+    if (!dir) return res.status(400).json({ error: 'Invalid world name' });
+    const icon = path.join(dir, 'icon.png');
+    if (!await fs.pathExists(icon)) return res.status(404).json({ error: 'No icon' });
+    res.sendFile(icon);
+  });
+
+  // Duplicate a world in place ("<name> copy", "<name> copy 2", …). Skips
+  // session.lock so the copy never carries a stale lock from a running game.
+  app.post('/api/launcher/instances/:id/worlds/:name/duplicate', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const savesDir = path.join(instanceDir(inst.id), 'saves');
+    const src = safeChildPath(savesDir, req.params.name);
+    if (!src || !await fs.pathExists(src)) return res.status(404).json({ error: 'World not found' });
+
+    let copyName = `${req.params.name} copy`;
+    for (let n = 2; await fs.pathExists(path.join(savesDir, copyName)); n++) {
+      copyName = `${req.params.name} copy ${n}`;
+    }
+    try {
+      await fs.copy(src, path.join(savesDir, copyName), {
+        filter: (p) => path.basename(p) !== 'session.lock',
+      });
+    } catch (err) {
+      return res.status(500).json({ error: `Copy failed: ${err.message}` });
+    }
+    res.json({ ok: true, name: copyName });
+  });
+
+  app.delete('/api/launcher/instances/:id/worlds/:name', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const dir = safeChildPath(path.join(instanceDir(inst.id), 'saves'), req.params.name);
+    if (!dir || !await fs.pathExists(dir)) return res.status(404).json({ error: 'World not found' });
+    try {
+      await fs.remove(dir);
+    } catch (err) {
+      return res.status(500).json({ error: `Delete failed: ${err.message}. If the game is running, close it first.` });
+    }
+    res.json({ ok: true });
+  });
+
+  // Download a world as a zip. Streams via archiver so a multi-GB world never
+  // has to fit in memory. session.lock is excluded for the same reason as
+  // duplicate.
+  app.get('/api/launcher/instances/:id/worlds/:name/export', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const dir = safeChildPath(path.join(instanceDir(inst.id), 'saves'), req.params.name);
+    if (!dir || !await fs.pathExists(dir)) return res.status(404).json({ error: 'World not found' });
+
+    res.attachment(`${req.params.name}.zip`);
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err) => { try { res.destroy(err); } catch {} });
+    // Region files mid-write while the game runs — skip rather than abort.
+    archive.on('warning', () => {});
+    archive.glob('**/*', { cwd: dir, ignore: ['session.lock'], dot: true }, { prefix: req.params.name });
+    archive.pipe(res);
+    archive.finalize();
+  });
+
+  // ── Screenshots ──────────────────────────────────────────────────
+  app.get('/api/launcher/instances/:id/screenshots', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const dir = path.join(instanceDir(inst.id), 'screenshots');
+    let entries = [];
+    try { entries = await fs.readdir(dir); } catch { return res.json([]); }
+    const out = [];
+    for (const f of entries) {
+      if (!/\.(png|jpe?g)$/i.test(f)) continue;
+      const p = safeChildPath(dir, f);
+      if (!p) continue;
+      try {
+        const st = await fs.stat(p);
+        if (st.isFile()) out.push({ filename: f, sizeBytes: st.size, takenAt: st.mtimeMs });
+      } catch {}
+    }
+    out.sort((a, b) => b.takenAt - a.takenAt);
+    res.json(out);
+  });
+
+  app.get('/api/launcher/instances/:id/screenshots/:filename/file', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const p = safeChildPath(path.join(instanceDir(inst.id), 'screenshots'), req.params.filename);
+    if (!p || !await fs.pathExists(p)) return res.status(404).json({ error: 'Screenshot not found' });
+    res.sendFile(p);
+  });
+
+  app.delete('/api/launcher/instances/:id/screenshots/:filename', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const p = safeChildPath(path.join(instanceDir(inst.id), 'screenshots'), req.params.filename);
+    if (!p || !await fs.pathExists(p)) return res.status(404).json({ error: 'Screenshot not found' });
+    try { await fs.remove(p); } catch (err) { return res.status(500).json({ error: err.message }); }
+    res.json({ ok: true });
+  });
+
+  // ── Instance export (.mrpack) ────────────────────────────────────
+  // Packages an instance in the Modrinth modpack format so it can be shared
+  // and re-imported (by MineDash, Prism, ATLauncher, …). Content files that
+  // Modrinth recognises (bulk sha1 lookup) become `files[]` entries pointing
+  // at Modrinth's CDN; everything else — unknown jars, configs, options.txt,
+  // servers.dat — ships inside overrides/.
+  app.get('/api/launcher/instances/:id/export', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const { loader, version } = inst;
+    const profileRoot = instanceDir(inst.id);
+
+    // Loader version for the dependencies block — required by the format for
+    // modded packs, so a modded instance that can't resolve one is an error.
+    const dependencies = { minecraft: version };
+    if (MRPACK_LOADER_KEY[loader]) {
+      const lv = await detectLoaderVersion(profileRoot, loader, version);
+      if (!lv) {
+        return res.status(409).json({
+          error: `Couldn't determine the installed ${loader} version. Launch this instance once, then export again.`,
+        });
+      }
+      dependencies[MRPACK_LOADER_KEY[loader]] = lv;
+    }
+
+    // Preflight for the UI: ?check=1 validates the only hard failure mode
+    // (unresolvable loader version) without hashing/zipping anything, so the
+    // frontend can show a real error instead of a broken download.
+    if (req.query.check === '1') return res.json({ ok: true });
+
+    // Hash every content file, then ask Modrinth which it knows in ONE bulk
+    // call. Hits get canonical CDN URLs + sha512 from the matching version
+    // file; misses are shipped as overrides.
+    const CONTENT_SUBDIRS = ['mods', 'resourcepacks', 'shaderpacks', 'datapacks'];
+    const candidates = []; // { rel (zip path, forward slashes), abs, sha1 }
+    for (const sub of CONTENT_SUBDIRS) {
+      const dir = path.join(profileRoot, sub);
+      let files = [];
+      try { files = await fs.readdir(dir); } catch { continue; }
+      for (const f of files) {
+        if (f.startsWith('.') || !/\.(jar|zip)$/i.test(f)) continue;
+        const abs = path.join(dir, f);
+        try {
+          if (!(await fs.stat(abs)).isFile()) continue;
+          candidates.push({ rel: `${sub}/${f}`, abs, sha1: await fileSha1(abs) });
+        } catch {}
+      }
+    }
+
+    const bySha1 = new Map(candidates.map(c => [c.sha1, c]));
+    let known = {};
+    if (bySha1.size > 0) {
+      try {
+        const r = await fetch(`${MODRINTH_API}/version_files`, {
+          method: 'POST',
+          headers: { ...MODRINTH_HEADERS, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hashes: Array.from(bySha1.keys()), algorithm: 'sha1' }),
+        });
+        if (r.ok) known = await r.json();
+      } catch {} // Modrinth down → everything exports as overrides, still valid
+    }
+
+    const indexFiles = [];
+    const overrideFiles = []; // { abs, rel }
+    for (const c of candidates) {
+      const ver = known[c.sha1];
+      const vf = ver && (ver.files || []).find(x => x?.hashes?.sha1 === c.sha1);
+      if (vf && vf.url && vf.hashes?.sha512) {
+        indexFiles.push({
+          path: c.rel,
+          hashes: { sha1: vf.hashes.sha1, sha512: vf.hashes.sha512 },
+          downloads: [vf.url],
+          fileSize: vf.size || (await fs.stat(c.abs)).size,
+        });
+      } else {
+        overrideFiles.push({ abs: c.abs, rel: c.rel });
+      }
+    }
+
+    const index = {
+      formatVersion: 1,
+      game: 'minecraft',
+      versionId: '1.0.0',
+      name: inst.displayName || `${loader} ${version}`,
+      summary: 'Exported from MineDash',
+      files: indexFiles,
+      dependencies,
+    };
+
+    const safeName = (inst.displayName || `${loader}-${version}`).replace(/[\\/:*?"<>|]/g, '_').trim() || 'instance';
+    res.attachment(`${safeName}.mrpack`);
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err) => { try { res.destroy(err); } catch {} });
+    archive.on('warning', () => {});
+    archive.pipe(res);
+    archive.append(JSON.stringify(index, null, 2), { name: 'modrinth.index.json' });
+    for (const o of overrideFiles) archive.file(o.abs, { name: `overrides/${o.rel}` });
+    // Config + a couple of root-level files worth carrying. The rest of the
+    // profile root (versions/, libraries/, assets/, saves/, logs/…) is either
+    // reinstallable or personal and stays out of the pack.
+    if (await fs.pathExists(path.join(profileRoot, 'config'))) {
+      archive.directory(path.join(profileRoot, 'config'), 'overrides/config');
+    }
+    for (const rootFile of ['options.txt', 'servers.dat']) {
+      const p = path.join(profileRoot, rootFile);
+      if (await fs.pathExists(p)) archive.file(p, { name: `overrides/${rootFile}` });
+    }
+    archive.finalize();
   });
 
   // Same as above but resolves by loader+version (uses the default instance,
@@ -1429,6 +1796,162 @@ function register(app) {
       try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
     }
     res.json({ repaired, failed });
+  });
+
+  // ── Per-mod update check ─────────────────────────────────────────
+  // Hash every installed mod and ask Modrinth — in ONE bulk call — what the
+  // latest version for this loader + MC version is. A mod has an update when
+  // the latest version's primary file hash differs from the local file's.
+  app.post('/api/launcher/profiles/:loader/:version/content/check-updates', async (req, res) => {
+    const { loader, version } = req.params;
+    const instanceId = req.query.instance || null;
+    if (!['fabric', 'forge', 'neoforge'].includes(loader)) {
+      return res.json({ updates: [], checked: 0 });
+    }
+    let profileDir;
+    try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
+    catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+
+    const modsDir = path.join(profileDir, 'mods');
+    let files = [];
+    try { files = (await fs.readdir(modsDir)).filter(f => !f.startsWith('.') && /\.jar$/i.test(f)); }
+    catch { return res.json({ updates: [], checked: 0 }); }
+    if (files.length === 0) return res.json({ updates: [], checked: 0 });
+
+    let meta = {};
+    try { meta = await fs.readJson(path.join(modsDir, '.minedash-launcher.json')); } catch {}
+
+    const hashToFile = new Map();
+    await runWithConcurrency(files.map(f => async () => {
+      try { hashToFile.set(await fileSha1(path.join(modsDir, f)), f); } catch {}
+    }), 8);
+    if (hashToFile.size === 0) return res.json({ updates: [], checked: 0 });
+
+    let latest;
+    try {
+      const r = await fetch(`${MODRINTH_API}/version_files/update`, {
+        method: 'POST',
+        headers: { ...MODRINTH_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hashes: Array.from(hashToFile.keys()),
+          algorithm: 'sha1',
+          loaders: [loader],
+          game_versions: [version],
+        }),
+      });
+      if (!r.ok) return res.status(502).json({ error: `Modrinth update lookup failed (${r.status})` });
+      latest = await r.json();
+    } catch (err) {
+      return res.status(502).json({ error: `Modrinth unreachable: ${err.message}` });
+    }
+
+    const updates = [];
+    for (const [sha1, ver] of Object.entries(latest || {})) {
+      const filename = hashToFile.get(sha1);
+      if (!filename || !ver) continue;
+      const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
+      if (!file || file.hashes?.sha1 === sha1) continue; // already on the latest
+      const m = meta[filename] || {};
+      updates.push({
+        filename,
+        title: m.title || filename,
+        iconUrl: m.iconUrl || null,
+        projectId: ver.project_id,
+        versionId: ver.id,
+        versionNumber: ver.version_number,
+        newFilename: file.filename,
+        datePublished: ver.date_published,
+      });
+    }
+    updates.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    res.json({ updates, checked: hashToFile.size });
+  });
+
+  // Apply mod updates found by check-updates. Body: { updates: [{ filename,
+  // versionId }] }. Downloads each new file, swaps it in for the old one, and
+  // keeps every side-table consistent: the launcher manifest, the
+  // client-extras list (so server-sync doesn't wipe the new jar), and any
+  // modpack record that tracked the old path (so modpack delete/update flows
+  // keep working after a per-mod update).
+  app.post('/api/launcher/profiles/:loader/:version/content/update-mods', async (req, res) => {
+    const { loader, version } = req.params;
+    const instanceId = req.query.instance || null;
+    const requested = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    if (requested.length === 0) return res.status(400).json({ error: 'No updates supplied' });
+    let profileDir;
+    try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
+    catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+
+    const modsDir = path.join(profileDir, 'mods');
+    const metaPath = path.join(modsDir, '.minedash-launcher.json');
+    let meta = {};
+    try { meta = await fs.readJson(metaPath); } catch {}
+
+    let extras = { files: [] };
+    try { extras = await readClientExtras(profileDir); } catch {}
+    const extrasSet = new Set(extras.files || []);
+
+    const updated = [];
+    const failed = [];
+    for (const u of requested) {
+      const oldName = typeof u?.filename === 'string' ? path.basename(u.filename) : '';
+      const versionId = typeof u?.versionId === 'string' ? u.versionId : '';
+      if (!oldName || !versionId || !/^[\w-]+$/.test(versionId)) {
+        failed.push({ filename: oldName || '(unknown)', reason: 'Invalid update entry' });
+        continue;
+      }
+      try {
+        const vRes = await fetch(`${MODRINTH_API}/version/${versionId}`, { headers: MODRINTH_HEADERS });
+        if (!vRes.ok) { failed.push({ filename: oldName, reason: `Version lookup failed (${vRes.status})` }); continue; }
+        const ver = await vRes.json();
+        const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
+        if (!file?.url) { failed.push({ filename: oldName, reason: 'No downloadable file in version' }); continue; }
+
+        const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+        if (!dlRes.ok) { failed.push({ filename: oldName, reason: `Download failed (${dlRes.status})` }); continue; }
+        const buf = Buffer.from(await dlRes.arrayBuffer());
+
+        const newName = path.basename(file.filename);
+        await fs.writeFile(path.join(modsDir, newName), buf);
+        if (newName !== oldName) await fs.remove(path.join(modsDir, oldName)).catch(() => {});
+
+        const m = meta[oldName] || {};
+        if (newName !== oldName) delete meta[oldName];
+        meta[newName] = {
+          ...m,
+          projectId: ver.project_id || m.projectId || null,
+          gameVersions: ver.game_versions || [],
+          loaders: ver.loaders || [],
+          lookedUp: true,
+          installedAt: Date.now(),
+        };
+        if (extrasSet.has(oldName)) { extrasSet.delete(oldName); extrasSet.add(newName); }
+        updated.push({ from: oldName, to: newName, title: m.title || newName, versionNumber: ver.version_number });
+      } catch (err) {
+        failed.push({ filename: oldName, reason: err.message });
+      }
+    }
+
+    if (updated.length > 0) {
+      try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
+      try { await writeClientExtras(profileDir, { files: Array.from(extrasSet) }); } catch {}
+      // Keep modpack file-tracking pointing at the renamed jars.
+      try {
+        const recordPath = path.join(profileDir, '.minedash-modpacks.json');
+        const record = await fs.readJson(recordPath);
+        let changed = false;
+        for (const entry of Object.values(record || {})) {
+          if (!entry || !Array.isArray(entry.files)) continue;
+          for (const { from, to } of updated) {
+            if (from === to) continue;
+            const idx = entry.files.findIndex(p => p === `mods/${from}` || p === `mods\\${from}`);
+            if (idx !== -1) { entry.files[idx] = `mods/${to}`; changed = true; }
+          }
+        }
+        if (changed) await fs.writeJson(recordPath, record, { spaces: 2 });
+      } catch {}
+    }
+    res.json({ updated, failed });
   });
 
   // Upload a manually-downloaded file (mod jar / resource pack zip / shader zip
@@ -2199,6 +2722,116 @@ function emitModpack(sessionId, event, data = {}) {
   if (io) io.emit(`modpack_install_${sessionId}`, { event, ...data });
 }
 
+// ─── Per-version Java resolution ─────────────────────────────────────
+// The exact Java major a given MC version wants, straight from Mojang's
+// version manifest (vJson.javaVersion.majorVersion) — covers snapshots and
+// future versions without code changes. Falls back to the heuristic table in
+// java-pool.js when offline. Cached per MC version for the process lifetime.
+const MOJANG_MANIFEST_URL = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
+const _mojangJavaCache = new Map();
+async function mojangRequiredJavaMajor(mcVersion) {
+  if (_mojangJavaCache.has(mcVersion)) return _mojangJavaCache.get(mcVersion);
+  try {
+    const manRes = await fetch(MOJANG_MANIFEST_URL);
+    if (manRes.ok) {
+      const man = await manRes.json();
+      const entry = (man.versions || []).find(v => v.id === mcVersion);
+      if (entry && entry.url) {
+        const vRes = await fetch(entry.url);
+        if (vRes.ok) {
+          const vJson = await vRes.json();
+          const major = vJson?.javaVersion?.majorVersion;
+          if (Number.isInteger(major) && major >= 8) {
+            _mojangJavaCache.set(mcVersion, major);
+            return major;
+          }
+        }
+      }
+    }
+  } catch {}
+  // Offline / unknown version — heuristic bucket. Not cached so a later launch
+  // with network back gets Mojang's real answer.
+  return javaPool.requiredJavaMajor(mcVersion);
+}
+
+// Pick the java executable for a launch. Order:
+//   1. Per-instance choice — 'auto', 'jdk-<major>' (managed pool), or an
+//      absolute path. A broken custom path falls through to auto with a log
+//      line rather than failing the launch.
+//   2. No instance choice → legacy global settings.javaPath if set.
+//   3. Auto: required major from Mojang → managed pool hit → system Java iff
+//      its major matches exactly → download the JDK from Adoptium into the
+//      shared pool, streaming progress onto the launch channel.
+async function resolveLauncherJava({ launchId, instance, settings, version }) {
+  const log = (m) => emit(launchId, 'log', { message: `[java] ${m}\n` });
+  const choice = (instance && typeof instance.java === 'string' ? instance.java.trim() : '');
+
+  if (choice && choice !== 'auto' && !/^jdk-\d+$/.test(choice)) {
+    if (fs.existsSync(choice)) { log(`Using this instance's custom Java: ${choice}`); return choice; }
+    log(`Custom Java path not found (${choice}) — falling back to automatic selection.`);
+  } else if (!choice) {
+    // Instances that never picked anything keep honouring the old global
+    // override so existing setups don't change behaviour underneath the user.
+    const legacy = settings?.javaPath && settings.javaPath.trim();
+    if (legacy) {
+      if (fs.existsSync(legacy)) { log(`Using Java from launcher settings: ${legacy}`); return legacy; }
+      log(`Configured Java path not found (${legacy}) — falling back to automatic selection.`);
+    }
+  }
+
+  let major;
+  const pooledPick = choice.match(/^jdk-(\d+)$/);
+  if (pooledPick) {
+    major = parseInt(pooledPick[1], 10);
+    log(`Instance is pinned to Java ${major}.`);
+  } else {
+    major = await mojangRequiredJavaMajor(version);
+    log(`Minecraft ${version} needs Java ${major}.`);
+    // Auto mode may use the system Java, but only on an exact major match —
+    // "newer is fine" is exactly what breaks older Forge versions.
+    if (!javaPool.findManagedJava(major)) {
+      const sys = getJavaPath ? getJavaPath() : null;
+      if (sys && sys !== 'java' && javaPool.getJavaVersionForPath(sys) === major) {
+        log(`Using system Java ${major}: ${sys}`);
+        return sys;
+      }
+    }
+  }
+
+  const managed = javaPool.findManagedJava(major);
+  if (managed) {
+    log(`Using managed Java ${major}: ${managed}`);
+    return managed;
+  }
+
+  emit(launchId, 'status', { message: `Downloading Java ${major}…` });
+  let lastShown = -10;
+  try {
+    const installed = await javaPool.ensureManagedJavaSingleFlight(major, (p) => {
+      if (p.phase === 'download' && typeof p.percent === 'number') {
+        if (p.percent >= lastShown + 5) {
+          lastShown = p.percent;
+          emit(launchId, 'status', { message: `Downloading Java ${major}… ${p.percent}%` });
+        }
+      } else if (p.phase === 'extract') {
+        emit(launchId, 'status', { message: `Installing Java ${major}…` });
+      }
+    });
+    log(`Installed Java ${major} to ${installed}`);
+    return installed;
+  } catch (err) {
+    // Download failed (offline?). A wrong-major system Java is still a better
+    // bet than no Java at all — most version mismatches at least print a
+    // readable error in the game log.
+    const sys = getJavaPath ? getJavaPath() : null;
+    if (sys && sys !== 'java') {
+      log(`Java ${major} download failed (${err.message}) — trying system Java instead.`);
+      return sys;
+    }
+    throw new Error(`Minecraft ${version} needs Java ${major}, which isn't installed, and the download failed: ${err.message}`);
+  }
+}
+
 async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, depAttempted, prepareOnly, modpackInstall, elybyLaunch }) {
   const { loader, version, id: instanceId } = instance;
   const profileRoot = instanceDir(instanceId);
@@ -2278,13 +2911,10 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     emit(launchId, 'log', { message: `[skins] CustomSkinLoader setup skipped: ${err.message}` });
   }
 
-  // Resolve Java path early — NeoForge needs it to run its headless installer.
-  // Explicit setting wins, else fall back to backend discovery.
-  let javaPath = settings?.javaPath && settings.javaPath.trim();
-  if (!javaPath) {
-    const discovered = getJavaPath ? getJavaPath() : null;
-    javaPath = discovered && discovered !== 'java' ? discovered : undefined;
-  }
+  // Resolve Java early — NeoForge needs it to run its headless installer.
+  // Per-instance choice → managed pool matching the MC version (auto-downloads
+  // the right JDK from Adoptium when missing) → system Java fallbacks.
+  const javaPath = await resolveLauncherJava({ launchId, instance, settings, version });
 
   let versionCustom;
   let forgeInstaller;

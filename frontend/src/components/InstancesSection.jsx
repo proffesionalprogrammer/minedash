@@ -3,10 +3,13 @@ import { createPortal } from 'react-dom';
 import {
   Play, Search, FolderOpen, Pencil, Trash2, Boxes, Loader2, Check, X,
   Box, Layers, Hammer, FlaskConical, MoreVertical, Download, Square,
+  Coffee, Globe, FileDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import SkinHead from './SkinHead';
+import JavaRuntimeModal from './JavaRuntimeModal';
+import InstanceWorldsModal from './InstanceWorldsModal';
 
 // Loader → icon for cards that don't have a modpack icon. Same lucide set as
 // PlaySection's loader tab strip so the visual language is consistent.
@@ -294,6 +297,30 @@ export default function InstancesSection({
     }
   };
 
+  // Per-instance Java picker + worlds/screenshots manager (modals).
+  const [javaInst, setJavaInst] = useState(null);
+  const [worldsInst, setWorldsInst] = useState(null);
+
+  // Export as .mrpack — preflight (?check=1) catches the one hard failure
+  // (loader version unresolvable until first launch) so we can show a real
+  // error toast instead of a broken download.
+  const handleExport = async (inst) => {
+    try {
+      const url = `http://localhost:3001/api/launcher/instances/${encodeURIComponent(inst.id)}/export`;
+      const r = await fetch(`${url}?check=1`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Export failed');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      onError?.(err.message);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#111111] px-6 md:px-10 py-6 overflow-hidden">
       <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 min-h-0">
@@ -368,6 +395,9 @@ export default function InstancesSection({
                   onCancelLaunch={cancelLaunch}
                   onPlay={() => handlePlay(inst)}
                   onOpenFolder={() => handleOpenFolder(inst.id)}
+                  onJavaPick={() => setJavaInst(inst)}
+                  onWorlds={() => setWorldsInst(inst)}
+                  onExport={() => handleExport(inst)}
                   onStartRename={() => { setRenamingId(inst.id); setRenameDraft(inst.displayName || ''); }}
                   onRenameDraft={setRenameDraft}
                   onSubmitRename={() => handleRename(inst.id)}
@@ -381,6 +411,27 @@ export default function InstancesSection({
           )}
         </div>
       </div>
+
+      {/* Per-instance modals */}
+      <AnimatePresence>
+        {javaInst && (
+          <JavaRuntimeModal
+            key="java-modal"
+            inst={javaInst}
+            onClose={() => setJavaInst(null)}
+            onError={onError}
+            onSaved={(updated) => setInstances(prev => prev.map(i => i.id === updated.id ? { ...i, ...updated } : i))}
+          />
+        )}
+        {worldsInst && (
+          <InstanceWorldsModal
+            key="worlds-modal"
+            inst={worldsInst}
+            onClose={() => setWorldsInst(null)}
+            onError={onError}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -472,6 +523,7 @@ function InstanceCard({
   launching, launchPhase, launchProgress, launchStatus, playDisabled, onCancelLaunch,
   onPlay, onOpenFolder, onStartRename, onRenameDraft, onSubmitRename, onCancelRename,
   onAskDelete, onConfirmDelete, onCancelDelete,
+  onJavaPick, onWorlds, onExport,
 }) {
   const LoaderIcon = LOADER_ICONS[inst.loader] || Box;
   const loaderLabel = LOADER_LABEL[inst.loader] || inst.loader;
@@ -617,6 +669,9 @@ function InstanceCard({
               onOpenFolder={onOpenFolder}
               onStartRename={onStartRename}
               onAskDelete={onAskDelete}
+              onJavaPick={onJavaPick}
+              onWorlds={onWorlds}
+              onExport={onExport}
             />
           )}
         </div>
@@ -660,13 +715,13 @@ function InstanceCard({
 // `overflow-hidden` (for its rounded image corners), which would otherwise clip
 // the menu, and a stacked grid means an in-card menu can hide behind the next
 // row. Fixed positioning sidesteps both.
-function KebabMenu({ onOpenFolder, onStartRename, onAskDelete }) {
+function KebabMenu({ onOpenFolder, onStartRename, onAskDelete, onJavaPick, onWorlds, onExport }) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const btnRef = useRef(null);
   const menuRef = useRef(null);
 
-  const MENU_W = 160;
+  const MENU_W = 190;
   const place = () => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
@@ -716,9 +771,12 @@ function KebabMenu({ onOpenFolder, onStartRename, onAskDelete }) {
           style={{ position: 'fixed', top: coords.top, left: coords.left, width: MENU_W }}
           className="z-[100] bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-xl shadow-black/40 overflow-hidden"
         >
-          <MenuRow icon={FolderOpen} label="Open folder" onClick={() => { setOpen(false); onOpenFolder(); }} />
-          <MenuRow icon={Pencil}     label="Rename"      onClick={() => { setOpen(false); onStartRename(); }} />
-          <MenuRow icon={Trash2}     label="Delete"      onClick={() => { setOpen(false); onAskDelete(); }} danger />
+          <MenuRow icon={FolderOpen} label="Open folder"          onClick={() => { setOpen(false); onOpenFolder(); }} />
+          <MenuRow icon={Pencil}     label="Rename"               onClick={() => { setOpen(false); onStartRename(); }} />
+          <MenuRow icon={Globe}      label="Worlds & screenshots" onClick={() => { setOpen(false); onWorlds?.(); }} />
+          <MenuRow icon={Coffee}     label="Java runtime"         onClick={() => { setOpen(false); onJavaPick?.(); }} />
+          <MenuRow icon={FileDown}   label="Export as .mrpack"    onClick={() => { setOpen(false); onExport?.(); }} />
+          <MenuRow icon={Trash2}     label="Delete"               onClick={() => { setOpen(false); onAskDelete(); }} danger />
         </motion.div>,
         document.body,
       )}

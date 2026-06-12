@@ -2,6 +2,17 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.0 — 2026-06-12
+
+### Added
+
+- **The launcher now manages Java for you.** Every launch picks the exact Java version your Minecraft version needs (straight from Mojang's own data — old Forge on 1.16, brand-new snapshots, everything in between) and downloads it automatically if it's missing, with progress shown right on the launch screen. Servers and the launcher share one Java pool, so nothing is downloaded twice. Want control? Each instance's menu has a new **Java runtime** picker: stay on Automatic, pin a specific Java version, use your system Java, or point at any java.exe yourself.
+- **One-click mod updates.** The Installed tab now checks all your mods against Modrinth in a single pass — exact file matching, no false alarms — and shows an *Update available* badge on anything outdated, plus an **Update all** button that swaps in the new versions and keeps your modpack tracking intact.
+- **Worlds & screenshots manager.** Open any instance's menu → *Worlds & screenshots* to see your singleplayer worlds with size and last-played date, duplicate one before a risky experiment, download it as a zip to share or back up, or delete old ones. The screenshots tab shows everything you've captured in-game with a full-size viewer.
+- **Export instances as .mrpack.** Share any instance — mods, configs, options — as a standard Modrinth modpack file from the instance menu. Friends can import it into MineDash, Prism Launcher, or ATLauncher; mods that are on Modrinth download from there automatically, so the file stays small.
+
+---
+
 ## v1.0.99 — 2026-06-11
 
 ### Changed
