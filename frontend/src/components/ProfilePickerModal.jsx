@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Search, Plus, Loader2, Check, Box, Layers, Hammer, FlaskConical, Download, ScrollText,
 } from 'lucide-react';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 // CurseForge-style modal: "Install <project> — pick a profile to install into"
 // Used for Mod / Resource Pack / Shader / Data Pack installs from the Browse
@@ -262,9 +264,11 @@ export default function ProfilePickerModal({
   };
 
   return (
+    <ModalPortal>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-x-0 bottom-0 z-50 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ top: TITLEBAR_OFFSET }}
       onClick={() => !installing && onClose?.(null)}
     >
       <motion.div
@@ -422,6 +426,7 @@ export default function ProfilePickerModal({
         </div>
       </motion.div>
     </motion.div>
+    </ModalPortal>
   );
 }
 

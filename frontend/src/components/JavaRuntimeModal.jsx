@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Coffee, Check, Loader2, Download, FolderCog, Sparkles } from 'lucide-react';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 // Selectable runtime row (radio-style). Module-level so React doesn't remount
 // the rows on every parent render.
@@ -102,9 +104,11 @@ export default function JavaRuntimeModal({ inst, onClose, onSaved, onError }) {
   );
 
   return (
+    <ModalPortal>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      style={{ top: TITLEBAR_OFFSET }}
       onClick={() => !saving && onClose?.()}
     >
       <motion.div
@@ -207,5 +211,6 @@ export default function JavaRuntimeModal({ inst, onClose, onSaved, onError }) {
         </div>
       </motion.div>
     </motion.div>
+    </ModalPortal>
   );
 }

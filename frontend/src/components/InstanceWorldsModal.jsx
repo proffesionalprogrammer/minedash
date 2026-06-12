@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Globe, Image as ImageIcon, Loader2, Trash2, Copy, FileDown, X, Check, Camera,
 } from 'lucide-react';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 function humanBytes(n) {
   if (!n && n !== 0) return '';
@@ -103,9 +105,11 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
   };
 
   return (
+    <ModalPortal>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      style={{ top: TITLEBAR_OFFSET }}
       onClick={() => onClose?.()}
     >
       <motion.div
@@ -257,7 +261,8 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
           {lightbox && (
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[60] bg-[#000000]/90 backdrop-blur-sm flex items-center justify-center p-6"
+              className="fixed inset-x-0 bottom-0 z-[60] bg-[#000000]/90 backdrop-blur-sm flex items-center justify-center p-6"
+              style={{ top: TITLEBAR_OFFSET }}
               onClick={() => setLightbox(null)}
             >
               <motion.img
@@ -278,6 +283,7 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
         </AnimatePresence>
       </motion.div>
     </motion.div>
+    </ModalPortal>
   );
 }
 
