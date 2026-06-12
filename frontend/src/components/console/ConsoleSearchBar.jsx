@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Regex, ChevronUp, ChevronDown, X } from 'lucide-react';
+import Tooltip from '../Tooltip';
 
 // Toolbar shown in the Live Console header — INFO/WARN/ERROR level chips,
 // the find-in-logs input with regex toggle, and prev/next jump-to-match.
@@ -32,6 +34,9 @@ export default function ConsoleSearchBar({
   onSearchKeyDown,
   setCurrentMatchIdx,
 }) {
+  // The match-nav cluster animates its width open/closed inside overflow-hidden,
+  // which would clip the branded tooltips — flip overflow once the animation ends.
+  const [navOverflow, setNavOverflow] = useState('hidden');
   return (
     <div className="ml-auto flex items-center gap-2">
       {/* Level chips */}
@@ -44,21 +49,21 @@ export default function ConsoleSearchBar({
           const active = levelFilters.has(chip.key);
           const anyActive = levelFilters.size > 0;
           return (
-            <motion.button
-              key={chip.key}
-              onClick={() => onToggleLevel(chip.key)}
-              whileTap={{ scale: 0.9 }}
-              title={`Show only ${chip.label} lines`}
-              className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
-                active
-                  ? `${chip.activeBg} ${chip.color}`
-                  : anyActive
-                    ? 'text-[#555555] hover:text-[#A0A0A0]'
-                    : `${chip.color} opacity-60 hover:opacity-100`
-              }`}
-            >
-              {chip.label}
-            </motion.button>
+            <Tooltip key={chip.key} content={`Show only ${chip.label} lines`} side="bottom">
+              <motion.button
+                onClick={() => onToggleLevel(chip.key)}
+                whileTap={{ scale: 0.9 }}
+                className={`text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
+                  active
+                    ? `${chip.activeBg} ${chip.color}`
+                    : anyActive
+                      ? 'text-[#555555] hover:text-[#A0A0A0]'
+                      : `${chip.color} opacity-60 hover:opacity-100`
+                }`}
+              >
+                {chip.label}
+              </motion.button>
+            </Tooltip>
           );
         })}
       </div>
@@ -80,24 +85,28 @@ export default function ConsoleSearchBar({
           placeholder="Find in logs…"
           className="bg-transparent outline-none text-xs font-mono text-[#FFFFFF] placeholder-[#555555] w-32 sm:w-40"
         />
-        <button
-          type="button"
-          onClick={() => setUseRegex(v => !v)}
-          title="Toggle regex"
-          className={`p-0.5 rounded transition-colors ${
-            useRegex ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0]'
-          }`}
-        >
-          <Regex size={12} />
-        </button>
+        <Tooltip content="Toggle regex" side="bottom">
+          <button
+            type="button"
+            onClick={() => setUseRegex(v => !v)}
+            className={`p-0.5 rounded transition-colors ${
+              useRegex ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0]'
+            }`}
+          >
+            <Regex size={12} />
+          </button>
+        </Tooltip>
         <AnimatePresence initial={false}>
           {searchQuery && (
             <motion.div
-              className="flex items-center gap-1.5 overflow-hidden"
+              className="flex items-center gap-1.5"
+              style={{ overflow: navOverflow }}
               initial={{ opacity: 0, width: 0 }}
               animate={{ opacity: 1, width: 'auto' }}
               exit={{ opacity: 0, width: 0 }}
               transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+              onAnimationStart={() => setNavOverflow('hidden')}
+              onAnimationComplete={() => setNavOverflow('visible')}
             >
               <motion.span
                 key={`${currentMatchIdx}/${matchCount}`}
@@ -108,36 +117,39 @@ export default function ConsoleSearchBar({
               >
                 {matchCount === 0 ? '0/0' : `${currentMatchIdx + 1}/${matchCount}`}
               </motion.span>
-              <motion.button
-                type="button"
-                onClick={() => onJump('prev')}
-                disabled={matchCount === 0}
-                whileTap={{ scale: 0.85 }}
-                title="Previous match (Shift+Enter)"
-                className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
-              >
-                <ChevronUp size={12} />
-              </motion.button>
-              <motion.button
-                type="button"
-                onClick={() => onJump('next')}
-                disabled={matchCount === 0}
-                whileTap={{ scale: 0.85 }}
-                title="Next match (Enter)"
-                className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
-              >
-                <ChevronDown size={12} />
-              </motion.button>
-              <motion.button
-                type="button"
-                onClick={onClear}
-                whileHover={{ rotate: 90 }}
-                whileTap={{ scale: 0.85 }}
-                title="Clear search (Esc)"
-                className="p-0.5 text-[#555555] hover:text-[#FFFFFF]"
-              >
-                <X size={12} />
-              </motion.button>
+              <Tooltip content="Previous match (Shift+Enter)" side="bottom">
+                <motion.button
+                  type="button"
+                  onClick={() => onJump('prev')}
+                  disabled={matchCount === 0}
+                  whileTap={{ scale: 0.85 }}
+                  className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
+                >
+                  <ChevronUp size={12} />
+                </motion.button>
+              </Tooltip>
+              <Tooltip content="Next match (Enter)" side="bottom">
+                <motion.button
+                  type="button"
+                  onClick={() => onJump('next')}
+                  disabled={matchCount === 0}
+                  whileTap={{ scale: 0.85 }}
+                  className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
+                >
+                  <ChevronDown size={12} />
+                </motion.button>
+              </Tooltip>
+              <Tooltip content="Clear search (Esc)" side="bottom" align="end">
+                <motion.button
+                  type="button"
+                  onClick={onClear}
+                  whileHover={{ rotate: 90 }}
+                  whileTap={{ scale: 0.85 }}
+                  className="p-0.5 text-[#555555] hover:text-[#FFFFFF]"
+                >
+                  <X size={12} />
+                </motion.button>
+              </Tooltip>
             </motion.div>
           )}
         </AnimatePresence>

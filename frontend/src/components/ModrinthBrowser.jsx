@@ -3,6 +3,7 @@ import { Search, Download, Heart, Loader2, Check, AlertCircle, ChevronLeft, Chev
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import ModalPortal from './ModalPortal';
+import Tooltip from './Tooltip';
 
 const CATEGORIES = [
   'adventure','decoration','economy','equipment','food','game-mechanics',
@@ -524,21 +525,22 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, s
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <button
-                      onClick={() => onOpenDetail?.({
-                        projectId: mod.project_id,
-                        type: projectType,
-                        seedHit: mod,
-                        loaderContext: ['fabric','forge','neoforge'].includes(serverType) ? serverType : null,
-                        versionContext: serverVersion,
-                        serverContext: { serverId, serverVersion, serverType },
-                        onServerInstall: () => { handleInstall(mod); },
-                      })}
-                      title="View project details"
-                      className="font-bold text-[#FFFFFF] hover:text-[#00AF5C] text-sm truncate text-left transition-colors"
-                    >
-                      {mod.title}
-                    </button>
+                    <Tooltip content="View project details" align="start" className="min-w-0">
+                      <button
+                        onClick={() => onOpenDetail?.({
+                          projectId: mod.project_id,
+                          type: projectType,
+                          seedHit: mod,
+                          loaderContext: ['fabric','forge','neoforge'].includes(serverType) ? serverType : null,
+                          versionContext: serverVersion,
+                          serverContext: { serverId, serverVersion, serverType },
+                          onServerInstall: () => { handleInstall(mod); },
+                        })}
+                        className="font-bold text-[#FFFFFF] hover:text-[#00AF5C] text-sm truncate text-left transition-colors"
+                      >
+                        {mod.title}
+                      </button>
+                    </Tooltip>
                     <span className="text-xs text-[#555555] flex-shrink-0">by {mod.author}</span>
                   </div>
                   <p className="text-xs text-[#A0A0A0] line-clamp-1 mb-1.5">{mod.description}</p>
@@ -565,8 +567,8 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, s
                       const pct = mp.status === 'done' ? 100
                         : (mp.total > 0 ? Math.min(99, Math.round((mp.task / mp.total) * 100)) : 0);
                       return (
+                        <Tooltip content={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`} align="end">
                         <div
-                          title={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`}
                           className="relative overflow-hidden flex items-center gap-1.5 px-3 py-1.5 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
                           style={{ background: '#1E1E1E' }}
                         >
@@ -582,6 +584,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, s
                             <span className="tabular-nums">{pct}%</span>
                           </span>
                         </div>
+                        </Tooltip>
                       );
                     }
                     return (

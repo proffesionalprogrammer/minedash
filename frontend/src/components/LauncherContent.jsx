@@ -3,6 +3,7 @@ import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as Ima
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import { VersionRow } from './VersionRow';
+import Tooltip from './Tooltip';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
@@ -734,16 +735,17 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
           className="flex-shrink-0"
         />
         {canUpload && (
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={handleUploadClick}
-            disabled={uploading || !version}
-            title={`Upload a ${type === 'mod' ? '.jar mod' : '.zip ' + (TYPES.find(t => t.key === type)?.label || 'pack')} you downloaded yourself`}
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-            {uploading ? 'Uploading…' : 'Upload'}
-          </motion.button>
+          <Tooltip content={`Upload a ${type === 'mod' ? '.jar mod' : '.zip ' + (TYPES.find(t => t.key === type)?.label || 'pack')} you downloaded yourself`} align="end" className="flex-shrink-0">
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleUploadClick}
+              disabled={uploading || !version}
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {uploading ? 'Uploading…' : 'Upload'}
+            </motion.button>
+          </Tooltip>
         )}
       </div>
 
@@ -787,20 +789,21 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onOpenDetail?.({
-                            projectId: p.project_id,
-                            type,
-                            seedHit: p,
-                            loaderContext: ['fabric','forge','neoforge'].includes(loader) ? loader : null,
-                            versionContext: version,
-                            defaultInstanceId: instanceId || null,
-                          })}
-                          title="View project details"
-                          className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
-                        >
-                          {p.title}
-                        </button>
+                        <Tooltip content="View project details" align="start" className="min-w-0">
+                          <button
+                            onClick={() => onOpenDetail?.({
+                              projectId: p.project_id,
+                              type,
+                              seedHit: p,
+                              loaderContext: ['fabric','forge','neoforge'].includes(loader) ? loader : null,
+                              versionContext: version,
+                              defaultInstanceId: instanceId || null,
+                            })}
+                            className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
+                          >
+                            {p.title}
+                          </button>
+                        </Tooltip>
                         <span className="text-[10px] text-[#555555] flex-shrink-0">by {p.author}</span>
                       </div>
                       {isModpackInstalling ? (
@@ -845,8 +848,8 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                             const pct = mp.status === 'done' ? 100
                               : (mp.total > 0 ? Math.min(99, Math.round((mp.task / mp.total) * 100)) : 0);
                             return (
+                              <Tooltip content={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`} align="end">
                               <div
-                                title={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`}
                                 className="relative overflow-hidden flex items-center gap-1.5 px-3 py-1.5 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
                                 style={{ background: '#1E1E1E' }}
                               >
@@ -862,6 +865,7 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
                                   <span className="tabular-nums">{pct}%</span>
                                 </span>
                               </div>
+                              </Tooltip>
                             );
                           }
                           return (
@@ -1143,24 +1147,25 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <p className="text-sm font-bold text-[#FFFFFF] truncate">{f.title || f.filename}</p>
                     {f.wrongVersion && (
-                      <span title="This mod's jar doesn't list this profile's Minecraft version as supported"
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
-                        <AlertTriangle size={10} /> Wrong version
-                      </span>
+                      <Tooltip content="This mod's jar doesn't list this profile's Minecraft version as supported" className="flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                          <AlertTriangle size={10} /> Wrong version
+                        </span>
+                      </Tooltip>
                     )}
                     {!f.wrongVersion && f.wrongLoader && (
-                      <span title="This jar is built for a different mod loader than the profile"
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
-                        <AlertTriangle size={10} /> Wrong loader
-                      </span>
+                      <Tooltip content="This jar is built for a different mod loader than the profile" className="flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                          <AlertTriangle size={10} /> Wrong loader
+                        </span>
+                      </Tooltip>
                     )}
                     {updateInfo?.[f.filename]?.hasUpdate && (
-                      <span
-                        title={`Update available: ${updateInfo[f.filename].latestVersionNumber || ''}`}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md flex-shrink-0"
-                      >
-                        <Download size={10} /> Update available
-                      </span>
+                      <Tooltip content={`Update available: ${updateInfo[f.filename].latestVersionNumber || ''}`} className="flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
+                          <Download size={10} /> Update available
+                        </span>
+                      </Tooltip>
                     )}
                   </div>
                   {f.title && f.title !== f.filename && (

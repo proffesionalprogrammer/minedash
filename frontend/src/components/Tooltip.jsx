@@ -33,6 +33,9 @@ export default function Tooltip({ children, content, side = 'top', align = 'cent
   const sideClass = side === 'top'
     ? 'bottom-full mb-2'
     : 'top-full mt-2';
+  // Sentence-length hints wrap into a capped-width bubble instead of one huge line.
+  const isLong = typeof content === 'string' && content.length > 42;
+  const wrapClass = isLong ? 'whitespace-normal w-max max-w-[280px]' : 'whitespace-nowrap';
   const alignClass =
     align === 'start' ? 'left-0'
     : align === 'end' ? 'right-0'
@@ -55,7 +58,7 @@ export default function Tooltip({ children, content, side = 'top', align = 'cent
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: side === 'top' ? 4 : -4 }}
             transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-            className={`pointer-events-none absolute z-50 ${sideClass} ${alignClass} whitespace-nowrap px-2.5 py-1.5 bg-[#1A1A1A] border border-[#2D2D2D] text-[#FFFFFF] text-xs font-bold rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.5)]`}
+            className={`pointer-events-none absolute z-50 ${sideClass} ${alignClass} ${wrapClass} px-2.5 py-1.5 bg-[#1A1A1A] border border-[#2D2D2D] text-[#FFFFFF] text-xs font-bold rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.5)]`}
           >
             {content}
           </motion.span>

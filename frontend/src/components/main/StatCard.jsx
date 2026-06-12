@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import Tooltip from '../Tooltip';
 
 // ─── Sparkline helpers ────────────────────────────────────────────────────────
 // Catmull-Rom spline → cubic bezier path. Produces a smooth curve through all points.
@@ -104,13 +105,12 @@ export function Sparkline({ data, color = '#00AF5C', height = 56 }) {
 // sparkline entirely (used for the Players card where there's no time series).
 export default function StatCard({ icon, label, detail, value, secondary, color, history, onDoubleClick, hint }) {
   const lineColor = color || '#00AF5C';
-  return (
+  const card = (
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       onDoubleClick={onDoubleClick}
-      title={hint}
-      className={`bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#3D3D3D] rounded-2xl overflow-hidden transition-colors flex flex-col ${onDoubleClick ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`w-full bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#3D3D3D] rounded-2xl overflow-hidden transition-colors flex flex-col ${onDoubleClick ? 'cursor-pointer' : 'cursor-default'}`}
     >
       <div className={`px-5 pt-5 flex-1 ${history === undefined ? 'pb-5' : 'pb-3'}`}>
         <div className="flex items-start justify-between mb-1">
@@ -132,4 +132,6 @@ export default function StatCard({ icon, label, detail, value, secondary, color,
       {history !== undefined && <Sparkline data={history} color={lineColor} height={56} />}
     </motion.div>
   );
+  if (!hint) return card;
+  return <Tooltip content={hint} side="bottom" className="w-full">{card}</Tooltip>;
 }

@@ -2,6 +2,14 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.1 — 2026-06-12
+
+### Changed
+
+- **Every tooltip now matches the MineDash look.** Hovering over buttons, badges, and stats used to show the operating system's default yellow-on-black tooltip in most places — now every hover hint uses the same dark, rounded, smoothly-fading style across the whole app: server actions, backups, players, mods, the launcher, Browse, and settings. Longer hints wrap into a neat bubble instead of one endless line.
+
+---
+
 ## v1.1.0 — 2026-06-12
 
 ### Added

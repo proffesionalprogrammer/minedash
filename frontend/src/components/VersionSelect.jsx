@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChevronDown, Check, HardDriveDownload, Loader2, Trash2, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Tooltip from './Tooltip';
 
 // Branded single-select dropdown for picking a Minecraft version.
 // Installed entries get a tinted row + an "Installed" pill + a trash icon
@@ -156,12 +157,13 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => setConfirmDelete(v)}
-                            title="Delete this installed version"
-                            className="p-1.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
-                            <Trash2 size={14} />
-                          </button>
+                          <Tooltip content="Delete this installed version" align="end">
+                            <button
+                              onClick={() => setConfirmDelete(v)}
+                              className="p-1.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                              <Trash2 size={14} />
+                            </button>
+                          </Tooltip>
                         )
                       )}
                     </div>

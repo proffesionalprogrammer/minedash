@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Trash2, Check, Loader2, ExternalLink, X, ShieldCheck, UserCircle2, AlertCircle, Image, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SkinHead from './SkinHead';
+import Tooltip from './Tooltip';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
@@ -198,22 +199,24 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => handleRefreshSkin(a)}
-                    disabled={skinRefreshBusy === a.id}
-                    title="Refresh skin — re-fetch the head if you changed your skin"
-                    className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-lg transition-all disabled:opacity-50">
-                    <RefreshCw size={14} className={skinRefreshBusy === a.id ? 'animate-spin' : ''} />
-                  </button>
-                  {a.type === 'offline' && (
-                    <button onClick={() => handleToggleAccountSkins(a.id, !a.elybySkins)}
-                      disabled={skinToggleBusy === a.id}
-                      title={a.elybySkins ? 'Ely.by skins on — click to turn off' : 'Ely.by skins off — click to turn on'}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all disabled:opacity-50 ${
-                        a.elybySkins ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
-                      }`}>
-                      {skinToggleBusy === a.id ? <Loader2 size={12} className="animate-spin" /> : <Image size={12} />}
-                      Skin
+                  <Tooltip content="Refresh skin — re-fetch the head if you changed your skin">
+                    <button onClick={() => handleRefreshSkin(a)}
+                      disabled={skinRefreshBusy === a.id}
+                      className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-lg transition-all disabled:opacity-50">
+                      <RefreshCw size={14} className={skinRefreshBusy === a.id ? 'animate-spin' : ''} />
                     </button>
+                  </Tooltip>
+                  {a.type === 'offline' && (
+                    <Tooltip content={a.elybySkins ? 'Ely.by skins on — click to turn off' : 'Ely.by skins off — click to turn on'}>
+                      <button onClick={() => handleToggleAccountSkins(a.id, !a.elybySkins)}
+                        disabled={skinToggleBusy === a.id}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all disabled:opacity-50 ${
+                          a.elybySkins ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
+                        }`}>
+                        {skinToggleBusy === a.id ? <Loader2 size={12} className="animate-spin" /> : <Image size={12} />}
+                        Skin
+                      </button>
+                    </Tooltip>
                   )}
                   {!active && (
                     <button onClick={() => handleActivate(a.id)}
@@ -221,10 +224,12 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
                       Use
                     </button>
                   )}
-                  <button onClick={() => handleDelete(a.id)} title="Remove account"
-                    className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-lg transition-all">
-                    <Trash2 size={14} />
-                  </button>
+                  <Tooltip content="Remove account" align="end">
+                    <button onClick={() => handleDelete(a.id)}
+                      className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-lg transition-all">
+                      <Trash2 size={14} />
+                    </button>
+                  </Tooltip>
                 </div>
               </div>
             );

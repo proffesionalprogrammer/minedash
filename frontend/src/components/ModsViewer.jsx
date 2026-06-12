@@ -3,6 +3,7 @@ import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, D
 import { motion, AnimatePresence } from 'framer-motion';
 import ModrinthBrowser from './ModrinthBrowser';
 import ModalPortal from './ModalPortal';
+import Tooltip from './Tooltip';
 
 function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modpackInstalls, onOpenDetail }) {
   const [viewMode, setViewMode] = useState('installed');
@@ -481,14 +482,15 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
               ))}
             </div>
             <input type="file" ref={fileInputRef} className="hidden" multiple accept=".jar,.zip" onChange={handleFileSelect} />
-            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-              onClick={handleExportZip}
-              disabled={exporting || mods.length === 0}
-              title={mods.length === 0 ? 'No mods to export' : 'Download all mods as a ZIP'}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] text-[#FFFFFF] border border-[#2D2D2D] rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
-              {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              <span>{exporting ? 'Exporting...' : 'Download ZIP'}</span>
-            </motion.button>
+            <Tooltip content={mods.length === 0 ? 'No mods to export' : 'Download all mods as a ZIP'} align="end">
+              <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                onClick={handleExportZip}
+                disabled={exporting || mods.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] text-[#FFFFFF] border border-[#2D2D2D] rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                <span>{exporting ? 'Exporting...' : 'Download ZIP'}</span>
+              </motion.button>
+            </Tooltip>
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] text-[#FFFFFF] border border-[#2D2D2D] rounded-xl font-bold text-sm transition-all duration-200">
@@ -678,22 +680,25 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                           <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <h4 className="font-bold text-[#FFFFFF] truncate">{mod.displayName || mod.name}</h4>
                             {mod.clientOnly && (
-                              <span title="Client-only — will crash a dedicated server"
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md flex-shrink-0">
-                                <Monitor size={10} /> Client
-                              </span>
+                              <Tooltip content="Client-only — will crash a dedicated server" className="flex-shrink-0">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
+                                  <Monitor size={10} /> Client
+                                </span>
+                              </Tooltip>
                             )}
                             {!mod.clientOnly && mod.wrongVersion && (
-                              <span title="This mod's jar doesn't list this server's Minecraft version as supported"
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
-                                <AlertTriangle size={10} /> Wrong version
-                              </span>
+                              <Tooltip content="This mod's jar doesn't list this server's Minecraft version as supported" className="flex-shrink-0">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                                  <AlertTriangle size={10} /> Wrong version
+                                </span>
+                              </Tooltip>
                             )}
                             {!mod.clientOnly && !mod.wrongVersion && mod.wrongLoader && (
-                              <span title="This jar is built for a different mod loader than the server"
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md flex-shrink-0">
-                                <AlertTriangle size={10} /> Wrong loader
-                              </span>
+                              <Tooltip content="This jar is built for a different mod loader than the server" className="flex-shrink-0">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                                  <AlertTriangle size={10} /> Wrong loader
+                                </span>
+                              </Tooltip>
                             )}
                           </div>
                           <p className="text-xs text-[#A0A0A0] mt-1">{mod.size}</p>
@@ -703,25 +708,27 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                       {/* Per-card actions — hidden in multi-select mode */}
                       {!multiSelect && (
                         <div className="flex items-center gap-3 flex-shrink-0">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleToggle(mod); }}
-                            disabled={!!toggling[mod.name]}
-                            className={`w-12 h-7 rounded-full relative transition-all duration-300 flex-shrink-0 ${mod.enabled ? 'bg-[#00AF5C] shadow-[0_0_12px_rgba(0,175,92,0.3)]' : 'bg-[#333333]'} ${toggling[mod.name] ? 'opacity-50' : 'hover:shadow-lg'}`}
-                            title={mod.enabled ? 'Disable mod' : 'Enable mod'}
-                          >
-                            <motion.div
-                              className="absolute top-1 w-5 h-5 bg-white rounded-full shadow-md"
-                              animate={{ left: mod.enabled ? '24px' : '4px' }}
-                              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                            />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(mod.name); }}
-                            className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-110"
-                            title="Delete Mod"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          <Tooltip content={mod.enabled ? 'Disable mod' : 'Enable mod'} className="flex-shrink-0">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleToggle(mod); }}
+                              disabled={!!toggling[mod.name]}
+                              className={`w-12 h-7 rounded-full relative transition-all duration-300 ${mod.enabled ? 'bg-[#00AF5C] shadow-[0_0_12px_rgba(0,175,92,0.3)]' : 'bg-[#333333]'} ${toggling[mod.name] ? 'opacity-50' : 'hover:shadow-lg'}`}
+                            >
+                              <motion.div
+                                className="absolute top-1 w-5 h-5 bg-white rounded-full shadow-md"
+                                animate={{ left: mod.enabled ? '24px' : '4px' }}
+                                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                              />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Delete Mod" align="end">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteTarget(mod.name); }}
+                              className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-110"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </Tooltip>
                         </div>
                       )}
                     </motion.div>

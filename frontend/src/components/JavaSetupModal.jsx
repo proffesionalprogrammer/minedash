@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Download, RefreshCw, CheckCircle, AlertTriangle, ExternalLink, Loader2, Zap } from 'lucide-react';
+import Tooltip from './Tooltip';
 
 const adoptiumUrl = (major) =>
   `https://adoptium.net/temurin/releases/?version=${major}&os=windows&arch=x64&package=jdk`;
@@ -234,26 +235,28 @@ export default function JavaSetupModal({
                 Install automatically
               </motion.button>
 
-              <motion.button
-                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                onClick={openDownload}
-                title="Download from adoptium.net manually"
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] text-white rounded-xl font-bold text-sm transition-colors"
-              >
-                <Download size={15} />
-                Manual
-                <ExternalLink size={12} className="opacity-60" />
-              </motion.button>
+              <Tooltip content="Download from adoptium.net manually">
+                <motion.button
+                  whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  onClick={openDownload}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] text-white rounded-xl font-bold text-sm transition-colors"
+                >
+                  <Download size={15} />
+                  Manual
+                  <ExternalLink size={12} className="opacity-60" />
+                </motion.button>
+              </Tooltip>
 
-              <motion.button
-                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                onClick={recheck}
-                disabled={checking}
-                title="Re-scan for an existing Java install"
-                className="flex items-center gap-2 px-3 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-colors"
-              >
-                <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
-              </motion.button>
+              <Tooltip content="Re-scan for an existing Java install" align="end">
+                <motion.button
+                  whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  onClick={recheck}
+                  disabled={checking}
+                  className="flex items-center gap-2 px-3 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-colors"
+                >
+                  <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
+                </motion.button>
+              </Tooltip>
             </div>
 
             {/* Escape hatch */}

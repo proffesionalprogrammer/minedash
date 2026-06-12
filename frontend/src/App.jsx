@@ -10,6 +10,7 @@ import { useModpackInstalls } from './hooks/useModpackInstalls';
 import UpdateToast from './components/UpdateToast';
 import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
+import Tooltip from './components/Tooltip';
 import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -119,20 +120,21 @@ function AppHeader({ view, onChange, accountMenuProps }) {
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
-        <motion.button
-          onClick={() => onChange(settingsActive ? 'play' : 'settings')}
-          whileHover={{ scale: 1.05, rotate: 30 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: 'tween', duration: 0.08 }}
-          title="Settings"
-          className={`p-2.5 rounded-2xl border transition-all duration-200 ${
-            settingsActive
-              ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-              : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
-          }`}
-        >
-          <Settings size={18} />
-        </motion.button>
+        <Tooltip content="Settings" side="bottom" align="end">
+          <motion.button
+            onClick={() => onChange(settingsActive ? 'play' : 'settings')}
+            whileHover={{ scale: 1.05, rotate: 30 }}
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: 'tween', duration: 0.08 }}
+            className={`p-2.5 rounded-2xl border transition-all duration-200 ${
+              settingsActive
+                ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
+                : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
+            }`}
+          >
+            <Settings size={18} />
+          </motion.button>
+        </Tooltip>
         <AccountMenu {...accountMenuProps} />
       </div>
     </header>
