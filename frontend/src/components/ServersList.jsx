@@ -3,6 +3,8 @@ import { Search, Plus, Server, Flame, Link as LinkIcon, Gamepad2, Settings, Tras
 import { motion, AnimatePresence } from 'framer-motion';
 import { staggerContainer, staggerItem, modalBackdrop, modalPanel } from '../lib/motion';
 import Tooltip from './Tooltip';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 export default function ServersList({ servers, onSelect, onCreateClick }) {
   const [search, setSearch] = useState('');
@@ -69,7 +71,8 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {deleteTarget && (
-        <motion.div variants={modalBackdrop} initial="initial" animate="animate" exit="exit" className="fixed inset-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm">
+        <ModalPortal>
+        <motion.div variants={modalBackdrop} initial="initial" animate="animate" exit="exit" className="fixed inset-x-0 bottom-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm" style={{ top: TITLEBAR_OFFSET }}>
           <motion.div variants={modalPanel} initial="initial" animate="animate" exit="exit" className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
             <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete Server</h3>
             <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
@@ -94,15 +97,18 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
             </div>
           </motion.div>
         </motion.div>
+        </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* Clone Server Modal */}
       <AnimatePresence>
         {cloneTarget && (
+          <ModalPortal>
           <motion.div
             variants={modalBackdrop} initial="initial" animate="animate" exit="exit"
-            className="fixed inset-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm"
+            className="fixed inset-x-0 bottom-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm"
+            style={{ top: TITLEBAR_OFFSET }}
             onClick={() => !cloning && setCloneTarget(null)}
           >
             <motion.div
@@ -164,6 +170,7 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
               </div>
             </motion.div>
           </motion.div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 

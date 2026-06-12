@@ -3,6 +3,8 @@ import { User, Trash2, Check, Loader2, ExternalLink, X, ShieldCheck, UserCircle2
 import { motion, AnimatePresence } from 'framer-motion';
 import SkinHead from './SkinHead';
 import Tooltip from './Tooltip';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 // Compact relative time for the "last used" line. Returns '' for no timestamp.
 function timeAgo(ts) {
@@ -238,8 +240,10 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
       {/* Microsoft sign-in modal */}
       <AnimatePresence>
         {msSession && (
+          <ModalPortal>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center"
+            className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center"
+            style={{ top: TITLEBAR_OFFSET }}
             onClick={() => msSession.status !== 'pending' && setMsSession(null)}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
@@ -294,14 +298,17 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
               )}
             </motion.div>
           </motion.div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* Offline username modal */}
       <AnimatePresence>
         {offlineOpen && (
+          <ModalPortal>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center"
+            className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center"
+            style={{ top: TITLEBAR_OFFSET }}
             onClick={() => !offlineBusy && setOfflineOpen(false)}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
@@ -356,6 +363,7 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
               </div>
             </motion.div>
           </motion.div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 

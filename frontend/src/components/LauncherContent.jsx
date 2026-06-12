@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import { VersionRow } from './VersionRow';
 import Tooltip from './Tooltip';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 const TYPES = [
   { key: 'mod',          label: 'Mods',           icon: Box        },
@@ -1186,9 +1188,11 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
 
       <AnimatePresence>
         {confirmBulkDelete && (
+          <ModalPortal>
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
+            style={{ top: TITLEBAR_OFFSET }}
             onClick={() => !bulkDeleting && setConfirmBulkDelete(false)}>
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
@@ -1223,6 +1227,7 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
               </div>
             </motion.div>
           </motion.div>
+          </ModalPortal>
         )}
       </AnimatePresence>
     </div>
