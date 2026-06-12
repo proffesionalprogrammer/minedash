@@ -401,82 +401,39 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState(null);
 
-  // Update detection — keyed by filename. Cached per project-id+loader+version
-  // in a ref so repeated tab opens don't refire the request burst. 1h TTL.
-  const [updateInfo, setUpdateInfo] = useState({}); // { [filename]: { hasUpdate, latestVersion, latestPublished, ... } }
+  // Update detection — keyed by filename. One bulk backend call hashes every
+  // installed jar and asks Modrinth's version_files/update endpoint what the
+  // latest build for this loader+version is. Exact (hash-vs-hash) — no
+  // date-published heuristics, so a re-download of the same version never
+  // shows a phantom update.
+  const [updateInfo, setUpdateInfo] = useState({}); // { [filename]: { hasUpdate, versionId, latestVersionNumber, newFilename } }
   const [updating, setUpdating] = useState(false);
-  const updateCache = useRef(new Map()); // key: `${projectId}-${loader}-${version}` -> { at, info }
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const lastUpdateCheckKey = useRef(null);
 
-  const runUpdateCheck = async (mods) => {
-    const TTL = 60 * 60 * 1000;
-    const now = Date.now();
-    const next = {};
-    const pending = [];
-    for (const f of mods) {
-      if (!f.projectId) continue;
-      const key = `${f.projectId}-${loader}-${version}`;
-      const cached = updateCache.current.get(key);
-      if (cached && (now - cached.at) < TTL) {
-        next[f.filename] = computeUpdateRow(f, cached.info);
-        continue;
+  const runUpdateCheck = async () => {
+    setCheckingUpdates(true);
+    try {
+      const r = await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/content/check-updates${instanceQuery}`, {
+        method: 'POST',
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const next = {};
+        for (const u of d.updates || []) {
+          next[u.filename] = {
+            hasUpdate: true,
+            versionId: u.versionId,
+            latestVersionNumber: u.versionNumber,
+            newFilename: u.newFilename,
+            title: u.title,
+          };
+        }
+        setUpdateInfo(next);
       }
-      pending.push(f);
-    }
-    setUpdateInfo(p => ({ ...p, ...next }));
-
-    // 4-way concurrent pool — Modrinth's 300 req/min limit is shared, so we
-    // cap parallelism instead of letting Promise.all rip through 200 mods at
-    // once. Each check is one /version request.
-    const POOL = 4;
-    let i = 0;
-    const worker = async () => {
-      while (i < pending.length) {
-        const idx = i++;
-        const f = pending[idx];
-        try {
-          const params = new URLSearchParams();
-          if (version) params.set('gameVersion', version);
-          if (['fabric','forge','neoforge'].includes(loader)) params.set('loader', loader);
-          const r = await fetch(`http://localhost:3001/api/modrinth/project/${f.projectId}/versions?${params}`);
-          if (!r.ok) continue;
-          const vs = await r.json();
-          if (!Array.isArray(vs) || vs.length === 0) continue;
-          // Newest by date_published (with type preference).
-          vs.sort((a, b) => {
-            const ra = { release: 0, beta: 1, alpha: 2 }[a.version_type] ?? 3;
-            const rb = { release: 0, beta: 1, alpha: 2 }[b.version_type] ?? 3;
-            if (ra !== rb) return ra - rb;
-            return (Date.parse(b.date_published || '') || 0) - (Date.parse(a.date_published || '') || 0);
-          });
-          const info = { latestVersion: vs[0], allVersions: vs };
-          updateCache.current.set(`${f.projectId}-${loader}-${version}`, { at: Date.now(), info });
-          const row = computeUpdateRow(f, info);
-          setUpdateInfo(p => ({ ...p, [f.filename]: row }));
-        } catch {}
-      }
-    };
-    await Promise.all(Array.from({ length: POOL }, worker));
+    } catch { /* best-effort — chip simply doesn't show */ }
+    setCheckingUpdates(false);
   };
-
-  // Compute whether an installed mod is outdated. We compare `installedAt`
-  // (Date.now() at install, falling back to file mtime for files installed
-  // before MineDash tracked it) against the latest version's date_published.
-  // Threshold of 60s avoids flagging a refresh that happens microseconds
-  // after install.
-  function computeUpdateRow(file, info) {
-    const latest = info.latestVersion;
-    if (!latest) return { hasUpdate: false };
-    const installedAt = file.installedAt || 0;
-    const published = Date.parse(latest.date_published || '') || 0;
-    const hasUpdate = published > 0 && installedAt > 0 && (published - installedAt) > 60_000;
-    return {
-      hasUpdate,
-      latestVersion: latest,
-      latestPublished: published,
-      latestVersionNumber: latest.version_number,
-    };
-  }
 
   // Trigger an update check when the Installed tab opens for mods. The cache
   // key prevents redundant runs on every re-render — we only retrigger if the
@@ -488,7 +445,7 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
     const key = `${loader}-${version}-${instanceId || 'default'}-${list.map(f => f.filename).sort().join('|')}`;
     if (lastUpdateCheckKey.current === key) return;
     lastUpdateCheckKey.current = key;
-    runUpdateCheck(list);
+    runUpdateCheck();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, type, loader, version, instanceId, installedFiles]);
 
@@ -500,31 +457,27 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
   const handleUpdateAll = async () => {
     if (updating) return;
     setUpdating(true);
-    const targets = (installedFiles.mod || [])
-      .filter(f => updateInfo[f.filename]?.hasUpdate && updateInfo[f.filename]?.latestVersion);
-    // Run one at a time — same reason as InstalledTabView bulk-delete:
-    // .minedash-launcher.json is a single metadata file and parallel writes
-    // race each other.
-    for (const f of targets) {
-      const latest = updateInfo[f.filename].latestVersion;
-      try {
-        await handleChangeVersion({
-          project_id: f.projectId,
-          title: f.title,
-          icon_url: f.iconUrl,
-        }, latest);
-      } catch {}
+    const targets = Object.entries(updateInfo)
+      .filter(([, u]) => u?.hasUpdate && u.versionId)
+      .map(([filename, u]) => ({ filename, versionId: u.versionId }));
+    try {
+      const r = await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/content/update-mods${instanceQuery}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: targets }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Update failed');
+      if (Array.isArray(d.failed) && d.failed.length > 0) {
+        const f = d.failed[0];
+        onError?.(`${f.filename}: ${f.reason}${d.failed.length > 1 ? ` (+${d.failed.length - 1} more)` : ''}`);
+      }
+      setUpdateInfo({});
+      lastUpdateCheckKey.current = null;
+      await fetchInstalled();
+    } catch (err) {
+      onError?.(err.message);
     }
-    // Bust the per-mod cache so the chip disappears once metadata refreshes.
-    for (const f of targets) {
-      updateCache.current.delete(`${f.projectId}-${loader}-${version}`);
-    }
-    setUpdateInfo(p => {
-      const next = { ...p };
-      for (const f of targets) delete next[f.filename];
-      return next;
-    });
-    lastUpdateCheckKey.current = null;
     setUpdating(false);
   };
 
@@ -706,6 +659,12 @@ export default function LauncherContent({ loader, version, instanceId, socket, o
               {repairResult.repaired?.length === 0 && repairResult.failed?.length === 0 && (
                 <p>No incompatible mods to repair.</p>
               )}
+            </div>
+          )}
+          {type === 'mod' && checkingUpdates && updateCount === 0 && (
+            <div className="mb-3 px-3 py-2 flex items-center gap-2 text-xs text-[#555555] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+              <Loader2 size={12} className="animate-spin text-[#00AF5C]" />
+              Checking Modrinth for mod updates…
             </div>
           )}
           {type === 'mod' && updateCount > 0 && (
