@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Loader2, Check, AlertCircle, X, Package, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 export default function LaunchProgress({ socket, launchId, onClose }) {
   const [status, setStatus] = useState('Preparing…');
@@ -42,8 +44,10 @@ export default function LaunchProgress({ socket, launchId, onClose }) {
   const dismissable = errorMsg || launched || closed;
 
   return (
+    <ModalPortal>
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center"
+      className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center"
+      style={{ top: TITLEBAR_OFFSET }}
       onClick={() => dismissable && onClose?.()}>
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
@@ -113,5 +117,6 @@ export default function LaunchProgress({ socket, launchId, onClose }) {
         )}
       </motion.div>
     </motion.div>
+    </ModalPortal>
   );
 }

@@ -5,11 +5,7 @@ import {
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import ModalPortal from './ModalPortal';
-
-// In packaged Electron the custom TitleBar occupies the top 38px — overlays
-// must start below it so the minimize/maximize/close buttons stay visible
-// and clickable. In browser dev mode TitleBar renders nothing, so no offset.
-const TITLEBAR_OFFSET = window.electronAPI?.isElectron ? 38 : 0;
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 function humanBytes(n) {
   if (!n && n !== 0) return '';

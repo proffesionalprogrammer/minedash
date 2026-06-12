@@ -2,10 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Coffee, Check, Loader2, Download, FolderCog, Sparkles } from 'lucide-react';
 import ModalPortal from './ModalPortal';
-
-// In packaged Electron the custom TitleBar occupies the top 38px — the overlay
-// starts below it so the window controls stay visible. 0 in browser dev mode.
-const TITLEBAR_OFFSET = window.electronAPI?.isElectron ? 38 : 0;
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 // Selectable runtime row (radio-style). Module-level so React doesn't remount
 // the rows on every parent render.

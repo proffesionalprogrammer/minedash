@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Server as ServerIcon, Cpu, Zap, Box, ChevronDown, Search, Loader2, Check, Pickaxe, Hammer, Layers, Wrench } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ModalPortal from './ModalPortal';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
 // ─── Small option dropdown (no icons) ─────────────────────────────
 function OptionDropdown({ value, onChange, options }) {
@@ -420,7 +422,8 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+    <ModalPortal>
+    <div className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center px-4" style={{ top: TITLEBAR_OFFSET }}>
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -661,6 +664,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
         </form>
       </motion.div>
     </div>
+    </ModalPortal>
   );
 }
 
