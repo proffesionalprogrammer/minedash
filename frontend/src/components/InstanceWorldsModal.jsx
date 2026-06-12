@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Globe, Image as ImageIcon, Loader2, Trash2, Copy, FileDown, X, Check, Camera,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import ModalPortal from './ModalPortal';
+
+// In packaged Electron the custom TitleBar occupies the top 38px — overlays
+// must start below it so the minimize/maximize/close buttons stay visible
+// and clickable. In browser dev mode TitleBar renders nothing, so no offset.
+const TITLEBAR_OFFSET = window.electronAPI?.isElectron ? 38 : 0;
 
 function humanBytes(n) {
   if (!n && n !== 0) return '';
@@ -102,10 +109,34 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
     setBusy(null);
   };
 
+  // Lightbox gallery navigation — clamped at the ends like a photos app.
+  const lightboxIndex = lightbox && screenshots ? screenshots.findIndex(s => s.filename === lightbox) : -1;
+  const stepLightbox = (delta) => {
+    if (lightboxIndex === -1) return;
+    const next = lightboxIndex + delta;
+    if (next < 0 || next >= screenshots.length) return;
+    setLightbox(screenshots[next].filename);
+  };
+
+  // Keyboard navigation while the lightbox is open: ← / → to move, Esc to close.
+  useEffect(() => {
+    if (!lightbox) return;
+    const handler = (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepLightbox(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1); }
+      else if (e.key === 'Escape') { e.preventDefault(); setLightbox(null); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightbox, lightboxIndex, screenshots]);
+
   return (
+    <ModalPortal>
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-x-0 bottom-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      style={{ top: TITLEBAR_OFFSET }}
       onClick={() => onClose?.()}
     >
       <motion.div
@@ -252,32 +283,67 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
           )}
         </div>
 
-        {/* Screenshot lightbox */}
-        <AnimatePresence>
-          {lightbox && (
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[60] bg-[#000000]/90 backdrop-blur-sm flex items-center justify-center p-6"
-              onClick={() => setLightbox(null)}
-            >
-              <motion.img
-                initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-                src={`${base}/screenshots/${encodeURIComponent(lightbox)}/file`}
-                alt={lightbox}
-                className="max-w-full max-h-full rounded-2xl border border-[#2D2D2D] shadow-2xl"
-                onClick={e => e.stopPropagation()}
-              />
-              <button
-                onClick={() => setLightbox(null)}
-                className="absolute top-4 right-4 p-2 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </motion.div>
+
+      {/* Screenshot lightbox — sibling of the card (not inside it) so the
+          card's scale transform never becomes its containing block. */}
+      <AnimatePresence>
+        {lightbox && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-x-0 bottom-0 z-[60] bg-[#000000]/90 backdrop-blur-sm flex items-center justify-center p-6"
+            style={{ top: TITLEBAR_OFFSET }}
+            onClick={e => { e.stopPropagation(); setLightbox(null); }}
+          >
+            <motion.img
+              key={lightbox}
+              initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+              transition={{ duration: 0.15 }}
+              src={`${base}/screenshots/${encodeURIComponent(lightbox)}/file`}
+              alt={lightbox}
+              className="max-w-full max-h-full rounded-2xl border border-[#2D2D2D] shadow-2xl"
+              onClick={e => e.stopPropagation()}
+              draggable={false}
+            />
+            <button
+              onClick={e => { e.stopPropagation(); setLightbox(null); }}
+              className="absolute top-4 right-4 p-2 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+            >
+              <X size={16} />
+            </button>
+            {lightboxIndex > 0 && (
+              <button
+                aria-label="Previous screenshot"
+                onClick={e => { e.stopPropagation(); stepLightbox(-1); }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-xl bg-[#1A1A1A]/90 border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555] transition-colors"
+              >
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            {lightboxIndex !== -1 && lightboxIndex < screenshots.length - 1 && (
+              <button
+                aria-label="Next screenshot"
+                onClick={e => { e.stopPropagation(); stepLightbox(1); }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-xl bg-[#1A1A1A]/90 border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555] transition-colors"
+              >
+                <ChevronRight size={18} />
+              </button>
+            )}
+            {lightboxIndex !== -1 && (
+              <div
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#1A1A1A]/90 border border-[#2D2D2D] pointer-events-none max-w-[80%]"
+              >
+                <span className="text-[10px] text-[#A0A0A0] font-mono truncate">{lightbox}</span>
+                <span className="text-[10px] font-bold text-[#555555] tabular-nums flex-shrink-0">
+                  {lightboxIndex + 1} / {screenshots.length}
+                </span>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
+    </ModalPortal>
   );
 }
 
