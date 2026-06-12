@@ -126,11 +126,26 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $files = Get-ChildItem dist-electron -File |
-            Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' } |
-            ForEach-Object { $_.FullName }
+            Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' }
           if (-not $files) {
             Write-Error "No release artifacts found in dist-electron — nothing to mirror."
             exit 1
           }
-          Write-Output "Mirroring to minedash-releases: $($files -join ', ')"
-          gh release create $tag $files --repo proffesionalprogrammer/minedash-releases --title $tag --notes-file release-notes.md
+          # electron-builder's on-disk artifacts have SPACES in their names
+          # ("MineDash Setup 1.1.0.exe"). GitHub replaces spaces in uploaded
+          # asset names with DOTS ("MineDash.Setup.1.1.0.exe"), but latest.yml
+          # references the dash-separated name ("MineDash-Setup-1.1.0.exe") —
+          # the same form electron-builder itself uploads to the main repo. A
+          # dotted mirror asset therefore 404s for every pre-v1.0.99 updater
+          # and the update toast hangs at 0% (this shipped broken in v1.0.99
+          # and v1.1.0; assets were renamed by hand). Stage dash-named copies
+          # before uploading so the mirror matches latest.yml exactly.
+          $staging = Join-Path $env:RUNNER_TEMP 'mirror-staging'
+          New-Item -ItemType Directory -Force $staging | Out-Null
+          $upload = foreach ($f in $files) {
+            $dest = Join-Path $staging ($f.Name -replace ' ', '-')
+            Copy-Item $f.FullName $dest -Force
+            $dest
+          }
+          Write-Output "Mirroring to minedash-releases: $($upload -join ', ')"
+          gh release create $tag $upload --repo proffesionalprogrammer/minedash-releases --title $tag --notes-file release-notes.md
