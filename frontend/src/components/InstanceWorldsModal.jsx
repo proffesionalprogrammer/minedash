@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Globe, Image as ImageIcon, Loader2, Trash2, Copy, FileDown, X, Check, Camera,
 } from 'lucide-react';
+import Tooltip from './Tooltip';
 
 function humanBytes(n) {
   if (!n && n !== 0) return '';
@@ -236,14 +237,15 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
                       <p className="text-[9px] text-white/80 truncate font-mono">{s.filename}</p>
                     </div>
                     <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        title="Delete"
-                        onClick={() => handleDeleteScreenshot(s.filename)}
-                        disabled={busy === s.filename}
-                        className="p-1.5 rounded-lg bg-[#000000]/70 text-white hover:text-[#FF5555] transition-colors disabled:opacity-50"
-                      >
-                        {busy === s.filename ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                      </button>
+                      <Tooltip content="Delete" side="bottom" align="end">
+                        <button
+                          onClick={() => handleDeleteScreenshot(s.filename)}
+                          disabled={busy === s.filename}
+                          className="p-1.5 rounded-lg bg-[#000000]/70 text-white hover:text-[#FF5555] transition-colors disabled:opacity-50"
+                        >
+                          {busy === s.filename ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        </button>
+                      </Tooltip>
                     </div>
                   </motion.div>
                 ))}
@@ -283,18 +285,19 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
 
 function IconBtn({ title, onClick, disabled, danger, children }) {
   return (
-    <button
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`p-2 rounded-lg transition-all disabled:opacity-50 ${
-        danger
-          ? 'text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10'
-          : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
-      }`}
-    >
-      {children}
-    </button>
+    <Tooltip content={title}>
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className={`p-2 rounded-lg transition-all disabled:opacity-50 ${
+          danger
+            ? 'text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10'
+            : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
+        }`}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

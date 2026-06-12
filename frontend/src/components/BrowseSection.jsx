@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import ProfilePickerModal from './ProfilePickerModal';
+import Tooltip from './Tooltip';
 
 // Same TYPES list as LauncherContent — modpacks lead here because the whole
 // point of Browse is "I want to install a pack without picking a loader+version
@@ -759,13 +760,14 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                 </span>
               );
             })()}
-            <button
-              onClick={onOpenDetail}
-              title="View project details"
-              className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
-            >
-              {hit.title}
-            </button>
+            <Tooltip content="View project details" align="start" className="min-w-0">
+              <button
+                onClick={onOpenDetail}
+                className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
+              >
+                {hit.title}
+              </button>
+            </Tooltip>
             <span className="text-[10px] text-[#555555] flex-shrink-0">by {hit.author}</span>
           </div>
           {inProgress ? (
@@ -799,27 +801,35 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
             </div>
           ) : (
             <div className="flex items-center gap-3 text-[11px] text-[#A0A0A0] tabular-nums">
-              <span className="flex items-center gap-1" title={`${(hit.downloads || 0).toLocaleString()} downloads`}>
-                <Download size={11} className="text-[#555555]" />
-                {fmt(hit.downloads)}
-              </span>
-              {hit.date_modified && (
-                <span className="flex items-center gap-1" title={new Date(hit.date_modified).toLocaleString()}>
-                  <Clock size={11} className="text-[#555555]" />
-                  {fmtRelative(hit.date_modified)}
+              <Tooltip content={`${(hit.downloads || 0).toLocaleString()} downloads`}>
+                <span className="flex items-center gap-1">
+                  <Download size={11} className="text-[#555555]" />
+                  {fmt(hit.downloads)}
                 </span>
+              </Tooltip>
+              {hit.date_modified && (
+                <Tooltip content={new Date(hit.date_modified).toLocaleString()}>
+                  <span className="flex items-center gap-1">
+                    <Clock size={11} className="text-[#555555]" />
+                    {fmtRelative(hit.date_modified)}
+                  </span>
+                </Tooltip>
               )}
               {mcVer && (
-                <span className="flex items-center gap-1" title={filteringVersion ? 'Minecraft version (matches your filter)' : 'Latest Minecraft version supported'}>
-                  <Gamepad2 size={11} className={filteringVersion ? 'text-[#00AF5C]' : 'text-[#555555]'} />
-                  {mcVer}
-                </span>
+                <Tooltip content={filteringVersion ? 'Minecraft version (matches your filter)' : 'Latest Minecraft version supported'}>
+                  <span className="flex items-center gap-1">
+                    <Gamepad2 size={11} className={filteringVersion ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+                    {mcVer}
+                  </span>
+                </Tooltip>
               )}
               {ldrLabel && (
-                <span className="flex items-center gap-1" title="Mod loader">
-                  <Wrench size={11} className="text-[#555555]" />
-                  {ldrLabel}
-                </span>
+                <Tooltip content="Mod loader">
+                  <span className="flex items-center gap-1">
+                    <Wrench size={11} className="text-[#555555]" />
+                    {ldrLabel}
+                  </span>
+                </Tooltip>
               )}
             </div>
           )}
@@ -829,23 +839,24 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                 Servers tab's identity so the user understands which surface
                 they're targeting. */}
             {type === 'modpack' && !inProgress && (
-              <motion.button
-                onClick={onInstallAsServer}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                title="Install this modpack as a local server"
-                className="flex items-center gap-1 px-2.5 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
-              >
-                <ServerIcon size={14} />
-              </motion.button>
+              <Tooltip content="Install this modpack as a local server" align="end">
+                <motion.button
+                  onClick={onInstallAsServer}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="flex items-center gap-1 px-2.5 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+                >
+                  <ServerIcon size={14} />
+                </motion.button>
+              </Tooltip>
             )}
 
             {/* Install button — while installing, the progress pill is paired
                 with a Stop button so the user can abort a long modpack download. */}
             {inProgress ? (
               <>
+                <Tooltip content={`${installEntry.statusText || 'Installing…'}${installEntry.total ? ` (${installEntry.task} / ${installEntry.total} files)` : ''}`} align="end">
                 <div
-                  title={`${installEntry.statusText || 'Installing…'}${installEntry.total ? ` (${installEntry.task} / ${installEntry.total} files)` : ''}`}
                   className="relative overflow-hidden flex items-center gap-1.5 px-4 py-2 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
                   style={{ background: '#1E1E1E' }}
                 >
@@ -861,16 +872,18 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                     <span className="tabular-nums">{cancelling ? 'Stopping…' : `${pct}%`}</span>
                   </span>
                 </div>
-                <motion.button
-                  onClick={onCancel}
-                  disabled={cancelling}
-                  whileHover={cancelling ? {} : { scale: 1.05 }}
-                  whileTap={cancelling ? {} : { scale: 0.95 }}
-                  title="Cancel download"
-                  className="flex items-center justify-center p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#FF5555]/40 rounded-xl text-[#A0A0A0] hover:text-[#FF5555] transition-colors disabled:opacity-50"
-                >
-                  <XIcon size={14} />
-                </motion.button>
+                </Tooltip>
+                <Tooltip content="Cancel download" align="end">
+                  <motion.button
+                    onClick={onCancel}
+                    disabled={cancelling}
+                    whileHover={cancelling ? {} : { scale: 1.05 }}
+                    whileTap={cancelling ? {} : { scale: 0.95 }}
+                    className="flex items-center justify-center p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#FF5555]/40 rounded-xl text-[#A0A0A0] hover:text-[#FF5555] transition-colors disabled:opacity-50"
+                  >
+                    <XIcon size={14} />
+                  </motion.button>
+                </Tooltip>
               </>
             ) : type === 'modpack' ? (
               <motion.button
@@ -884,16 +897,17 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                 {installing ? 'Starting…' : 'Install'}
               </motion.button>
             ) : (
-              <motion.button
-                onClick={onInstall}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-                title="Pick a profile to install into"
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl text-xs font-bold transition-all"
-              >
-                <Download size={14} />
-                Install
-              </motion.button>
+              <Tooltip content="Pick a profile to install into" align="end">
+                <motion.button
+                  onClick={onInstall}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl text-xs font-bold transition-all"
+                >
+                  <Download size={14} />
+                  Install
+                </motion.button>
+              </Tooltip>
             )}
           </div>
         </div>

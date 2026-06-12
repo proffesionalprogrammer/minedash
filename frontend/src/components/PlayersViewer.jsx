@@ -4,6 +4,7 @@ import {
   Plus, Trash2, ListChecks, Wifi, WifiOff, Globe, AlertTriangle, Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Tooltip from './Tooltip';
 
 const API = 'http://localhost:3001';
 
@@ -71,13 +72,14 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                 <div>
                   <div className="flex items-center gap-2">
                     <h4 className="font-bold text-[#FFFFFF] text-lg">{playerName}</h4>
-                    <button
-                      onClick={() => copyPlayerName(playerName)}
-                      className="p-1 text-[#555555] hover:text-[#FFFFFF] transition-colors"
-                      title="Copy name"
-                    >
-                      {copied === playerName ? <Check size={14} className="text-[#00AF5C]" /> : <Copy size={14} />}
-                    </button>
+                    <Tooltip content="Copy name">
+                      <button
+                        onClick={() => copyPlayerName(playerName)}
+                        className="p-1 text-[#555555] hover:text-[#FFFFFF] transition-colors"
+                      >
+                        {copied === playerName ? <Check size={14} className="text-[#00AF5C]" /> : <Copy size={14} />}
+                      </button>
+                    </Tooltip>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse-glow" />
@@ -87,46 +89,51 @@ function OnlinePlayersView({ serverId, socket, onError }) {
               </div>
 
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => sendCommand(`op ${playerName}`, playerName)}
-                  disabled={actionLoading[`op ${playerName}-${playerName}`]}
-                  className="p-2.5 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all"
-                  title="Give OP"
-                >
-                  <Shield size={16} />
-                </button>
-                <button
-                  onClick={() => sendCommand(`deop ${playerName}`, playerName)}
-                  disabled={actionLoading[`deop ${playerName}-${playerName}`]}
-                  className="p-2.5 text-[#A0A0A0] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all"
-                  title="Remove OP"
-                >
-                  <ShieldOff size={16} />
-                </button>
-                <button
-                  onClick={() => sendCommand(`tp ${playerName} ~ ~ ~`, playerName)}
-                  disabled={actionLoading[`tp ${playerName} ~ ~ ~-${playerName}`]}
-                  className="p-2.5 text-[#A0A0A0] hover:text-cyan-400 hover:bg-cyan-400/10 rounded-xl transition-all"
-                  title="Teleport to Spawn"
-                >
-                  <MapPin size={16} />
-                </button>
-                <button
-                  onClick={() => sendCommand(`kick ${playerName}`, playerName)}
-                  disabled={actionLoading[`kick ${playerName}-${playerName}`]}
-                  className="p-2.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all"
-                  title="Kick Player"
-                >
-                  <UserX size={16} />
-                </button>
-                <button
-                  onClick={() => sendCommand(`ban ${playerName}`, playerName)}
-                  disabled={actionLoading[`ban ${playerName}-${playerName}`]}
-                  className="p-2.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all"
-                  title="Ban Player"
-                >
-                  <Ban size={16} />
-                </button>
+                <Tooltip content="Give OP">
+                  <button
+                    onClick={() => sendCommand(`op ${playerName}`, playerName)}
+                    disabled={actionLoading[`op ${playerName}-${playerName}`]}
+                    className="p-2.5 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all"
+                  >
+                    <Shield size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Remove OP">
+                  <button
+                    onClick={() => sendCommand(`deop ${playerName}`, playerName)}
+                    disabled={actionLoading[`deop ${playerName}-${playerName}`]}
+                    className="p-2.5 text-[#A0A0A0] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all"
+                  >
+                    <ShieldOff size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Teleport to Spawn">
+                  <button
+                    onClick={() => sendCommand(`tp ${playerName} ~ ~ ~`, playerName)}
+                    disabled={actionLoading[`tp ${playerName} ~ ~ ~-${playerName}`]}
+                    className="p-2.5 text-[#A0A0A0] hover:text-cyan-400 hover:bg-cyan-400/10 rounded-xl transition-all"
+                  >
+                    <MapPin size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Kick Player">
+                  <button
+                    onClick={() => sendCommand(`kick ${playerName}`, playerName)}
+                    disabled={actionLoading[`kick ${playerName}-${playerName}`]}
+                    className="p-2.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all"
+                  >
+                    <UserX size={16} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Ban Player" align="end">
+                  <button
+                    onClick={() => sendCommand(`ban ${playerName}`, playerName)}
+                    disabled={actionLoading[`ban ${playerName}-${playerName}`]}
+                    className="p-2.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all"
+                  >
+                    <Ban size={16} />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           ))}
@@ -322,13 +329,14 @@ function PlayerListsView({ serverId, onError }) {
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleRemove(display)}
-                      className="p-2 text-[#555555] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-colors opacity-0 group-hover:opacity-100"
-                      title="Remove"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    <Tooltip content="Remove" align="end">
+                      <button
+                        onClick={() => handleRemove(display)}
+                        className="p-2 text-[#555555] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </Tooltip>
                   </motion.div>
                 );
               })}

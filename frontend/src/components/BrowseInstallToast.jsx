@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, X, Check, Loader2, AlertTriangle, Server } from 'lucide-react';
+import Tooltip from './Tooltip';
 
 // Bottom-right toast for Browse-initiated installs. Used for both modpack
 // installs (kind: 'modpack', phase: 'done') and server installs (kind:
@@ -78,17 +79,20 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
             </p>
           )}
           {isError && toast.error && (
-            <p className="text-[10px] text-[#A0A0A0] truncate" title={toast.error}>{toast.error}</p>
+            <Tooltip content={toast.error} align="start" className="w-full min-w-0">
+              <p className="text-[10px] text-[#A0A0A0] truncate w-full">{toast.error}</p>
+            </Tooltip>
           )}
         </div>
-        <button
-          onClick={() => (inFlight ? onCancel?.(toast.id) : onDismiss?.(toast.id))}
-          className="p-1.5 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors flex-shrink-0"
-          aria-label={inFlight ? 'Cancel' : 'Dismiss'}
-          title={inFlight ? 'Cancel install' : 'Dismiss'}
-        >
-          <X size={14} />
-        </button>
+        <Tooltip content={inFlight ? 'Cancel install' : 'Dismiss'} align="end" className="flex-shrink-0">
+          <button
+            onClick={() => (inFlight ? onCancel?.(toast.id) : onDismiss?.(toast.id))}
+            className="p-1.5 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors"
+            aria-label={inFlight ? 'Cancel' : 'Dismiss'}
+          >
+            <X size={14} />
+          </button>
+        </Tooltip>
       </div>
 
       {inFlight && (

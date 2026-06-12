@@ -12,6 +12,7 @@ import ProfilePickerModal from './ProfilePickerModal';
 import MarkdownBlock from './Markdown';
 import { VersionRow } from './VersionRow';
 import { fmt, fmtRelative, fmtDateAbs } from './modrinthFormat';
+import Tooltip from './Tooltip';
 
 // Detail modal opened when the user clicks a project title in Browse,
 // LauncherContent, or ModrinthBrowser. Three responsibilities:
@@ -326,13 +327,14 @@ export default function ProjectDetailModal({
           {/* Header */}
           <div className="flex items-start gap-4 px-6 md:px-8 pt-6 pb-5 border-b border-[#2D2D2D] flex-shrink-0">
             {stack.length > 1 && (
-              <button
-                onClick={drillBack}
-                title="Back to previous project"
-                className="p-2 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors flex-shrink-0"
-              >
-                <ArrowLeft size={16} />
-              </button>
+              <Tooltip content="Back to previous project" side="bottom" align="start" className="flex-shrink-0">
+                <button
+                  onClick={drillBack}
+                  className="p-2 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+              </Tooltip>
             )}
             <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#1E1E1E] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
               {headerIcon
@@ -358,21 +360,27 @@ export default function ProjectDetailModal({
                 <p className="text-sm text-[#A0A0A0] line-clamp-2">{project.description}</p>
               )}
               <div className="flex items-center gap-4 text-xs text-[#A0A0A0] tabular-nums pt-1">
-                <span className="flex items-center gap-1.5" title={`${(headerDls || 0).toLocaleString()} downloads`}>
-                  <Download size={13} className="text-[#555555]" />
-                  <span className="font-bold text-[#FFFFFF]">{fmt(headerDls)}</span>
-                </span>
-                {headerFollows != null && (
-                  <span className="flex items-center gap-1.5" title={`${(headerFollows || 0).toLocaleString()} followers`}>
-                    <Heart size={13} className="text-[#555555]" />
-                    <span className="font-bold text-[#FFFFFF]">{fmt(headerFollows)}</span>
+                <Tooltip content={`${(headerDls || 0).toLocaleString()} downloads`} side="bottom" align="start">
+                  <span className="flex items-center gap-1.5">
+                    <Download size={13} className="text-[#555555]" />
+                    <span className="font-bold text-[#FFFFFF]">{fmt(headerDls)}</span>
                   </span>
+                </Tooltip>
+                {headerFollows != null && (
+                  <Tooltip content={`${(headerFollows || 0).toLocaleString()} followers`} side="bottom">
+                    <span className="flex items-center gap-1.5">
+                      <Heart size={13} className="text-[#555555]" />
+                      <span className="font-bold text-[#FFFFFF]">{fmt(headerFollows)}</span>
+                    </span>
+                  </Tooltip>
                 )}
                 {project?.updated && (
-                  <span className="flex items-center gap-1.5" title={`Updated ${fmtDateAbs(project.updated)}`}>
-                    <Calendar size={13} className="text-[#555555]" />
-                    Updated {fmtRelative(project.updated)}
-                  </span>
+                  <Tooltip content={`Updated ${fmtDateAbs(project.updated)}`} side="bottom">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar size={13} className="text-[#555555]" />
+                      Updated {fmtRelative(project.updated)}
+                    </span>
+                  </Tooltip>
                 )}
               </div>
             </div>

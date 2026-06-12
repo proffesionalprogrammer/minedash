@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, Trash2, Download, Plus, RotateCcw, CheckCircle2, Clock, Shield, ChevronDown, Check, Search, Pin, PinOff, Pencil, HardDrive, X, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';
+import Tooltip from './Tooltip';
 
 // ─── helpers ──────────────────────────────────────────────────
 function relativeTime(ms) {
@@ -547,9 +548,11 @@ function BackupsViewer({ serverId, server, onError }) {
             </div>
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-wider text-[#555555] font-bold">Last backup</p>
-              <p className="text-sm font-bold text-[#FFFFFF] truncate" title={stats.lastBackupMs ? new Date(stats.lastBackupMs).toLocaleString() : ''}>
-                {stats.lastBackupMs ? relativeTime(stats.lastBackupMs) : '—'}
-              </p>
+              <Tooltip content={stats.lastBackupMs ? new Date(stats.lastBackupMs).toLocaleString() : ''} align="start" className="w-full min-w-0">
+                <p className="text-sm font-bold text-[#FFFFFF] truncate w-full">
+                  {stats.lastBackupMs ? relativeTime(stats.lastBackupMs) : '—'}
+                </p>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -636,48 +639,53 @@ function BackupsViewer({ serverId, server, onError }) {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-[#A0A0A0] mt-1 truncate" title={new Date(dateMs).toLocaleString()}>
+                      <p className="text-xs text-[#A0A0A0] mt-1 truncate">
                         {backup.size} · {relativeTime(dateMs)} · <span className="text-[#555555]">{new Date(dateMs).toLocaleString()}</span>
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 ml-2">
-                    <button
-                      onClick={() => handleTogglePin(backup)}
-                      className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${backup.pinned ? 'text-amber-400 hover:bg-amber-500/10' : 'text-[#555555] opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:bg-amber-500/10'}`}
-                      title={backup.pinned ? 'Unpin (allow auto-cleanup)' : 'Pin (protect from auto-cleanup)'}
-                    >
-                      {backup.pinned ? <Pin size={18} /> : <PinOff size={18} />}
-                    </button>
-                    <button
-                      onClick={() => openRename(backup)}
-                      className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
-                      title="Rename"
-                    >
-                      <Pencil size={18} />
-                    </button>
-                    <button
-                      onClick={() => setRestoreTarget(backup.name)}
-                      className="p-2 text-[#A0A0A0] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
-                      title="Restore Backup"
-                    >
-                      <RotateCcw size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleDownload(backup.name)}
-                      className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
-                      title="Download Backup"
-                    >
-                      <Download size={18} />
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget(backup.name)}
-                      className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
-                      title="Delete Backup"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    <Tooltip content={backup.pinned ? 'Unpin (allow auto-cleanup)' : 'Pin (protect from auto-cleanup)'}>
+                      <button
+                        onClick={() => handleTogglePin(backup)}
+                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${backup.pinned ? 'text-amber-400 hover:bg-amber-500/10' : 'text-[#555555] opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:bg-amber-500/10'}`}
+                      >
+                        {backup.pinned ? <Pin size={18} /> : <PinOff size={18} />}
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Rename">
+                      <button
+                        onClick={() => openRename(backup)}
+                        className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                      >
+                        <Pencil size={18} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Restore Backup">
+                      <button
+                        onClick={() => setRestoreTarget(backup.name)}
+                        className="p-2 text-[#A0A0A0] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                      >
+                        <RotateCcw size={18} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Download Backup">
+                      <button
+                        onClick={() => handleDownload(backup.name)}
+                        className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                      >
+                        <Download size={18} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Delete Backup" align="end">
+                      <button
+                        onClick={() => setDeleteTarget(backup.name)}
+                        className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </Tooltip>
                   </div>
                 </motion.div>
               );

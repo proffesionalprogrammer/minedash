@@ -10,6 +10,7 @@ import Select from './Select';
 import SkinHead from './SkinHead';
 import JavaRuntimeModal from './JavaRuntimeModal';
 import InstanceWorldsModal from './InstanceWorldsModal';
+import Tooltip from './Tooltip';
 
 // Loader → icon for cards that don't have a modpack icon. Same lucide set as
 // PlaySection's loader tab strip so the visual language is consistent.
@@ -559,15 +560,16 @@ function InstanceCard({
           </span>
         )}
         {packUpdate && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onUpdatePack?.(); }}
-            disabled={busy}
-            title={`Modpack update available: ${packUpdate.availableVersionNumber}`}
-            className="absolute top-2 right-2 z-10 flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-1 rounded-md border bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 transition-colors disabled:opacity-60"
-          >
-            {busy ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
-            v{packUpdate.availableVersionNumber}
-          </button>
+          <Tooltip content="Modpack update available" side="bottom" align="end" className="absolute top-2 right-2 z-10">
+            <button
+              onClick={(e) => { e.stopPropagation(); onUpdatePack?.(); }}
+              disabled={busy}
+              className="flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-1 rounded-md border bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 transition-colors disabled:opacity-60"
+            >
+              {busy ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+              v{packUpdate.availableVersionNumber}
+            </button>
+          </Tooltip>
         )}
 
         {/* Launch progress overlay — replaces the play button while this
@@ -612,7 +614,6 @@ function InstanceCard({
             disabled={playDisabled}
             whileHover={playDisabled ? {} : { scale: 1.05 }}
             whileTap={playDisabled ? {} : { scale: 0.95 }}
-            title={playDisabled ? 'Another instance is launching…' : 'Play'}
             className={`absolute inset-0 flex items-center justify-center bg-[#000000]/60 transition-opacity ${
               playDisabled ? 'opacity-0 cursor-not-allowed' : 'opacity-0 group-hover:opacity-100'
             }`}
@@ -655,9 +656,11 @@ function InstanceCard({
             </button>
           </div>
         ) : (
-          <p className="text-sm font-bold text-[#FFFFFF] truncate" title={inst.displayName}>
-            {inst.displayName}
-          </p>
+          <Tooltip content={inst.displayName} align="start" className="w-full min-w-0">
+            <p className="text-sm font-bold text-[#FFFFFF] truncate w-full">
+              {inst.displayName}
+            </p>
+          </Tooltip>
         )}
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1 text-[10px] text-[#A0A0A0] font-bold truncate">

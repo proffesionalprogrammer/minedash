@@ -4,6 +4,7 @@ import {
   Download, Loader2, Calendar, ChevronDown, Gamepad2, Wrench,
 } from 'lucide-react';
 import { LOADER_LABELS, fmt, fmtBytes, fmtRelative, fmtDateAbs } from './modrinthFormat';
+import Tooltip from './Tooltip';
 
 // The changelog body is markdown — lazy-loaded so react-markdown stays out of
 // the main bundle (a row's changelog only renders once the row is expanded).
@@ -33,13 +34,18 @@ export function VersionRow({
     : 'bg-[#2D2D2D] text-[#A0A0A0] border-[#2D2D2D]';
 
   return (
+    // Tooltip renders bare children when content is falsy, so compatible rows
+    // carry no wrapper-induced tooltip.
+    <Tooltip
+      content={isCompat ? '' : `Not compatible with your selected ${loaderContext ? `${LOADER_LABELS[loaderContext] || loaderContext} ` : ''}${versionContext || 'profile'}`}
+      className="w-full"
+    >
     <div
-      className={`rounded-xl border transition-colors ${
+      className={`w-full rounded-xl border transition-colors ${
         expanded
           ? 'border-[#00AF5C]/30 bg-[#1E1E1E]'
           : 'border-[#2D2D2D] bg-[#1A1A1A] hover:border-[#555555]'
       } ${isCompat ? '' : 'opacity-50'}`}
-      title={isCompat ? undefined : `Not compatible with your selected ${loaderContext ? `${LOADER_LABELS[loaderContext] || loaderContext} ` : ''}${versionContext || 'profile'}`}
     >
       <div className="flex items-center gap-3 px-3 py-2">
         <button
@@ -57,24 +63,30 @@ export function VersionRow({
         </button>
         <div className="flex items-center gap-3 text-[11px] text-[#A0A0A0] tabular-nums flex-shrink-0">
           {mcVers.length > 0 && (
-            <span className="flex items-center gap-1" title={`MC: ${mcVers.join(', ')}`}>
-              <Gamepad2 size={11} className="text-[#555555]" />
-              {mcVers.length === 1 ? mcVers[0] : `${mcVers[0]}+${mcVers.length - 1}`}
-            </span>
+            <Tooltip content={`MC: ${mcVers.join(', ')}`}>
+              <span className="flex items-center gap-1">
+                <Gamepad2 size={11} className="text-[#555555]" />
+                {mcVers.length === 1 ? mcVers[0] : `${mcVers[0]}+${mcVers.length - 1}`}
+              </span>
+            </Tooltip>
           )}
           {loaders.length > 0 && (
-            <span className="flex items-center gap-1" title={`Loaders: ${loaders.join(', ')}`}>
-              <Wrench size={11} className="text-[#555555]" />
-              {loaders.length === 1 ? (LOADER_LABELS[loaders[0]] || loaders[0]) : `${loaders.length} loaders`}
-            </span>
+            <Tooltip content={`Loaders: ${loaders.join(', ')}`}>
+              <span className="flex items-center gap-1">
+                <Wrench size={11} className="text-[#555555]" />
+                {loaders.length === 1 ? (LOADER_LABELS[loaders[0]] || loaders[0]) : `${loaders.length} loaders`}
+              </span>
+            </Tooltip>
           )}
           {size > 0 && (
             <span className="text-[#555555]">{fmtBytes(size)}</span>
           )}
-          <span className="flex items-center gap-1" title={fmtDateAbs(version.date_published)}>
-            <Calendar size={11} className="text-[#555555]" />
-            {fmtRelative(version.date_published)}
-          </span>
+          <Tooltip content={fmtDateAbs(version.date_published)}>
+            <span className="flex items-center gap-1">
+              <Calendar size={11} className="text-[#555555]" />
+              {fmtRelative(version.date_published)}
+            </span>
+          </Tooltip>
           {Number.isFinite(version.downloads) && (
             <span className="flex items-center gap-1">
               <Download size={11} className="text-[#555555]" />
@@ -129,5 +141,6 @@ export function VersionRow({
         )}
       </AnimatePresence>
     </div>
+    </Tooltip>
   );
 }

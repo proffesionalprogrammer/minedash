@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles, ChevronUp, ChevronDown, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Tooltip from './Tooltip';
 
 // Branded number input — replaces the OS-default spinner arrows (which render
 // in light grey and clash with the dark theme) with stacked chevron buttons
@@ -106,21 +107,22 @@ export default function SettingsMenu({ settings, onChange, onError }) {
 
   return (
     <div className="relative" ref={wrapperRef}>
-      <motion.button
-        onClick={() => setOpen(v => !v)}
-        animate={{ rotate: open ? 45 : 0 }}
-        whileHover={{ scale: 1.05, rotate: open ? 45 : 30 }}
-        whileTap={{ scale: 0.95 }}
-        transition={{ type: 'tween', duration: 0.08 }}
-        title="Settings"
-        className={`p-2.5 rounded-2xl border transition-all duration-200 ${
-          open
-            ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-            : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
-        }`}
-      >
-        <Settings size={18} />
-      </motion.button>
+      <Tooltip content="Settings" side="bottom" align="end">
+        <motion.button
+          onClick={() => setOpen(v => !v)}
+          animate={{ rotate: open ? 45 : 0 }}
+          whileHover={{ scale: 1.05, rotate: open ? 45 : 30 }}
+          whileTap={{ scale: 0.95 }}
+          transition={{ type: 'tween', duration: 0.08 }}
+          className={`p-2.5 rounded-2xl border transition-all duration-200 ${
+            open
+              ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
+              : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
+          }`}
+        >
+          <Settings size={18} />
+        </motion.button>
+      </Tooltip>
 
       <AnimatePresence>
         {open && (

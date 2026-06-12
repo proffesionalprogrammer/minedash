@@ -425,24 +425,24 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
               </div>
               {/* Radmin VPN join address chip — click to copy */}
               {primaryAddress ? (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handleCopyAddress}
-                  title={addressCopied ? 'Copied!' : 'Click to copy Radmin VPN address'}
-                  className={`mt-1 self-start flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${addressCopied ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]' : 'bg-[#1A1A1A] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'}`}
-                >
-                  <span className="text-[#555555]">Radmin VPN:</span>
-                  <span className="tabular-nums">{primaryAddress}</span>
-                  {addressCopied ? <Check size={12} /> : <Copy size={12} className="opacity-60" />}
-                </motion.button>
+                <Tooltip content={addressCopied ? 'Copied!' : 'Click to copy Radmin VPN address'} side="bottom" align="start" className="mt-1 self-start">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={handleCopyAddress}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${addressCopied ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]' : 'bg-[#1A1A1A] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'}`}
+                  >
+                    <span className="text-[#555555]">Radmin VPN:</span>
+                    <span className="tabular-nums">{primaryAddress}</span>
+                    {addressCopied ? <Check size={12} /> : <Copy size={12} className="opacity-60" />}
+                  </motion.button>
+                </Tooltip>
               ) : (
-                <span
-                  title="Install and start Radmin VPN to share a joinable address."
-                  className="mt-1 self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border bg-[#1A1A1A] border-[#2D2D2D] text-[#555555]"
-                >
-                  Radmin VPN: not detected
-                </span>
+                <Tooltip content="Install and start Radmin VPN to share a joinable address." side="bottom" align="start" className="mt-1 self-start">
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border bg-[#1A1A1A] border-[#2D2D2D] text-[#555555]">
+                    Radmin VPN: not detected
+                  </span>
+                </Tooltip>
               )}
             </div>
           </div>

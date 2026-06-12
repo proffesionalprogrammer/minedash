@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, Plus, Server, Flame, Link as LinkIcon, Gamepad2, Settings, Trash2, Copy, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { staggerContainer, staggerItem, modalBackdrop, modalPanel } from '../lib/motion';
+import Tooltip from './Tooltip';
 
 export default function ServersList({ servers, onSelect, onCreateClick }) {
   const [search, setSearch] = useState('');
@@ -286,20 +287,22 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
                       Online
                     </div>
                   )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); openClone(server); }}
-                    className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    title="Clone Server"
-                  >
-                    <Copy size={18} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(server); }}
-                    className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    title="Delete Server"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <Tooltip content="Clone Server">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openClone(server); }}
+                      className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <Copy size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete Server" align="end">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(server); }}
+                      className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </Tooltip>
                 </div>
               </motion.div>
             ))}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Wifi, WifiOff, Copy, Check, Monitor, Gamepad2, RefreshCw } from 'lucide-react';
 import { staggerContainer, staggerItem } from '../lib/motion';
+import Tooltip from './Tooltip';
 
 function NetworkPanel({ serverId, server, socket }) {
   const [addresses, setAddresses] = useState([]);
@@ -56,11 +57,11 @@ function NetworkPanel({ serverId, server, socket }) {
           <Wifi size={18} className="text-[#A0A0A0]" />
           <h3 className="font-bold text-[#FFFFFF]">Connection Info</h3>
         </div>
+        <Tooltip content="Refresh" align="end">
         <motion.button
           onClick={fetchNetworkInfo}
           whileTap={{ scale: 0.9 }}
           className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all"
-          title="Refresh"
         >
           <motion.span
             className="block"
@@ -70,6 +71,7 @@ function NetworkPanel({ serverId, server, socket }) {
             <RefreshCw size={16} />
           </motion.span>
         </motion.button>
+        </Tooltip>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
@@ -140,17 +142,18 @@ function NetworkPanel({ serverId, server, socket }) {
                           <p className="text-xs text-[#555555] mt-0.5">{addr.name}</p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => copyText(`${addr.ip}:${serverPort}`, `lan-${i}`)}
-                        className="p-2.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                        title="Copy address"
-                      >
-                        {copied === `lan-${i}` ? (
-                          <Check size={16} className="text-[#00AF5C]" />
-                        ) : (
-                          <Copy size={16} />
-                        )}
-                      </button>
+                      <Tooltip content="Copy address" align="end">
+                        <button
+                          onClick={() => copyText(`${addr.ip}:${serverPort}`, `lan-${i}`)}
+                          className="p-2.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          {copied === `lan-${i}` ? (
+                            <Check size={16} className="text-[#00AF5C]" />
+                          ) : (
+                            <Copy size={16} />
+                          )}
+                        </button>
+                      </Tooltip>
                     </motion.div>
                   ))}
                 </motion.div>

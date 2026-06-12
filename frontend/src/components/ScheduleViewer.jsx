@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Plus, Trash2, Power, X, Clock, Archive, RefreshCw, Terminal, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';
+import Tooltip from './Tooltip';
 
 const TASK_TYPES = [
   { value: 'backup', label: 'Create Backup', icon: Archive, desc: 'Run an auto-backup at this time' },
@@ -207,20 +208,22 @@ export default function ScheduleViewer({ serverId, onError }) {
                   </div>
 
                   <div className="flex items-center gap-1 ml-2">
-                    <button
-                      onClick={() => toggleEnabled(task)}
-                      title={task.enabled ? 'Disable task' : 'Enable task'}
-                      className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${task.enabled ? 'text-[#00AF5C] hover:bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0] hover:bg-[#2D2D2D]'}`}
-                    >
-                      <Power size={18} />
-                    </button>
-                    <button
-                      onClick={() => deleteTask(task)}
-                      title="Delete task"
-                      className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    <Tooltip content={task.enabled ? 'Disable task' : 'Enable task'}>
+                      <button
+                        onClick={() => toggleEnabled(task)}
+                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${task.enabled ? 'text-[#00AF5C] hover:bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0] hover:bg-[#2D2D2D]'}`}
+                      >
+                        <Power size={18} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Delete task" align="end">
+                      <button
+                        onClick={() => deleteTask(task)}
+                        className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </Tooltip>
                   </div>
                 </motion.div>
               );
@@ -339,15 +342,15 @@ export default function ScheduleViewer({ serverId, onError }) {
                     {DAYS.map(d => {
                       const selected = form.days.includes(d.value);
                       return (
-                        <button
-                          key={d.value}
-                          type="button"
-                          onClick={() => toggleDay(d.value)}
-                          className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${selected ? 'bg-[#00AF5C]/10 border-[#00AF5C]/40 text-[#00AF5C]' : 'bg-[#111111] border-[#2D2D2D] text-[#A0A0A0] hover:border-[#555555]'}`}
-                          title={d.label}
-                        >
-                          {d.short}
-                        </button>
+                        <Tooltip key={d.value} content={d.label}>
+                          <button
+                            type="button"
+                            onClick={() => toggleDay(d.value)}
+                            className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${selected ? 'bg-[#00AF5C]/10 border-[#00AF5C]/40 text-[#00AF5C]' : 'bg-[#111111] border-[#2D2D2D] text-[#A0A0A0] hover:border-[#555555]'}`}
+                          >
+                            {d.short}
+                          </button>
+                        </Tooltip>
                       );
                     })}
                   </div>

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Search, Plus, Loader2, Check, Box, Layers, Hammer, FlaskConical, Download, ScrollText,
 } from 'lucide-react';
+import Tooltip from './Tooltip';
 
 // CurseForge-style modal: "Install <project> — pick a profile to install into"
 // Used for Mod / Resource Pack / Shader / Data Pack installs from the Browse
@@ -401,15 +402,16 @@ export default function ProfilePickerModal({
 
         {/* Footer actions */}
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-[#2D2D2D]">
-          <button
-            onClick={() => { setCreatingNew(c => !c); setNewName(''); }}
-            disabled={!suggestion || installing}
-            title={suggestion ? `New ${LOADER_LABEL[suggestion.loader] || suggestion.loader} ${suggestion.version} profile` : 'No compatible loader/version available'}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] rounded-xl transition-colors disabled:opacity-40"
-          >
-            <Plus size={14} />
-            New Profile
-          </button>
+          <Tooltip content={suggestion ? `New ${LOADER_LABEL[suggestion.loader] || suggestion.loader} ${suggestion.version} profile` : 'No compatible loader/version available'} align="start">
+            <button
+              onClick={() => { setCreatingNew(c => !c); setNewName(''); }}
+              disabled={!suggestion || installing}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] rounded-xl transition-colors disabled:opacity-40"
+            >
+              <Plus size={14} />
+              New Profile
+            </button>
+          </Tooltip>
           <motion.button
             onClick={handleInstall}
             disabled={!selectedId || installing}
