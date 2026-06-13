@@ -2,6 +2,15 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.2 — 2026-06-12
+
+### Fixed
+
+- **Tooltips no longer get clipped behind cards.** The new branded tooltips were being cut off or hidden behind neighbouring rows when they appeared inside a card — in Browse especially. They now float cleanly above everything, wherever they're triggered.
+- **Smoother tab underline in project details.** The green bar under the Description / Gallery / Versions / Dependencies tabs now glides between tabs instead of jumping around when you switch.
+
+---
+
 ## v1.1.1 — 2026-06-12
 
 ### Changed

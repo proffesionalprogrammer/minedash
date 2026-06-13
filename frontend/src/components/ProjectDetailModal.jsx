@@ -459,6 +459,7 @@ export default function ProjectDetailModal({
                         <motion.span
                           layoutId="projectDetailTabIndicator"
                           className="absolute left-2 right-2 -bottom-px h-0.5 bg-[#00AF5C] rounded-full"
+                          transition={{ type: 'spring', stiffness: 500, damping: 35, mass: 0.8 }}
                         />
                       )}
                     </button>
