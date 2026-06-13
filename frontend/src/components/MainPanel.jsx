@@ -10,6 +10,7 @@ import BackupsViewer from './BackupsViewer';
 import OptionsViewer from './OptionsViewer';
 import PlayersViewer from './PlayersViewer';
 import NetworkPanel from './NetworkPanel';
+import MapViewer from './MapViewer';
 import ActivityTimeline from './ActivityTimeline';
 import ScheduleViewer from './ScheduleViewer';
 import ModalPortal from './ModalPortal';
@@ -259,6 +260,8 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
     { key: 'activity', label: 'Activity' },
     // Vanilla has no mod/plugin support — hide the tab entirely
     ...(!isVanilla ? [{ key: 'mods', label: contentTabLabel }] : []),
+    // Live world map (BlueMap) needs a loader/plugin platform — hidden on vanilla
+    ...(!isVanilla ? [{ key: 'map', label: 'Map' }] : []),
     { key: 'backups', label: 'Backups' },
     { key: 'schedule', label: 'Schedule' },
     { key: 'network', label: 'Network' },
@@ -668,6 +671,9 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
             )}
             {activeTab === 'mods' && !isPaper && !isVanilla && (
               <ModsViewer serverId={server.id} serverVersion={server.version} serverType={server.type} socket={socket} onError={onError} modpackInstalls={modpackInstalls} onOpenDetail={onOpenDetail} />
+            )}
+            {activeTab === 'map' && !isVanilla && (
+              <MapViewer serverId={server.id} server={server} socket={socket} onError={onError} />
             )}
             {activeTab === 'backups' && <BackupsViewer serverId={server.id} server={server} onError={onError} />}
             {activeTab === 'schedule' && <ScheduleViewer serverId={server.id} onError={onError} />}

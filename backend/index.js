@@ -4158,6 +4158,210 @@ app.post('/api/servers/:serverId/plugins/install-hangar', async (req, res) => {
 });
 
 
+// ─── Live World Map (BlueMap) ────────────────────────────────────────────────
+// MineDash auto-installs BlueMap (the 3D web map) for a server, points its
+// integrated webserver at a free per-server port, and the frontend embeds that
+// in an iframe. Reuses the Modrinth install pipeline — no new npm dependency.
+const BLUEMAP_DEFAULT_PORT = 8100;
+
+// Maps a MineDash server type → the Modrinth loader tags BlueMap publishes under
+// and the folder its jar belongs in. Returns null for unsupported (vanilla).
+function bluemapTargetFor(type) {
+  const t = (type || '').toLowerCase();
+  if (t === 'paper') return { loaders: ['paper', 'spigot', 'bukkit', 'purpur'], dir: 'plugins' };
+  if (t === 'fabric') return { loaders: ['fabric'], dir: 'mods' };
+  if (t === 'forge') return { loaders: ['forge'], dir: 'mods' };
+  if (t === 'neoforge') return { loaders: ['neoforge'], dir: 'mods' };
+  return null;
+}
+
+// Resolves true if a TCP port is currently bindable on all interfaces.
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once('error', () => resolve(false));
+    tester.once('listening', () => tester.close(() => resolve(true)));
+    tester.listen(port, '0.0.0.0');
+  });
+}
+
+// Picks a stable webserver port for this server: skips ports already reserved by
+// other servers (their BlueMap may be stopped right now, so OS-free isn't enough)
+// and confirms the candidate is bindable.
+async function pickBlueMapPort(servers, currentId) {
+  const reserved = new Set(
+    servers.filter(s => s.id !== currentId && s.bluemapPort).map(s => Number(s.bluemapPort))
+  );
+  for (let candidate = BLUEMAP_DEFAULT_PORT; candidate < BLUEMAP_DEFAULT_PORT + 200; candidate++) {
+    if (reserved.has(candidate)) continue;
+    if (await isPortFree(candidate)) return candidate;
+  }
+  return BLUEMAP_DEFAULT_PORT;
+}
+
+// Downloads the correct BlueMap build (loader-matched, game-version-matched) from
+// Modrinth into the server's mods/ or plugins/ folder and records its metadata.
+async function installBlueMap(serverConfig, serverPath) {
+  const target = bluemapTargetFor(serverConfig.type);
+  if (!target) throw new Error('Live map is not supported on vanilla servers.');
+
+  const gameVersion = serverConfig.version;
+
+  const projRes = await fetch(`${MODRINTH_API}/project/bluemap`, { headers: MODRINTH_HEADERS });
+  if (!projRes.ok) throw new Error('Could not reach Modrinth to fetch BlueMap.');
+  const project = await projRes.json();
+
+  const vParams = new URLSearchParams();
+  if (gameVersion) vParams.set('game_versions', JSON.stringify([gameVersion]));
+  vParams.set('loaders', JSON.stringify(target.loaders));
+  const vRes = await fetch(`${MODRINTH_API}/project/${project.id}/version?${vParams}`, { headers: MODRINTH_HEADERS });
+  if (!vRes.ok) throw new Error('Could not fetch BlueMap versions.');
+  const versions = await vRes.json();
+  if (!Array.isArray(versions) || versions.length === 0) {
+    throw new Error(`No BlueMap build is available for ${serverConfig.type} ${gameVersion}.`);
+  }
+
+  const best = pickBestModrinthVersion(versions);
+  const file = (best.files || []).find(f => f.primary) || (best.files || [])[0];
+  if (!file) throw new Error('BlueMap version had no downloadable file.');
+
+  const destDir = path.join(serverPath, target.dir);
+  await fs.ensureDir(destDir);
+  const destPath = path.join(destDir, file.filename);
+
+  if (!await fs.pathExists(destPath)) {
+    const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+    if (!dlRes.ok) throw new Error('Failed to download BlueMap.');
+    await fs.writeFile(destPath, Buffer.from(await dlRes.arrayBuffer()));
+  }
+
+  // Record metadata so the jar is identified in the existing Mods/Plugins tab.
+  if (target.dir === 'mods') {
+    const meta = await readModMetadata(destDir);
+    meta[file.filename] = { iconUrl: project.icon_url || null, title: project.title || 'BlueMap', projectId: project.id };
+    await writeModMetadata(destDir, meta);
+  } else {
+    const metaPath = path.join(destDir, '.minedash-plugins.json');
+    let meta = {};
+    try { meta = await fs.readJson(metaPath); } catch (_) {}
+    meta[file.filename] = { title: project.title || 'BlueMap', slug: 'bluemap', iconUrl: project.icon_url || null, enabled: true };
+    await fs.writeJson(metaPath, meta, { spaces: 2 });
+  }
+
+  return { filename: file.filename, dir: target.dir };
+}
+
+// Sets `key: value` in a HOCON file, replacing the existing line if present
+// (handles both `key: x` and `key = x`) or appending it otherwise.
+function patchHoconKey(content, key, value) {
+  const re = new RegExp(`^(\\s*)${key}\\s*[:=].*$`, 'm');
+  if (re.test(content)) return content.replace(re, `$1${key}: ${value}`);
+  return content.replace(/\s*$/, '') + `\n${key}: ${value}\n`;
+}
+
+// Patches BlueMap's config so it will actually render (accept-download) and so
+// its integrated webserver listens on our assigned port. Config dir differs:
+// Paper plugin → plugins/BlueMap/, mod builds → config/bluemap/. Missing keys
+// fall back to BlueMap's own internal defaults.
+async function writeBlueMapConfig(serverPath, type, port) {
+  const cfgDir = (type || '').toLowerCase() === 'paper'
+    ? path.join(serverPath, 'plugins', 'BlueMap')
+    : path.join(serverPath, 'config', 'bluemap');
+  await fs.ensureDir(cfgDir);
+
+  const corePath = path.join(cfgDir, 'core.conf');
+  let core = '';
+  try { core = await fs.readFile(corePath, 'utf8'); } catch (_) {}
+  if (!core.trim()) core = '# Managed by MineDash\n';
+  core = patchHoconKey(core, 'accept-download', 'true');
+  await fs.writeFile(corePath, core);
+
+  const webPath = path.join(cfgDir, 'webserver.conf');
+  let web = '';
+  try { web = await fs.readFile(webPath, 'utf8'); } catch (_) {}
+  if (!web.trim()) web = '# Managed by MineDash\n';
+  web = patchHoconKey(web, 'enabled', 'true');
+  web = patchHoconKey(web, 'ip', '"0.0.0.0"');
+  web = patchHoconKey(web, 'port', String(port));
+  await fs.writeFile(webPath, web);
+
+  return cfgDir;
+}
+
+app.get('/api/servers/:id/map/status', async (req, res) => {
+  try {
+    const servers = await getServers();
+    const cfg = servers.find(s => s.id === req.params.id);
+    if (!cfg) return res.status(404).json({ error: 'Server not found' });
+    res.json({
+      supported: bluemapTargetFor(cfg.type) !== null,
+      enabled: !!cfg.bluemapEnabled,
+      installed: !!cfg.bluemapEnabled,
+      port: cfg.bluemapPort || null,
+      running: !!activeProcesses[req.params.id],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/servers/:id/map/enable', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const servers = await getServers();
+    const idx = servers.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Server not found' });
+    const cfg = servers[idx];
+    if (!bluemapTargetFor(cfg.type)) {
+      return res.status(400).json({ error: 'Live map is not supported on vanilla servers.' });
+    }
+
+    const serverPath = path.join(INSTANCES_DIR, id);
+    const installed = await installBlueMap(cfg, serverPath);
+
+    let port = Number(cfg.bluemapPort) || 0;
+    if (!port) port = await pickBlueMapPort(servers, id);
+    await writeBlueMapConfig(serverPath, cfg.type, port);
+
+    servers[idx].bluemapEnabled = true;
+    servers[idx].bluemapPort = port;
+    await saveServers(servers);
+    io.emit('server_updated', servers[idx]);
+
+    res.json({ success: true, port, installed: installed.filename, needsRestart: !!activeProcesses[id] });
+  } catch (err) {
+    console.error('Map enable error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/servers/:id/map/disable', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const servers = await getServers();
+    const idx = servers.findIndex(s => s.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Server not found' });
+
+    const target = bluemapTargetFor(servers[idx].type);
+    if (target) {
+      try {
+        const dir = path.join(INSTANCES_DIR, id, target.dir);
+        for (const f of await fs.readdir(dir)) {
+          if (/^bluemap.*\.jar$/i.test(f)) await fs.remove(path.join(dir, f));
+        }
+      } catch (_) {}
+    }
+
+    servers[idx].bluemapEnabled = false;
+    await saveServers(servers);
+    io.emit('server_updated', servers[idx]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // ─── Update server config (autoBackup, backupIntervalHours, keepLastNBackups, usePlayit) ─
 // Piggyback on the existing general settings endpoint pattern
 app.patch('/api/servers/:id/backup-settings', async (req, res) => {
