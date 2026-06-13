@@ -4239,6 +4239,14 @@ async function installBlueMap(serverConfig, serverPath) {
   if (target.dir === 'mods') {
     const meta = await readModMetadata(destDir);
     meta[file.filename] = { iconUrl: project.icon_url || null, title: project.title || 'BlueMap', projectId: project.id };
+    // BlueMap's mod builds need their required deps (Fabric API, etc.) or they
+    // won't load — install them the same way the dependency auto-installer does.
+    const reqDeps = (best.dependencies || [])
+      .filter(d => d.dependency_type === 'required' && d.project_id)
+      .map(d => d.project_id);
+    if (reqDeps.length) {
+      await resolveAndInstallDeps(reqDeps, gameVersion, target.loaders[0], destDir, meta, new Set([project.id]));
+    }
     await writeModMetadata(destDir, meta);
   } else {
     const metaPath = path.join(destDir, '.minedash-plugins.json');
