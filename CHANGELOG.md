@@ -2,6 +2,16 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.21 — 2026-06-13
+
+### Added
+
+- **Live World Map.** Every Paper, Fabric, Forge, and NeoForge server now has a **Map** tab. One click installs and configures [BlueMap](https://bluemap.bluecolored.de/) — along with anything it needs, like Fabric API — then embeds an explorable, 3D map of your world right inside MineDash, complete with live player markers. Share it with friends using the LAN or VPN link in the Map tab; they open it in any browser, no MineDash required.
+
+  Heads up: the map renders in the background, so on a brand-new world it can look **black for a minute** — it fills in as you and your players explore, and MineDash auto-refreshes the view so the first render shows up on its own. Regenerating a world now also clears the old map so the new one renders from scratch.
+
+---
+
 ## v1.1.2 — 2026-06-12
 
 ### Fixed

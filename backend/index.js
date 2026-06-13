@@ -3501,6 +3501,15 @@ app.post('/api/servers/:id/regenerate-world', async (req, res) => {
     try { if (await fs.pathExists(p)) await fs.remove(p); } catch {}
   }
 
+  // Purge BlueMap's rendered tiles + render-state so the new world renders from
+  // scratch instead of showing the old world's map. The config (port,
+  // accept-download) lives in config/bluemap or plugins/BlueMap and is left intact;
+  // the render data + webroot both live under <server>/bluemap/.
+  try {
+    const bluemapData = path.join(serverPath, 'bluemap');
+    if (await fs.pathExists(bluemapData)) await fs.remove(bluemapData);
+  } catch {}
+
   res.json({ success: true });
 });
 

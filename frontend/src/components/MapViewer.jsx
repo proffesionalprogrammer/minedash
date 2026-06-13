@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Map as MapIcon, Globe, Copy, Check, ExternalLink, RefreshCw,
-  Loader2, Play, RotateCw, AlertTriangle, Ban,
+  Loader2, Play, RotateCw, AlertTriangle, Ban, Info, X,
 } from 'lucide-react';
 import Tooltip from './Tooltip';
+
+const HINT_KEY = 'minedash-bluemap-hint-dismissed';
 
 const API = 'http://localhost:3001';
 
@@ -20,9 +22,19 @@ function MapViewer({ serverId, server, onError }) {
   const [addresses, setAddresses] = useState([]);
   const [copied, setCopied] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [hintDismissed, setHintDismissed] = useState(() => {
+    try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
+  });
+  const justEnabledRef = useRef(false);
+  const refreshTimers = useRef([]);
 
   const isOnline = server.status === 'online';
   const port = status?.port;
+
+  const dismissHint = () => {
+    setHintDismissed(true);
+    try { localStorage.setItem(HINT_KEY, '1'); } catch (_) {}
+  };
 
   const fetchStatus = async () => {
     try {
@@ -69,12 +81,27 @@ function MapViewer({ serverId, server, onError }) {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [status?.enabled, isOnline, port]);
 
+  // After a fresh enable, BlueMap's webserver is up immediately but the world
+  // render runs in the background — the embed loads black until tiles exist and
+  // the web app re-fetches them. Auto-reload the embed a couple of times so the
+  // first render appears without the user clicking reload. Scoped to the
+  // just-enabled session so it never resets the view on an already-rendered map.
+  useEffect(() => {
+    if (!mapReady || !justEnabledRef.current) return;
+    justEnabledRef.current = false;
+    refreshTimers.current = [45000, 90000].map(ms =>
+      setTimeout(() => setReloadKey(k => k + 1), ms)
+    );
+    return () => { refreshTimers.current.forEach(clearTimeout); refreshTimers.current = []; };
+  }, [mapReady]);
+
   const handleEnable = async () => {
     setEnabling(true);
     try {
       const res = await fetch(`${API}/api/servers/${serverId}/map/enable`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to enable the map');
+      justEnabledRef.current = true; // arm the post-render auto-refresh
       await fetchStatus();
     } catch (err) {
       onError?.(err.message);
@@ -228,7 +255,8 @@ function MapViewer({ serverId, server, onError }) {
         <h4 className="font-bold text-[#FFFFFF]">Waiting for the map…</h4>
         <p className="text-sm text-[#A0A0A0] max-w-md">
           BlueMap is starting its webserver on port <span className="font-mono text-[#FFFFFF]">{port}</span>.
-          The first full render can take a few minutes — the map will fill in as it builds.
+          The map can look <span className="text-[#FFFFFF]">black for a minute</span> while it renders —
+          it builds in the background and fills in as you explore the world. It'll refresh on its own.
         </p>
         <button
           onClick={handleStartOrRestart}
@@ -272,6 +300,32 @@ function MapViewer({ serverId, server, onError }) {
           ))}
         </div>
       )}
+      <AnimatePresence>
+        {!hintDismissed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-b border-[#00AF5C]/20 bg-[#00AF5C]/5"
+          >
+            <div className="flex items-start gap-2.5 px-6 py-2.5">
+              <Info size={15} className="text-[#00AF5C] mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-[#A0A0A0] flex-1">
+                New or freshly-enabled world? The map can be <span className="text-[#FFFFFF]">black for a minute</span> while
+                BlueMap renders in the background — it fills in as you explore. Hit
+                <RefreshCw size={11} className="inline mx-1 -mt-0.5 text-[#A0A0A0]" />
+                reload above if it looks empty.
+              </p>
+              <button
+                onClick={dismissHint}
+                className="p-1 text-[#555555] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-lg transition-all flex-shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex-1 bg-[#111111] min-h-0">
         <iframe
           key={reloadKey}

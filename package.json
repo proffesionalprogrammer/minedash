@@ -1,6 +1,6 @@
 {
   "name": "minedash",
-  "version": "1.1.2",
+  "version": "1.1.21",
   "description": "MineDash — Local Minecraft Server Manager",
   "main": "electron/main.js",
   "scripts": {
