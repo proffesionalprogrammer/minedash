@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Regex, ChevronUp, ChevronDown, X } from 'lucide-react';
 import Tooltip from '../Tooltip';
@@ -34,9 +33,6 @@ export default function ConsoleSearchBar({
   onSearchKeyDown,
   setCurrentMatchIdx,
 }) {
-  // The match-nav cluster animates its width open/closed inside overflow-hidden,
-  // which would clip the branded tooltips — flip overflow once the animation ends.
-  const [navOverflow, setNavOverflow] = useState('hidden');
   return (
     <div className="ml-auto flex items-center gap-2">
       {/* Level chips */}
@@ -99,14 +95,11 @@ export default function ConsoleSearchBar({
         <AnimatePresence initial={false}>
           {searchQuery && (
             <motion.div
-              className="flex items-center gap-1.5"
-              style={{ overflow: navOverflow }}
+              className="flex items-center gap-1.5 overflow-hidden"
               initial={{ opacity: 0, width: 0 }}
               animate={{ opacity: 1, width: 'auto' }}
               exit={{ opacity: 0, width: 0 }}
               transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-              onAnimationStart={() => setNavOverflow('hidden')}
-              onAnimationComplete={() => setNavOverflow('visible')}
             >
               <motion.span
                 key={`${currentMatchIdx}/${matchCount}`}
