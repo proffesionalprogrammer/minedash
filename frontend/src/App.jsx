@@ -25,6 +25,7 @@ const InstancesSection = lazy(() => import('./components/InstancesSection'));
 const SettingsPage = lazy(() => import('./components/SettingsPage'));
 const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 const ProjectDetailModal = lazy(() => import('./components/ProjectDetailModal'));
+const JoinSessionModal = lazy(() => import('./components/JoinSessionModal'));
 
 const socket = io('http://localhost:3001');
 
@@ -147,6 +148,7 @@ function App() {
   const [view, setView] = useState('play'); // 'play' | 'servers'
   const [playInitialServerId, setPlayInitialServerId] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [error, setError] = useState(null);
   const [javaModal, setJavaModal] = useState(null);
   // Last servers payload from the 3s poll — used to skip identical updates so
@@ -695,6 +697,7 @@ function App() {
                 servers={servers}
                 onSelect={setSelectedServer}
                 onCreateClick={() => setIsCreateModalOpen(true)}
+                onJoinClick={() => setIsJoinModalOpen(true)}
               />
             </motion.div>
           )}
@@ -722,6 +725,17 @@ function App() {
               onCreate={handleCreateServer}
               existingNames={servers.map(s => s.name.toLowerCase())}
               requestJavaGate={showJavaGate}
+            />
+          </Suspense>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isJoinModalOpen && (
+          <Suspense fallback={null}>
+            <JoinSessionModal
+              socket={socket}
+              onClose={() => setIsJoinModalOpen(false)}
             />
           </Suspense>
         )}

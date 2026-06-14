@@ -2,6 +2,14 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.22 — 2026-06-14
+
+### Added
+
+- **Play with friends — no Radmin needed (Beta).** A new way to let a friend join your server straight through MineDash. In the **Network** tab, click **Host a direct session** and send your friend the invite code — they paste it under **Join a friend**, send the reply code back, and they're connected. No VPN, no router setup. You both need MineDash, and on very strict networks it might not connect yet — Radmin VPN is still there as a fallback.
+
+---
+
 ## v1.1.21 — 2026-06-13
 
 ### Added

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Search, Plus, Server, Flame, Link as LinkIcon, Gamepad2, Settings, Trash2, Copy, X, Loader2 } from 'lucide-react';
+import { Search, Plus, Server, Flame, Link as LinkIcon, Gamepad2, Settings, Trash2, Copy, X, Loader2, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { staggerContainer, staggerItem, modalBackdrop, modalPanel } from '../lib/motion';
 import Tooltip from './Tooltip';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
 
-export default function ServersList({ servers, onSelect, onCreateClick }) {
+export default function ServersList({ servers, onSelect, onCreateClick, onJoinClick }) {
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -200,6 +200,13 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
               <Plus size={20} />
               Create New Server
             </motion.button>
+            <button
+              onClick={onJoinClick}
+              className="flex items-center gap-2 text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+            >
+              <Zap size={16} className="text-[#00AF5C]" />
+              Join a friend's session
+            </button>
           </motion.div>
 
           <div className="absolute bottom-8 flex items-center gap-2 text-[#333333] text-xs">
@@ -221,6 +228,14 @@ export default function ServersList({ servers, onSelect, onCreateClick }) {
                   className="w-full bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl pl-10 pr-4 py-2.5 text-[#FFFFFF] focus:outline-none focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 transition-all duration-300 text-sm"
                 />
               </div>
+
+              <button
+                onClick={onJoinClick}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl transition-all duration-200 shadow-sm font-bold text-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
+              >
+                <Zap size={18} className="text-[#00AF5C]" />
+                Join a friend
+              </button>
 
               <button
                 onClick={onCreateClick}

@@ -1,6 +1,6 @@
 {
   "name": "minedash",
-  "version": "1.1.21",
+  "version": "1.1.22",
   "description": "MineDash — Local Minecraft Server Manager",
   "main": "electron/main.js",
   "scripts": {
@@ -16,11 +16,11 @@
     "electron-builder": "^24.13.3"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9",
     "adm-zip": "^0.5.17",
     "archiver": "^7.0.1",
     "axios": "^1.16.0",
     "cors": "^2.8.6",
+    "electron-updater": "^6.3.9",
     "express": "^5.2.1",
     "extract-zip": "^2.0.1",
     "fs-extra": "^11.3.4",
@@ -30,7 +30,8 @@
     "node-os-utils": "^2.0.3",
     "pidusage": "^4.0.1",
     "pngjs": "^7.0.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "werift": "^0.23.0"
   },
   "build": {
     "appId": "com.minedash.app",

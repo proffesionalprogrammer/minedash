@@ -4677,6 +4677,11 @@ launcher.init({
 });
 launcher.register(app);
 
+// ─── MineDash Connect (zero-infra P2P tunnel — friends connect without Radmin) ─
+const connect = require('./connect');
+connect.init({ io, getServerPort });
+connect.register(app);
+
 // Warm the authlib-injector JAR at boot so server-side Ely.by-skin injection
 // (in startProcess) has a ready file path without doing async work mid-spawn.
 // Best-effort — if it fails, servers with the toggle on just won't inject.
