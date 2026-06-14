@@ -76,7 +76,11 @@ export default function JoinSessionModal({ socket, onClose }) {
     setInviteInput('');
   };
 
-  const address = localPort != null ? `localhost:${localPort}` : '';
+  // Use 127.0.0.1 (not "localhost"): the tunnel listener binds IPv4 loopback, but
+  // on many Windows machines "localhost" resolves to IPv6 ::1 first — Minecraft
+  // then connects to [::1]:port, nothing is listening there, and Java reports a
+  // "Connection refused: getsockopt". 127.0.0.1 forces the matching IPv4 path.
+  const address = localPort != null ? `127.0.0.1:${localPort}` : '';
 
   return (
     <ModalPortal>

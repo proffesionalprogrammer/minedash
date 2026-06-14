@@ -273,7 +273,10 @@ function register(app) {
 
       // Friend opens one channel per MC socket; bridge each to the local server.
       pc.ondatachannel = (e) => { if (e.channel.label !== 'ctrl') bridgeHostChannel(session, e.channel); };
-      wireConnectionState(id, pc);
+      // Host has no per-connect work (the friend stands up the listener), but it
+      // must still flip its own UI to 'connected' — otherwise it sits on
+      // 'connecting' forever even though the tunnel is live.
+      wireConnectionState(id, pc, () => emitStatus(id, 'connected'));
 
       // 'ctrl' channel is never used for data — it just forces SCTP into the offer
       // SDP so the friend (answerer) can open channels later.

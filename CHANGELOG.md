@@ -2,6 +2,15 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.24 — 2026-06-14
+
+### Fixed
+
+- **MineDash Connect: friends can actually join now.** Joining a hosted session no longer fails in Minecraft with a "getsockopt" / connection-refused error. The join address now uses `127.0.0.1` instead of `localhost` — on many Windows PCs `localhost` resolved to IPv6 (`::1`), where the tunnel wasn't listening.
+- **MineDash Connect: the host now shows "Friend connected".** The host side previously stayed stuck on "Connecting…" even after the tunnel was live.
+
+---
+
 ## v1.1.23 — 2026-06-14
 
 ### Added
