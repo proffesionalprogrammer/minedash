@@ -15,7 +15,7 @@
 // Because there's no TURN relay this is P2P-only: symmetric-NAT / CGNAT pairs that
 // can't hole-punch fall back to Radmin (which is why that path is kept).
 //
-// Topology (validated against werift 0.23):
+// Topology (validated against node-datachannel 0.32):
 //   HOST  = offerer. Creates a 'ctrl' channel before the offer so SCTP is
 //           negotiated, then bridges every inbound RTCDataChannel to a fresh TCP
 //           socket dialed at 127.0.0.1:<server-port>.
@@ -30,7 +30,15 @@
 const net = require('net');
 const zlib = require('zlib');
 const crypto = require('crypto');
-const { RTCPeerConnection } = require('werift');
+// node-datachannel (libdatachannel, N-API) via its browser-compatible WebRTC
+// polyfill. We switched off werift because one of its transitive deps
+// (@shinyoshiaki/binary-data) resolves internal modules through a nested
+// src/node_modules directory that electron-builder strips out of app.asar —
+// which crashed the packaged backend on require (the whole app showed
+// "failed to fetch"). node-datachannel is a single self-contained native
+// module that electron-builder auto-unpacks, and the polyfill keeps the same
+// standard RTCPeerConnection API this module was written against.
+const { RTCPeerConnection } = require('node-datachannel/polyfill');
 
 let io = null;
 let getServerPort = null; // async (serverId) => number, injected from index.js
@@ -84,7 +92,8 @@ function decodeCode(code) {
   return obj;
 }
 
-// Normalise whatever a werift datachannel hands us into a Buffer.
+// Normalise whatever a datachannel hands us into a Buffer (ArrayBuffer when
+// binaryType is 'arraybuffer', or a Buffer/string).
 function toBuf(d) {
   if (Buffer.isBuffer(d)) return d;
   if (typeof d === 'string') return Buffer.from(d, 'utf8');
@@ -102,7 +111,7 @@ function sendChunked(dc, buf) {
 }
 
 // Backpressure on a socket→datachannel path: pause the socket when the channel's
-// buffer grows, resume once it drains. Poll-based so we don't depend on werift's
+// buffer grows, resume once it drains. Poll-based so we don't depend on the
 // bufferedAmountLow event firing semantics — the interval only runs while paused.
 function applyBackpressure(socket, dc) {
   if (dc.bufferedAmount <= HIGH_WATER || socket.isPaused()) return;
@@ -118,9 +127,10 @@ function waitGather(pc) {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') return resolve();
     const t = setTimeout(resolve, GATHER_TIMEOUT);
-    pc.onicegatheringstatechange = () => {
-      if (pc.iceGatheringState === 'complete') { clearTimeout(t); resolve(); }
-    };
+    const done = () => { clearTimeout(t); resolve(); };
+    pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') done(); };
+    // Fallback for the non-trickle case: a null candidate also signals "done".
+    pc.onicecandidate = (e) => { if (!e || !e.candidate) done(); };
   });
 }
 
@@ -181,6 +191,7 @@ function wireConnectionState(id, pc, onConnected) {
 
 function bridgeHostChannel(session, dc) {
   session.channels.add(dc);
+  dc.binaryType = 'arraybuffer';
   const socket = net.connect(session.serverPort, '127.0.0.1');
   session.sockets.add(socket);
 
@@ -209,6 +220,7 @@ function bridgeHostChannel(session, dc) {
 function bridgeFriendSocket(session, socket, dc) {
   session.sockets.add(socket);
   session.channels.add(dc);
+  dc.binaryType = 'arraybuffer';
 
   let dcOpen = false;
   const pending = []; // bytes from MC client that arrived before the channel opened

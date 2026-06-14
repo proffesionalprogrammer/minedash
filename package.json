@@ -1,6 +1,6 @@
 {
   "name": "minedash",
-  "version": "1.1.22",
+  "version": "1.1.23",
   "description": "MineDash — Local Minecraft Server Manager",
   "main": "electron/main.js",
   "scripts": {
@@ -27,11 +27,11 @@
     "minecraft-launcher-core": "^3.18.2",
     "msmc": "^4.1.0",
     "multer": "^2.1.1",
+    "node-datachannel": "^0.32.3",
     "node-os-utils": "^2.0.3",
     "pidusage": "^4.0.1",
     "pngjs": "^7.0.0",
-    "socket.io": "^4.8.3",
-    "werift": "^0.23.0"
+    "socket.io": "^4.8.3"
   },
   "build": {
     "appId": "com.minedash.app",
@@ -41,6 +41,9 @@
       "output": "dist-electron"
     },
     "asar": true,
+    "asarUnpack": [
+      "**/node_modules/node-datachannel/**"
+    ],
     "files": [
       "electron/**/*",
       "!electron/renderer/**",

@@ -2,7 +2,7 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
-## v1.1.22 — 2026-06-14
+## v1.1.23 — 2026-06-14
 
 ### Added
 
