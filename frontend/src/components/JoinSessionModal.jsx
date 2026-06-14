@@ -10,13 +10,15 @@ const API = 'http://localhost:3001';
 // Join a friend's MineDash Connect session. Zero-infra serverless WebRTC: paste
 // the host's invite code, get a reply code to send back, and once the host
 // applies it the tunnel comes up and Minecraft connects to a local port.
-export default function JoinSessionModal({ socket, onClose }) {
-  // paste | reply | connected | failed
-  const [step, setStep] = useState('paste');
+export default function JoinSessionModal({ socket, connectSession, onConnected, onDisconnect, onClose }) {
+  // paste | reply | connected | failed. Reopening the window while a tunnel is
+  // already live (the friend closed it to play, then came back) restores the
+  // connected view straight from the lifted session, instead of a fresh paste.
+  const [step, setStep] = useState(connectSession ? 'connected' : 'paste');
   const [inviteInput, setInviteInput] = useState('');
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(connectSession?.sessionId ?? null);
   const [replyCode, setReplyCode] = useState('');
-  const [localPort, setLocalPort] = useState(null);
+  const [localPort, setLocalPort] = useState(connectSession?.localPort ?? null);
   const [detail, setDetail] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(null);
@@ -32,12 +34,17 @@ export default function JoinSessionModal({ socket, onClose }) {
     if (!sessionId || !socket) return;
     const channel = `connect_status_${sessionId}`;
     const handler = (p) => {
-      if (p.state === 'connected') { setLocalPort(p.localPort); setStep('connected'); }
+      if (p.state === 'connected') {
+        setLocalPort(p.localPort);
+        setStep('connected');
+        // Lift the live session up so it outlives this window.
+        onConnected?.({ sessionId, localPort: p.localPort });
+      }
       else if (p.state === 'failed') { setDetail(p.detail || 'Connection failed.'); setStep('failed'); }
     };
     socket.on(channel, handler);
     return () => socket.off(channel, handler);
-  }, [sessionId, socket]);
+  }, [sessionId, socket, onConnected]);
 
   const submitInvite = async () => {
     const code = inviteInput.trim();
@@ -61,9 +68,20 @@ export default function JoinSessionModal({ socket, onClose }) {
     setBusy(false);
   };
 
+  // Closing the window must NOT kill a live tunnel — the friend has to leave
+  // this modal to reach the Launcher and start the game. Once connected the
+  // session is owned by App (and shown in the floating indicator); only an
+  // explicit Disconnect ends it. A not-yet-connected attempt is still torn
+  // down so abandoned half-handshakes don't linger.
   const close = async () => {
+    if (step === 'connected') { onClose(); return; }
     const id = sessionId;
     if (id) { try { await fetch(`${API}/api/connect/${id}`, { method: 'DELETE' }); } catch {} }
+    onClose();
+  };
+
+  const disconnect = async () => {
+    await onDisconnect?.();
     onClose();
   };
 
@@ -198,11 +216,17 @@ export default function JoinSessionModal({ socket, onClose }) {
                 </button>
               </div>
               <p className="text-xs text-[#555555] mt-3">
-                Keep this window open — closing it ends the connection.
+                You can close this window and head to the Launcher — the connection stays open until you disconnect.
               </p>
-              <div className="flex justify-end pt-5 mt-5 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
                 <button
-                  onClick={close}
+                  onClick={() => onClose()}
+                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={disconnect}
                   className="px-4 py-2 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 border border-[#FF5555]/20 text-[#FF5555] rounded-xl text-sm font-bold transition-all"
                 >
                   Disconnect

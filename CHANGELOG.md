@@ -2,6 +2,14 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.25 — 2026-06-14
+
+### Fixed
+
+- **MineDash Connect: joining a friend actually works now.** The tunnel was being torn down the moment you closed the "Join a friend" window — but since MineDash is also the launcher, you *had* to close it to start the game, so Minecraft always hit "Connection refused / getsockopt". The connection now stays alive after you close that window; a small **"Connected to friend"** indicator (bottom-left) shows the address and a Disconnect button while you play. Only Disconnect ends it.
+
+---
+
 ## v1.1.24 — 2026-06-14
 
 ### Fixed

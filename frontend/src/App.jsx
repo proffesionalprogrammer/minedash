@@ -11,6 +11,7 @@ import UpdateToast from './components/UpdateToast';
 import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
 import Tooltip from './components/Tooltip';
+import ConnectIndicator from './components/ConnectIndicator';
 import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -149,11 +150,40 @@ function App() {
   const [playInitialServerId, setPlayInitialServerId] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
+  // Friend tunnel (MineDash Connect, join side). Lifted out of JoinSessionModal
+  // so the connection survives closing that window — the friend MUST leave it to
+  // reach the Launcher and start the game. Only an explicit Disconnect ends it.
+  // Shape: { sessionId, localPort } | null.
+  const [connectSession, setConnectSession] = useState(null);
   const [error, setError] = useState(null);
   const [javaModal, setJavaModal] = useState(null);
   // Last servers payload from the 3s poll — used to skip identical updates so
   // the whole tree doesn't re-render when nothing changed.
   const lastServersJsonRef = useRef('');
+
+  // MineDash Connect (friend tunnel) — store the live session when the modal
+  // reports it connected; keep it alive after the modal closes.
+  const handleFriendConnected = useCallback((s) => setConnectSession(s), []);
+  const disconnectFriend = useCallback(async () => {
+    const id = connectSession?.sessionId;
+    setConnectSession(null);
+    if (id) { try { await fetch('http://localhost:3001/api/connect/' + id, { method: 'DELETE' }); } catch {} }
+  }, [connectSession?.sessionId]);
+
+  // Keep the tunnel's status live even while the Join window is closed so the
+  // floating indicator reflects drops and clears itself.
+  useEffect(() => {
+    const id = connectSession?.sessionId;
+    if (!id) return;
+    const channel = `connect_status_${id}`;
+    const handler = (p) => {
+      if (p.state === 'connected') setConnectSession((s) => (s ? { ...s, localPort: p.localPort } : s));
+      else if (p.state === 'failed') { setConnectSession(null); setError('MineDash Connect: the connection to your friend dropped.'); }
+      else if (p.state === 'closed') setConnectSession(null);
+    };
+    socket.on(channel, handler);
+    return () => socket.off(channel, handler);
+  }, [connectSession?.sessionId]);
 
   // Launcher accounts — lifted up so the header AccountMenu and PlaySection share state.
   const [accounts, setAccounts] = useState([]);
@@ -735,9 +765,20 @@ function App() {
           <Suspense fallback={null}>
             <JoinSessionModal
               socket={socket}
+              connectSession={connectSession}
+              onConnected={handleFriendConnected}
+              onDisconnect={disconnectFriend}
               onClose={() => setIsJoinModalOpen(false)}
             />
           </Suspense>
+        )}
+      </AnimatePresence>
+
+      {/* Live friend tunnel — visible while the Join window is closed so the
+          friend knows the connection is up (and can end it) while they play. */}
+      <AnimatePresence>
+        {connectSession && !isJoinModalOpen && (
+          <ConnectIndicator localPort={connectSession.localPort} onDisconnect={disconnectFriend} />
         )}
       </AnimatePresence>
 
