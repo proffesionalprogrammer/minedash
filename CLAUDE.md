@@ -37,6 +37,21 @@ npm run build              # builds frontend → electron/renderer/, then NSIS i
 
 There are no tests and no backend lint. Frontend has ESLint: `cd frontend && npm run lint`.
 
+## Working in parallel (multiple chats / worktrees)
+
+Multiple Claude sessions run against this repo, each in its own git worktree on a `claude/<name>` branch. **All worktrees of the same clone share one `.git`**, so every chat can already see every other chat's *committed* work — it just has to look:
+
+- `git worktree list` — every active worktree and the branch it's parked on.
+- `git log --all --oneline -20` — every commit on every branch, no matter which worktree made it.
+- `git branch -av` — branch tips and how far ahead/behind `main` each is.
+
+Two rules keep chats in sync:
+
+1. **`main` is the bulletin board — integrate through it.** At the start of a task (and periodically) run `git fetch && git merge origin/main` so you pick up everyone else's shipped work; when you finish, merge your branch back to `main`. A branch shown as `[behind N]` hasn't done this and is building on a stale base.
+2. **Log intent in the shared session journal** — `C:\Users\harish\.claude\projects\X--minedash-testing-hosting-server-v4\SESSION-JOURNAL.md`. It lives *outside* every worktree (uncommitted, in-progress work never crosses worktree boundaries via git), so it's the one place to see what other chats are *currently* doing. **Read it when you start a task; append a one-line dated entry when you pick up or finish one** (branch · files touched · status).
+
+Housekeeping: stale/`prunable` worktrees from old repo locations accumulate — `git worktree prune` clears them, and merged `claude/*` branches can be deleted.
+
 ## Architecture
 
 ### Three-process model
