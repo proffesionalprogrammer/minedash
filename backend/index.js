@@ -60,6 +60,47 @@ process.on('uncaughtException', (err) => {
 const app = express();
 const server = http.createServer(app);
 
+// ─── Async route safety net ────────────────────────────────────────────────────
+// Express 4 does not await route handlers, so a throw or rejected promise inside
+// an `async (req, res) => {…}` route never reaches an error handler — the request
+// hangs until the socket times out, and (now that unhandledRejection only logs
+// instead of crashing) the process stays up holding a dead request. Patch the
+// routing methods so every handler's returned promise is caught and forwarded to
+// next(err), which the JSON error handler at the bottom of the file turns into a
+// clean 500. This covers all current and future routes (including the ones
+// launcher.js / connect.js register on this same `app`) without wrapping each one,
+// and is inert for handlers that already try/catch — their promise just resolves.
+// Express settings getters (e.g. app.get('env')) pass through untouched because
+// they carry no handler functions to wrap.
+for (const _m of ['get', 'post', 'put', 'patch', 'delete', 'all']) {
+  const _orig = app[_m].bind(app);
+  app[_m] = (routePath, ...handlers) => _orig(
+    routePath,
+    ...handlers.map((h) =>
+      (typeof h === 'function' && h.length < 4)
+        ? function asyncWrapped(req, res, next) { return Promise.resolve(h(req, res, next)).catch(next); }
+        : h,
+    ),
+  );
+}
+
+// ─── Path-segment validation for route params ───────────────────────────────────
+// Any :param that becomes a filesystem path segment (server id, mod / backup /
+// datapack file name) is validated once here instead of per-route, so a crafted
+// value like ".." or "..%2f..%2fservers.json" is rejected with 400 before it can
+// reach path.join — Express runs param callbacks before the route's own
+// middleware/handler (and before multer parses an upload body). See
+// isUnsafeSegment() near safeJoin() for the full rationale. The same param names
+// appear in launcher.js / connect.js routes (instance ids, content filenames),
+// which are slash-free in legitimate use, so guarding them here is pure upside.
+const rejectUnsafeParam = (req, res, next, value) => {
+  if (isUnsafeSegment(value)) return res.status(400).json({ error: 'Invalid name' });
+  next();
+};
+for (const _p of ['id', 'serverId', 'modName', 'backupName', 'filename']) {
+  app.param(_p, rejectUnsafeParam);
+}
+
 // Allow all origins, including null (file:// in packaged Electron app)
 const corsOptions = {
   origin: (origin, callback) => callback(null, true),
@@ -1499,6 +1540,21 @@ function safeJoin(base, rel) {
     throw new Error(`Refusing unsafe path: ${rel}`);
   }
   return resolved;
+}
+
+// Reject a single path segment that could escape its directory before it reaches
+// path.join. Route params like :modName / :backupName / :filename are decoded by
+// Express, so a crafted value such as ".." or "..%2f..%2fservers.json" arrives as
+// a literal traversal string — and since these segments are joined straight onto
+// a base dir, "DELETE /.../mods/.." would resolve to the instance dir itself and
+// fs.remove the whole server. The filenames MineDash actually uses (mod jars,
+// backup zips, datapacks) never contain separators, "." or "..", so this only
+// ever blocks malformed/crafted requests. Defense-in-depth alongside the
+// loopback-only bind: a route should not depend on the listener address for its
+// path safety. Returns true when the segment is unsafe.
+function isUnsafeSegment(name) {
+  return typeof name !== 'string' || name === '' || name === '.' || name === '..'
+    || /[\\/\0]/.test(name);
 }
 
 async function downloadToFile(url, destPath) {
@@ -3037,9 +3093,9 @@ app.post('/api/servers/:id/mods/repair-versions', async (req, res) => {
 // the same dir would interleave their overrides unpredictably.
 app.post('/api/servers/:id/mods/upload', upload.array('modFile', 50), async (req, res) => {
   const { id } = req.params;
+  const files = req.files || [];
   const serverPath = path.join(INSTANCES_DIR, id);
   const modsPath = path.join(serverPath, 'mods');
-  const files = req.files || [];
   if (files.length === 0) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
@@ -3065,6 +3121,9 @@ app.post('/api/servers/:id/mods/upload', upload.array('modFile', 50), async (req
     const failed = [];
     for (const f of files) {
       try {
+        // originalname is client-supplied in the multipart body — block any value
+        // that would let path.join escape mods/ and overwrite an arbitrary file.
+        if (isUnsafeSegment(f.originalname)) throw new Error('Invalid file name');
         await fs.move(f.path, path.join(modsPath, f.originalname), { overwrite: true });
         installed.push(f.originalname);
       } catch (err) {
@@ -3252,7 +3311,7 @@ app.post('/api/servers/:id/backups', async (req, res) => {
 app.delete('/api/servers/:id/backups/:backupName', async (req, res) => {
   const { id, backupName } = req.params;
   const backupPath = path.join(BACKUPS_DIR, id, backupName);
-  
+
   try {
     if (await fs.pathExists(backupPath)) {
       await fs.remove(backupPath);
@@ -3269,7 +3328,7 @@ app.delete('/api/servers/:id/backups/:backupName', async (req, res) => {
 app.get('/api/servers/:id/backups/:backupName/download', async (req, res) => {
   const { id, backupName } = req.params;
   const backupPath = path.join(BACKUPS_DIR, id, backupName);
-  
+
   try {
     if (await fs.pathExists(backupPath)) {
       res.setHeader('Content-Disposition', `attachment; filename="${backupName}"`);
@@ -3856,6 +3915,8 @@ app.get('/api/servers/:serverId/datapacks', async (req, res) => {
 app.post('/api/servers/:serverId/datapacks/install-modrinth', async (req, res) => {
   const { url, filename, iconUrl, title, projectId } = req.body;
   if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
+  // filename is body-supplied (serverId is validated by the :serverId param guard).
+  if (isUnsafeSegment(filename)) return res.status(400).json({ error: 'Invalid name' });
   // .jar files are Fabric mods, not valid datapacks — redirect to mods/ folder
   const isJar = filename.toLowerCase().endsWith('.jar');
   const destDir = isJar
@@ -4713,6 +4774,19 @@ launcher.register(app);
 const connect = require('./connect');
 connect.init({ io, getServerPort });
 connect.register(app);
+
+// ─── JSON error handler ──────────────────────────────────────────────────────
+// Terminal error middleware (must be registered after every route). Catches
+// anything forwarded via next(err) — including the async route rejections the
+// wrapper at the top of this file now funnels here — and returns a clean JSON
+// 500 instead of Express's default HTML error page or a hung request. If the
+// response was already partially sent, defer to Express's default handler, which
+// just tears the socket down rather than trying to write a second time.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error('[backend] route error:', err);
+  res.status(500).json({ error: (err && err.message) || 'Internal error' });
+});
 
 // Warm the authlib-injector JAR at boot so server-side Ely.by-skin injection
 // (in startProcess) has a ready file path without doing async work mid-spawn.
