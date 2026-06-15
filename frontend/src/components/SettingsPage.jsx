@@ -6,6 +6,7 @@ import {
   AlertTriangle, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSystemRam } from '../hooks/useSystemRam';
 import AccountManager from './AccountManager';
 
 // Branded number input — replaces the OS-default spinner arrows (which render
@@ -311,7 +312,8 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
     }, 350);
   };
 
-  const ramPercent = Math.round(((draft.ramGb - 1) / (16 - 1)) * 100);
+  const ramMax = useSystemRam(16);
+  const ramPercent = Math.round(((draft.ramGb - 1) / (ramMax - 1)) * 100);
   const versionLabel = appVersion ? `v${appVersion}` : (window.electronAPI ? '' : 'dev build');
 
   return (
@@ -366,14 +368,14 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                       <span className="text-xs font-bold text-[#00AF5C] tabular-nums">{draft.ramGb} GB</span>
                     </div>
                     <input
-                      type="range" min={1} max={16} step={1}
+                      type="range" min={1} max={ramMax} step={1}
                       value={draft.ramGb}
                       onChange={(e) => commit({ ...draft, ramGb: Number(e.target.value) })}
                       className="ram-slider w-full"
                       style={{ '--fill': `${ramPercent}%` }}
                     />
                     <div className="flex justify-between text-[10px] text-[#555555] mt-1 tabular-nums">
-                      <span>1 GB</span><span>8 GB</span><span>16 GB</span>
+                      <span>1 GB</span><span>{Math.round(ramMax / 2)} GB</span><span>{ramMax} GB</span>
                     </div>
                   </Group>
 
