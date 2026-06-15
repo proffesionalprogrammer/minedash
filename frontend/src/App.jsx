@@ -64,7 +64,6 @@ const TAB_ORDER = ['play', 'browse', 'instances', 'servers'];
 function AppHeader({ view, onChange, accountMenuProps }) {
   const active = TABS[view];
   const ActiveIcon = active.icon;
-  const inactiveKeys = TAB_ORDER.filter(k => k !== view);
   const settingsActive = view === 'settings';
 
   return (
@@ -88,27 +87,38 @@ function AppHeader({ view, onChange, accountMenuProps }) {
 
         <div className="hidden sm:block w-px h-10 bg-[#2D2D2D]" />
 
+        {/* All tabs render in TAB_ORDER and keep their position — the active one
+            is just highlighted in place rather than promoted out of the row, so
+            nothing reshuffles when you switch views. */}
         <div className="flex items-center gap-2">
-          {inactiveKeys.map(key => {
+          {TAB_ORDER.map(key => {
             const t = TABS[key];
             const Icon = t.icon;
+            const isActive = key === view;
             return (
               <motion.button
                 key={key}
                 onClick={() => onChange(key)}
-                whileHover={{ scale: 1.05, y: -1 }}
+                aria-current={isActive ? 'page' : undefined}
+                whileHover={isActive ? undefined : { scale: 1.05, y: -1 }}
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-                className="group relative flex items-center gap-2 px-3 py-2 bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors overflow-hidden"
+                className={`group relative flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-colors overflow-hidden border ${
+                  isActive
+                    ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
+                    : 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#00AF5C]/40 text-[#A0A0A0] hover:text-[#FFFFFF]'
+                }`}
               >
-                {/* Soft brand-green shimmer that sweeps across on hover. */}
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full bg-gradient-to-r from-transparent via-[#00AF5C]/15 to-transparent transition-transform duration-700 ease-out"
-                />
+                {/* Soft brand-green shimmer that sweeps across on hover — inactive tabs only. */}
+                {!isActive && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full bg-gradient-to-r from-transparent via-[#00AF5C]/15 to-transparent transition-transform duration-700 ease-out"
+                  />
+                )}
                 <motion.span
                   initial={false}
-                  whileHover={{ rotate: -8, scale: 1.15 }}
+                  whileHover={isActive ? undefined : { rotate: -8, scale: 1.15 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 18 }}
                   className="relative z-10 inline-flex"
                 >

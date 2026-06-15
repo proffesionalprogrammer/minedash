@@ -416,6 +416,17 @@ app.get('/api/java-status', (req, res) => {
   });
 });
 
+// Total physical RAM on this machine, so the frontend RAM sliders can size
+// their max to the user's actual hardware instead of a hardcoded cap.
+app.get('/api/system/ram', (req, res) => {
+  const totalBytes = os.totalmem();
+  res.json({
+    totalBytes,
+    totalMb: Math.round(totalBytes / (1024 * 1024)),
+    totalGb: Math.round(totalBytes / (1024 * 1024 * 1024)),
+  });
+});
+
 // Kick off a Java install. Returns immediately with a sessionId; progress is
 // streamed over the socket event `java_install_<sessionId>` as
 // { phase, percent, downloaded?, total?, name?, path?, error? }.
