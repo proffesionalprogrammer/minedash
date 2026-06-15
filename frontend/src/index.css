@@ -216,11 +216,13 @@ html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover {
   color: #FFFFFF;
 }
 
-/* Smooth focus rings everywhere */
-input:focus-visible,
-button:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
+/* Keyboard focus indicator.
+   Form fields (input/select/textarea) intentionally OMITTED: they use the
+   branded `focus:border-[#00AF5C] focus:ring-*` pattern from the kit, and an
+   offset outline stacked on top produced a doubled green outline (an inner
+   border line + an outer offset line with a dark gap between them). Buttons
+   keep the outline so keyboard navigation stays visible. */
+button:focus-visible {
   outline: 2px solid rgba(0, 175, 92, 0.5);
   outline-offset: 2px;
   transition: outline-offset 0.2s ease;

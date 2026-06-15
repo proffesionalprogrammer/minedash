@@ -469,7 +469,7 @@ function PropertiesSettings({ server, onError }) {
               placeholder="Search server properties..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-[#111111] border border-[#2D2D2D] rounded-xl pl-11 pr-4 py-3 text-[#FFFFFF] focus:outline-none focus:border-[#00AF5C] transition-colors text-sm"
+              className="w-full bg-[#111111] border border-[#2D2D2D] rounded-xl pl-11 pr-4 py-3 text-[#FFFFFF] outline-none focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] text-sm"
             />
           </div>
         </div>
