@@ -217,6 +217,11 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
   // Track the in-flight search so a late response from a previous query can't
   // overwrite the current results.
   const requestSeq = useRef(0);
+  // The results scroll container. We reset it to the top whenever a new search
+  // runs (page change, type switch, sort, filter, query) — otherwise paging
+  // forward from the bottom lands you at the bottom of the next page, and
+  // switching type keeps the old scroll offset.
+  const resultsScrollRef = useRef(null);
 
   // ── One-time taxonomy fetches ───────────────────────────────────────
   useEffect(() => {
@@ -265,6 +270,8 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
   // ── Search ─────────────────────────────────────────────────────────
   const runSearch = async (q, p, s, t, cats, lds, gvs) => {
     const seq = ++requestSeq.current;
+    // Always start a fresh search at the top of the list.
+    resultsScrollRef.current?.scrollTo({ top: 0 });
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -502,7 +509,7 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
           </div>
 
           {/* Results */}
-          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar -mr-2 pr-2">
+          <div ref={resultsScrollRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar -mr-2 pr-2">
             {loading && results.length === 0 ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
@@ -869,11 +876,12 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                   </span>
                 </Tooltip>
               )}
-              {ldrLabel && (
-                <Tooltip content="Mod loader">
-                  <span className="flex items-center gap-1">
-                    <Wrench size={11} className="text-[#555555]" />
-                    {ldrLabel}
+              {ldr && (
+                <Tooltip content={ldrLabel}>
+                  <span className="flex items-center" aria-label={ldrLabel}>
+                    {LOADER_COLORS[ldr]
+                      ? <LoaderGlyph loader={ldr} size={14} />
+                      : <Wrench size={11} className="text-[#555555]" />}
                   </span>
                 </Tooltip>
               )}
