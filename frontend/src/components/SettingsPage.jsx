@@ -3,10 +3,11 @@ import {
   Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical,
   Loader2, Sparkles, ChevronUp, ChevronDown, Compass, SlidersHorizontal,
   Users, DownloadCloud, Info, Image, Check, HardDrive, FolderOpen,
-  AlertTriangle, RotateCcw, RefreshCw,
+  AlertTriangle, RotateCcw, RefreshCw, FolderCog,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AccountManager from './AccountManager';
+import ChoiceRow from './JavaChoiceRow';
 
 // Branded number input — replaces the OS-default spinner arrows (which render
 // in light grey and clash with the dark theme) with stacked chevron buttons
@@ -274,6 +275,103 @@ function Group({ icon: Icon, title, hint, children }) {
   );
 }
 
+// Settings → Java. The launcher's default Java for game launches (each instance
+// can still override it from its own Java runtime picker). Mirrors the look of
+// JavaRuntimeModal's row picker, but every non-auto choice is a real absolute
+// path — the global override is stored as a literal path string and resolved by
+// fs.existsSync at launch (see resolveLauncherJava), so it can't represent a
+// "download-on-launch" major the way the per-instance picker can.
+function JavaSection({ draft, commit }) {
+  const [info, setInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
+  // Lets the Custom row stay selected (and its input shown) while the path is
+  // still empty, before any auto/managed/system choice would otherwise win.
+  const [customClicked, setCustomClicked] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch('http://localhost:3001/api/launcher/java');
+        const d = await r.json();
+        if (r.ok) setInfo(d);
+      } catch { /* options below degrade gracefully */ }
+      setLoading(false);
+    })();
+  }, []);
+
+  const current = (draft.javaPath || '').trim();
+  const managed = info?.managed || [];
+  const sys = info?.system?.path ? info.system : null;
+  const isManaged = managed.some(m => m.path === current);
+  const isSystem = sys && sys.path === current;
+  const inferCustom = !!current && !isManaged && !isSystem;
+  const selected = customClicked || inferCustom ? 'custom' : (!current ? 'auto' : current);
+
+  const pick = (value) => { setCustomClicked(false); commit({ ...draft, javaPath: value }); };
+
+  return (
+    <Group icon={Coffee} title="Java runtime"
+      hint="The default Java used to launch the game. Each instance can override this from its own Java runtime settings.">
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-[#555555] font-bold">
+          <Loader2 size={12} className="animate-spin" /> Checking installed runtimes…
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <ChoiceRow
+            active={selected === 'auto'}
+            onSelect={() => pick('')}
+            icon={Sparkles}
+            title="Automatic (recommended)"
+            subtitle="Detects Java from JAVA_HOME, PATH, the registry and MineDash's managed runtimes"
+          />
+          {managed.map(m => (
+            <ChoiceRow
+              key={m.path}
+              active={selected === m.path}
+              onSelect={() => pick(m.path)}
+              icon={Coffee}
+              title={`Java ${m.major}`}
+              subtitle={m.path}
+              badge={
+                <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[#1A1A1A] text-[#A0A0A0] border border-[#2D2D2D] flex-shrink-0">
+                  Managed
+                </span>
+              }
+            />
+          ))}
+          {sys && (
+            <ChoiceRow
+              active={selected === sys.path}
+              onSelect={() => pick(sys.path)}
+              icon={FolderCog}
+              title={`System Java${sys.major ? ` ${sys.major}` : ''}`}
+              subtitle={sys.path}
+            />
+          )}
+          <ChoiceRow
+            active={selected === 'custom'}
+            onSelect={() => setCustomClicked(true)}
+            icon={FolderCog}
+            title="Custom path"
+            subtitle="Point at any java.exe yourself"
+          />
+          {selected === 'custom' && (
+            <input
+              type="text"
+              autoFocus
+              value={draft.javaPath}
+              onChange={(e) => commit({ ...draft, javaPath: e.target.value })}
+              placeholder="C:\\Program Files\\Java\\jdk-21\\bin\\java.exe"
+              className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono"
+            />
+          )}
+        </div>
+      )}
+    </Group>
+  );
+}
+
 export default function SettingsPage({ settings, onChange, onError, accountProps, socket }) {
   const [section, setSection] = useState('general');
   const [draft, setDraft] = useState(settings || DEFAULTS);
@@ -442,23 +540,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
               )}
 
               {section === 'java' && (
-                <Group icon={Coffee} title="Java executable" hint="Leave blank to auto-detect. MineDash searches JAVA_HOME, PATH, the registry, and its managed runtimes pool.">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Auto (use detected Java)"
-                      value={draft.javaPath}
-                      onChange={(e) => commit({ ...draft, javaPath: e.target.value })}
-                      className="flex-1 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono"
-                    />
-                    {draft.javaPath && (
-                      <button onClick={() => commit({ ...draft, javaPath: '' })}
-                        className="px-3 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-xs font-bold transition-all">
-                        Auto
-                      </button>
-                    )}
-                  </div>
-                </Group>
+                <JavaSection draft={draft} commit={commit} />
               )}
 
               {section === 'storage' && (
