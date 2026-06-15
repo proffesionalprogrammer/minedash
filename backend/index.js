@@ -25,6 +25,38 @@ const pidusage = require('pidusage');
 const crypto = require('crypto');
 const { ensureAuthlibInjector, jarPath: authlibJarPathFor } = require('./authlib-injector');
 
+// ─── Crash guards ─────────────────────────────────────────────────────────────
+// The backend is the single lifeline for the whole app: if this process dies,
+// the renderer loses every API route and socket and shows "Failed to fetch"
+// everywhere with no way to recover short of restarting MineDash. These two
+// guards are deliberately asymmetric:
+//
+//  • unhandledRejection → LOG AND KEEP RUNNING. A rejected promise that nobody
+//    caught is almost always recoverable — a failed upstream fetch, a missing
+//    file in one route. In modern Node an unhandledRejection terminates the
+//    whole process by default, which is exactly the failure mode this guards
+//    against: one missing `.catch` taking down the entire app. A backend that's
+//    missing one route's result beats a dead one. (Registering this listener
+//    also suppresses Node's default-terminate behaviour.)
+//
+//  • uncaughtException → LOG AND EXIT, let Electron re-fork. A synchronous throw
+//    that escaped every try/catch leaves the process in an undefined state, so
+//    limping on is riskier than a clean restart. (Express already catches throws
+//    inside route handlers, so this only fires for faults outside the request
+//    lifecycle — timers, stream/event callbacks.) Exiting also makes a load-time
+//    failure — e.g. a packaging bug that drops a dependency from app.asar, or a
+//    require that throws during init — crash hard with a non-zero code instead
+//    of leaving a zombie that's alive but never reached server.listen. Electron
+//    watches for the exit and re-forks, with a crash-loop cap so an unstartable
+//    backend doesn't respawn forever — see startBackend() in electron/main.js.
+process.on('unhandledRejection', (reason) => {
+  console.error('[backend] unhandledRejection — kept alive:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[backend] uncaughtException — exiting for a clean restart:', err);
+  process.exit(1);
+});
+
 const app = express();
 const server = http.createServer(app);
 
@@ -4690,6 +4722,15 @@ ensureAuthlibInjector(DATA_DIR).catch(() => {});
 // Env override is for development only (e.g. running a second backend beside
 // a live MineDash) — the frontend and Electron shell always talk to 3001.
 const PORT = Number(process.env.MINEDASH_PORT) || 3001;
-server.listen(PORT, () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+// Bind to the loopback interface only. This API has NO authentication — every
+// route trusts its caller — so it must never be reachable from the LAN. Without
+// the explicit host, Express binds to 0.0.0.0 (all interfaces), which on the
+// shared/VPN networks MineDash steers friends onto (Radmin, MineDash Connect)
+// would let anyone on the network run console commands, delete servers, or read
+// files via the API. CORS does not protect this — it only restrains browsers,
+// not curl. The renderer and Electron always talk to 127.0.0.1:3001, and the
+// LAN-facing features (BlueMap's webserver, the Connect P2P tunnel) listen on
+// their own ports, so loopback-only is invisible to them.
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`Backend running on http://127.0.0.1:${PORT}`);
 });

@@ -9,6 +9,15 @@ const isDev = !app.isPackaged;
 let backendProcess = null;
 let mainWindow = null;
 let tray = null;
+// Backend supervision. The backend is the lifeline for the whole UI, so if it
+// dies unexpectedly we re-fork it (see the exit handler in startBackend). A
+// crash-loop guard caps rapid restarts so a backend that can't start doesn't
+// peg the CPU respawning forever; isQuitting suppresses restarts during a normal
+// shutdown (before-quit kills it on purpose).
+let isQuitting = false;
+let backendRestartAttempts = 0;
+let lastBackendStart = 0;
+const MAX_BACKEND_RESTARTS = 5;
 // Update-poll timer is created when the window is focused and cleared when it
 // blurs / hides. Per-minute polling while the user is actively in the app gets
 // new releases in front of them within ~60s of going live; the focus gate
@@ -79,6 +88,7 @@ function startBackend() {
   log('[Electron] User data dir:', userDataDir);
   log('[Electron] Entry exists:', fs.existsSync(backendEntry));
 
+  lastBackendStart = Date.now();
   backendProcess = fork(backendEntry, [], {
     cwd: backendCwd,
     env: {
@@ -99,6 +109,22 @@ function startBackend() {
   backendProcess.on('exit', (code, signal) => {
     log(`[Electron] Backend exited — code: ${code}, signal: ${signal}`);
     backendProcess = null;
+
+    // Normal shutdown (before-quit killed it on purpose) — don't resurrect it.
+    if (isQuitting) return;
+
+    // If it had been up for a while it was healthy; this is a fresh fault, so
+    // reset the budget. Only genuine rapid crash-loops should hit the cap.
+    if (Date.now() - lastBackendStart > 60_000) backendRestartAttempts = 0;
+
+    if (backendRestartAttempts >= MAX_BACKEND_RESTARTS) {
+      log(`[Electron] Backend crashed ${MAX_BACKEND_RESTARTS}× in quick succession — giving up auto-restart.`);
+      return;
+    }
+    backendRestartAttempts++;
+    log(`[Electron] Backend died unexpectedly — restarting (attempt ${backendRestartAttempts}/${MAX_BACKEND_RESTARTS})…`);
+    // Small delay so a port still held by the dying process is released first.
+    setTimeout(() => { if (!isQuitting) startBackend(); }, 1000);
   });
 }
 
@@ -378,6 +404,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Mark this as a deliberate shutdown so the backend exit handler doesn't try
+  // to re-fork the process we're intentionally killing here.
+  isQuitting = true;
   if (backendProcess) {
     backendProcess.kill('SIGTERM');
     backendProcess = null;
