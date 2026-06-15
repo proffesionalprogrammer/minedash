@@ -11,6 +11,8 @@ import SkinHead from './SkinHead';
 import JavaRuntimeModal from './JavaRuntimeModal';
 import InstanceWorldsModal from './InstanceWorldsModal';
 import Tooltip from './Tooltip';
+import LoaderGlyph from './LoaderGlyph';
+import duskCover from '../assets/dusk.jpg';
 
 // Loader → icon for cards that don't have a modpack icon. Same lucide set as
 // PlaySection's loader tab strip so the visual language is consistent.
@@ -20,6 +22,10 @@ const LOADER_ICONS = {
   forge:    Hammer,
   neoforge: FlaskConical,
 };
+
+// Loaders that have a dedicated Modrinth glyph (LoaderGlyph). Anything not in
+// this set (vanilla, unknown) falls back to its lucide LOADER_ICONS mark.
+const GLYPH_LOADERS = new Set(['fabric', 'forge', 'neoforge', 'quilt']);
 
 const LOADER_LABEL = {
   vanilla:  'Vanilla',
@@ -539,13 +545,15 @@ function InstanceCard({
       whileHover={{ y: -3 }}
       className="group relative bg-[#1A1A1A] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-2xl overflow-hidden flex flex-col transition-colors"
     >
-      {/* Icon area */}
+      {/* Icon / cover area. Modpacks ship their own cover art (inst.iconUrl);
+          hand-made and server instances fall back to the shared dusk cover so
+          every card reads as a real instance rather than a bare loader glyph. */}
       <div className="aspect-square bg-[#111111] flex items-center justify-center relative overflow-hidden">
-        {inst.iconUrl ? (
-          <img src={inst.iconUrl} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <LoaderIcon size={56} className="text-[#00AF5C]/70" strokeWidth={1.5} />
-        )}
+        <img
+          src={inst.iconUrl || duskCover}
+          alt=""
+          className="w-full h-full object-cover"
+        />
 
         {/* Source badge in the corner. Server instances get their own badge
             so a user with both kinds doesn't confuse a pack with a
@@ -559,18 +567,32 @@ function InstanceCard({
             {isServerInstance ? 'Server' : 'Modpack'}
           </span>
         )}
-        {packUpdate && (
-          <Tooltip content="Modpack update available" side="bottom" align="end" className="absolute top-2 right-2 z-10">
-            <button
-              onClick={(e) => { e.stopPropagation(); onUpdatePack?.(); }}
-              disabled={busy}
-              className="flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-1 rounded-md border bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 transition-colors disabled:opacity-60"
-            >
-              {busy ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
-              v{packUpdate.availableVersionNumber}
-            </button>
+
+        {/* Top-right corner controls: the optional "update available" pill plus
+            the loader glyph badge so Forge/Fabric/NeoForge is identifiable at a
+            glance (same Modrinth marks as the Browse filter rail). Loaders
+            without a dedicated glyph (vanilla) fall back to their lucide icon. */}
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+          {packUpdate && (
+            <Tooltip content="Modpack update available" side="bottom" align="end">
+              <button
+                onClick={(e) => { e.stopPropagation(); onUpdatePack?.(); }}
+                disabled={busy}
+                className="flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-1 rounded-md border bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 transition-colors disabled:opacity-60"
+              >
+                {busy ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                v{packUpdate.availableVersionNumber}
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip content={`${loaderLabel}${inst.version ? ` ${inst.version}` : ''}`} side="bottom" align="end">
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#1A1A1A]/85 border border-[#2D2D2D] backdrop-blur-sm shadow-sm shadow-black/30">
+              {GLYPH_LOADERS.has(inst.loader)
+                ? <LoaderGlyph loader={inst.loader} size={16} />
+                : <LoaderIcon size={15} className="text-[#A0A0A0]" strokeWidth={2} />}
+            </span>
           </Tooltip>
-        )}
+        </div>
 
         {/* Launch progress overlay — replaces the play button while this
             instance is launching. Shows the live status + a fill bar and a
