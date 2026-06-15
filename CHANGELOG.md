@@ -2,6 +2,29 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.26 — 2026-06-16
+
+### Security
+
+- **The MineDash backend is no longer reachable from your network.** The local service that controls your servers — running console commands, deleting servers, reading files — had no password and was listening on every network connection, so anyone on the same Wi-Fi, LAN, or VPN (including the Radmin / MineDash Connect networks you invite friends onto) could have reached it. It now listens only on your own PC (`127.0.0.1`). We also added path-safety checks to the file, backup, and mod routes as a second layer of protection. **Updating is recommended for anyone who plays with friends.**
+
+### Changed
+
+- **Browse filters got a cleaner, Modrinth-style look.** The filter panel on the left of Browse is now a set of tidy, collapsible cards — Game version, Loader, Category — each row with its own icon, including the official Fabric / Forge / NeoForge / Quilt logos.
+- **Browse results now show the official loader logo.** Each result shows the real Fabric / Forge / NeoForge / Quilt mark instead of a generic wrench — hover it to see the loader's name.
+- **Browse jumps back to the top when you change pages or type.** Paging forward, or switching between Mods / Shaders / Resource Packs, used to leave you scrolled halfway down the new list. It now starts at the top every time.
+- **Instances look richer.** Your instance cards now show cover art and a small loader badge in the corner so you can tell them apart at a glance.
+- **Settings → Java now matches the rest of the app.** The Java picker in Settings is the same clean row-picker used everywhere else (Automatic / a managed Java / your system Java / a custom path) instead of a plain text box.
+- **RAM sliders now match your actual RAM.** The memory slider tops out at how much RAM your PC really has, instead of a fixed cap, so you can give servers and the game the right amount.
+- **Launcher tabs stay put.** The tabs along the top of the launcher no longer shuffle around when you switch between them.
+
+### Fixed
+
+- **No more double green outline.** Search boxes and inputs sometimes drew two stacked green rings when focused — it's a single clean ring now.
+- **The background service recovers from crashes on its own.** If the service that runs your servers ever hits an unexpected error, MineDash now restarts it automatically instead of leaving the app unresponsive.
+
+---
+
 ## v1.1.25 — 2026-06-14
 
 ### Fixed
