@@ -879,7 +879,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
               {ldr && (
                 <Tooltip content={ldrLabel}>
                   <span className="flex items-center" aria-label={ldrLabel}>
-                    {LOADER_COLORS[ldr]
+                    {FILTERABLE_LOADERS.includes(ldr)
                       ? <LoaderGlyph loader={ldr} size={14} />
                       : <Wrench size={11} className="text-[#555555]" />}
                   </span>
