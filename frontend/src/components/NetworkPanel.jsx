@@ -12,7 +12,7 @@ const API = 'http://localhost:3001';
 // explicit Stop tears the session down.
 const hostSessions = {};
 
-function NetworkPanel({ serverId, server, socket }) {
+function NetworkPanel({ serverId, socket }) {
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(null);

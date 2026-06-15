@@ -28,6 +28,22 @@ export default defineConfig([
         argsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
+      // Empty `catch {}` is an intentional best-effort pattern used throughout
+      // (e.g. cleanup that mustn't throw). Allow it; every other empty block
+      // still errors.
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      // React-Compiler-readiness rules shipped in eslint-plugin-react-hooks'
+      // recommended set. They flag patterns that are correct at runtime but not
+      // provably compiler-safe (setState in an effect, reading a ref during
+      // render, calling Date.now() in render, using a value before its `const`
+      // is initialised). MineDash does not use the React Compiler, so these are
+      // advisory, not bugs — keep them visible as warnings instead of mechanically
+      // rewriting working components. The load-bearing hooks rule (rules-of-hooks)
+      // stays an error via the recommended config above.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/refs': 'warn',
     },
   },
 ])

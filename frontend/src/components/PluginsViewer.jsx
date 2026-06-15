@@ -24,7 +24,7 @@ function fmtDate(d) {
   return Math.floor(days / 365) + ' years ago';
 }
 
-export default function PluginsViewer({ serverId, serverVersion, onError }) {
+export default function PluginsViewer({ serverId, serverVersion }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);

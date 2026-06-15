@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, HardDriveDownload, Loader2, Sparkles, ChevronUp, ChevronDown, Compass } from 'lucide-react';
+import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, Loader2, Sparkles, ChevronUp, ChevronDown, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Tooltip from './Tooltip';
 

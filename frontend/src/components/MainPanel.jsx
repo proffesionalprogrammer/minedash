@@ -36,10 +36,9 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [serverStats, setServerStats] = useState({ uptime: '0m', players: [] });
   const [storageSize, setStorageSize] = useState('0 MB');
-  const [iconKey, setIconKey] = useState(Date.now());
+  const [iconKey] = useState(() => Date.now());
   const [systemStats, setSystemStats] = useState({ cpu: '0%', ram: '0 MB', ramTotal: '0 MB' });
   const [serverMemStats, setServerMemStats] = useState({ ram: '0 MB', ramPercent: '0%', cpu: '0%' });
-  const [toast, setToast] = useState(null);
   const [history, setHistory] = useState({ cpu: [], ram: [], storage: [] });
   const [addressCopied, setAddressCopied] = useState(false);
   const [showRestartModal, setShowRestartModal] = useState(false);
@@ -137,7 +136,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
           const res = await fetch(`http://localhost:3001/api/servers/${server.id}/stats`);
           const data = await res.json();
           if (res.ok) setServerStats(data);
-        } catch (e) {
+        } catch {
           // ignore
         }
       };
@@ -241,11 +240,6 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
       if (onError) onError(err.message);
     }
     setLoading(false);
-  };
-
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
   };
 
   // Determine the content tab label + visibility based on server type
@@ -683,21 +677,6 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
         </AnimatePresence>
       </motion.div>
 
-      {/* Toast Notification */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ type: 'spring', duration: 0.4, bounce: 0.2 }}
-            className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 bg-[#1E1E1E] border border-[#00AF5C]/30 text-[#FFFFFF] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
-          >
-            <div className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse" />
-            <span className="text-sm font-medium">{toast}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

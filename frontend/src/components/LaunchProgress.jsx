@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Loader2, Check, AlertCircle, X, Package, Play } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, Check, AlertCircle, X, Play } from 'lucide-react';
+import { motion } from 'framer-motion';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
 

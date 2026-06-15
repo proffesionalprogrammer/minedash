@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Server as ServerIcon, Cpu, Zap, Box, ChevronDown, Search, Loader2, Check, Pickaxe, Hammer, Layers, Wrench } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';

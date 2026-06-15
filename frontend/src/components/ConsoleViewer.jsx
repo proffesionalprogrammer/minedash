@@ -3,7 +3,8 @@ import { Terminal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import CrashBanner from './console/CrashBanner';
 import ConsoleSearchBar from './console/ConsoleSearchBar';
-import { LogLine, detectLogLevel, buildSearchRegex } from './console/LogLine';
+import { LogLine } from './console/LogLine';
+import { detectLogLevel, buildSearchRegex } from './console/logFormat';
 import { getSuggestions } from './console/mcCommands';
 
 // Live console pane shown in the Overview tab.

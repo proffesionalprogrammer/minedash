@@ -3,30 +3,6 @@
 // scrolled into view.
 import { memo } from 'react';
 
-// Detect the log level of a single line. Vanilla / Paper / Fabric / Forge
-// all converge on the "[HH:MM:SS] [Thread/LEVEL]" prefix or include the bare
-// word ERROR / WARN in the message body.
-export function detectLogLevel(line) {
-  if (/\bERROR\b|\bFATAL\b|Exception|Traceback/.test(line)) return 'ERROR';
-  if (/\bWARN\b/.test(line)) return 'WARN';
-  return 'INFO';
-}
-
-function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
-// Build the search RegExp. Returns null if the input is empty, or if regex
-// mode is on and the pattern doesn't compile. No `g` flag — the global state
-// would force every consumer to reset lastIndex. Build a fresh `g` regex
-// locally in highlightMatches() instead.
-export function buildSearchRegex(query, useRegex) {
-  if (!query) return null;
-  try {
-    return new RegExp(useRegex ? query : escapeRegex(query), 'i');
-  } catch (_) {
-    return null;
-  }
-}
-
 function colorClassForLog(log) {
   if (log.includes('[MineDash]') || log.includes('[Auto-Restart]') || log.includes('[Console]')) return 'text-[#00AF5C]';
   if (log.includes('ERROR') || log.includes('Exception') || log.includes('FATAL') || log.includes('Traceback')) return 'text-[#FF5555]';

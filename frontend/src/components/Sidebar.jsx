@@ -1,5 +1,5 @@
 import React from 'react';
-import { Server, Plus, Settings, Box, Activity } from 'lucide-react';
+import { Server, Plus, Box, Activity } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 function Sidebar({ servers, selectedServer, onSelect, onCreateClick }) {

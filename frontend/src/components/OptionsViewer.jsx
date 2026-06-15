@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Save, Upload, Settings, List, Search, Image as ImageIcon, ChevronDown, Check, Cpu, RefreshCw, AlertTriangle, X } from 'lucide-react';
+import { Save, Upload, Settings, List, Search, Image as ImageIcon, ChevronDown, Check, Cpu, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';
 

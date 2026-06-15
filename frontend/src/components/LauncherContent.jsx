@@ -24,7 +24,7 @@ function fmt(n) {
 // Browse and install client-side content (mods / resource packs / shaders)
 // into a launcher profile. Trimmed-down counterpart of ModrinthBrowser that
 // targets a `${loader}-${version}` profile directory instead of a server.
-export default function LauncherContent({ loader, version, instanceId, socket, onError, inModal, modpackInstalls, onOpenDetail }) {
+export default function LauncherContent({ loader, version, instanceId, onError, inModal, modpackInstalls, onOpenDetail }) {
   // Suffix appended to every profile-scoped API call so it targets the right
   // instance. Empty string when the caller didn't pick one — the backend then
   // resolves to the default instance for this loader+version.

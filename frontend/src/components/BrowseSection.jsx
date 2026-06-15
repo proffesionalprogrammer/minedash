@@ -157,7 +157,7 @@ const BADGE_COLORS = {
   violet: { bg: 'bg-violet-500/15',  text: 'text-violet-400',  border: 'border-violet-500/30'  },
 };
 
-export default function BrowseSection({ socket, onError, modpackInstalls, onProfilesChanged, onInstallAsServer, onOpenDetail }) {
+export default function BrowseSection({ onError, modpackInstalls, onProfilesChanged, onInstallAsServer, onOpenDetail }) {
   const [type, setType] = useState('modpack');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('relevance');

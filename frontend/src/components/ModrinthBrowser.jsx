@@ -33,7 +33,7 @@ const TYPE_COLORS = {
   alpha: 'bg-[#FF5555]/10 text-[#FF5555] border-[#FF5555]/20',
 };
 
-export default function ModrinthBrowser({ serverId, serverVersion, serverType, socket, onInstalled, projectType = 'mod', modpackInstalls, onOpenDetail }) {
+export default function ModrinthBrowser({ serverId, serverVersion, serverType, onInstalled, projectType = 'mod', modpackInstalls, onOpenDetail }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -315,7 +315,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, s
       const vs = await res.json();
       if (!res.ok) throw new Error('Failed');
       setVersions(vs);
-    } catch (err) { showToast('Failed to load versions', true); setVersionModal(null); }
+    } catch { showToast('Failed to load versions', true); setVersionModal(null); }
     setVersionsLoading(false);
   };
 

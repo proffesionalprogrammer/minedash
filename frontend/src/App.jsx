@@ -147,7 +147,7 @@ function App() {
   const [servers, setServers] = useState([]);
   const [selectedServer, setSelectedServer] = useState(null);
   const [view, setView] = useState('play'); // 'play' | 'servers'
-  const [playInitialServerId, setPlayInitialServerId] = useState(null);
+  const [playInitialServerId] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   // Friend tunnel (MineDash Connect, join side). Lifted out of JoinSessionModal
