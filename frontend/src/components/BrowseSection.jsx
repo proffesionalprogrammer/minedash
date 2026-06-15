@@ -2,7 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Search, Download, Clock, Gamepad2, Wrench, Loader2, ChevronLeft, ChevronRight,
   Box, Image as ImageIcon, Sparkles, Layers, Database, Flame, Gem, Star,
-  SlidersHorizontal, X as XIcon, Server as ServerIcon, Check,
+  SlidersHorizontal, X as XIcon, Server as ServerIcon, Check, ChevronDown,
+  // Category glyphs — Modrinth-style icon per filter row. Mapped in CATEGORY_ICONS.
+  Compass, Skull, Palette, DollarSign, Swords, Apple, Cog, BookOpen,
+  ClipboardList, Dices, PawPrint, Zap, MessageCircle, Archive, Cpu, Truck,
+  Globe, Gauge, Boxes, Feather, Users, Scroll, Tag,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
@@ -41,6 +45,80 @@ const LOADER_LABELS = {
 // Resource packs / shaders / data packs are loader-agnostic, so the rail
 // section hides for those types.
 const FILTERABLE_LOADERS = ['fabric', 'forge', 'neoforge', 'quilt'];
+
+// Official loader logos, taken verbatim from Modrinth's own asset set
+// (modrinth/code · packages/assets/icons/tags/loaders). They're single-color
+// line marks that inherit `currentColor`; we tint each with Modrinth's
+// dark-theme platform color so the rail reads exactly like theirs.
+const LOADER_COLORS = {
+  fabric:   '#dbb69b',
+  forge:    '#959eef',
+  neoforge: '#f99e6b',
+  quilt:    '#c796f9',
+};
+
+function LoaderGlyph({ loader, size = 16 }) {
+  const common = {
+    width: size, height: size, viewBox: '0 0 24 24',
+    style: { color: LOADER_COLORS[loader] || '#A0A0A0' }, 'aria-hidden': 'true',
+  };
+  switch (loader) {
+    case 'fabric':
+      return (
+        <svg {...common} fill="none" fillRule="evenodd" strokeLinecap="round" strokeLinejoin="round" clipRule="evenodd">
+          <path fill="none" stroke="currentColor" strokeWidth="23" d="m820 761-85.6-87.6c-4.6-4.7-10.4-9.6-25.9 1-19.9 13.6-8.4 21.9-5.2 25.4 8.2 9 84.1 89 97.2 104 2.5 2.8-20.3-22.5-6.5-39.7 5.4-7 18-12 26-3 6.5 7.3 10.7 18-3.4 29.7-24.7 20.4-102 82.4-127 103-12.5 10.3-28.5 2.3-35.8-6-7.5-8.9-30.6-34.6-51.3-58.2-5.5-6.3-4.1-19.6 2.3-25 35-30.3 91.9-73.8 111.9-90.8" transform="matrix(.08671 0 0 .0867 -49.8 -56)" />
+        </svg>
+      );
+    case 'forge':
+      return (
+        <svg {...common} fill="none" fillRule="evenodd" strokeLinecap="round" strokeLinejoin="round" strokeMiterlimit="1.5" clipRule="evenodd">
+          <path fill="none" stroke="currentColor" strokeWidth="2" d="M2 7.5h8v-2h12v2s-7 3.4-7 6 3.1 3.1 3.1 3.1l.9 3.9H5l1-4.1s3.8.1 4-2.9c.2-2.7-6.5-.7-8-6Z" />
+        </svg>
+      );
+    case 'neoforge':
+      return (
+        <svg {...common}>
+          <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
+            <path d="m12 19.2v2m0-2v2" />
+            <path d="m8.4 1.3c0.5 1.5 0.7 3 0.1 4.6-0.2 0.5-0.9 1.5-1.6 1.5m8.7-6.1c-0.5 1.5-0.7 3-0.1 4.6 0.2 0.6 0.9 1.5 1.6 1.5" />
+            <path d="m3.6 15.8h-1.7m18.5 0h1.7" />
+            <path d="m3.2 12.1h-1.7m19.3 0h1.8" />
+            <path d="m8.1 12.7v1.6m7.8-1.6v1.6" />
+            <path d="m10.8 18h1.2m0 1.2-1.2-1.2m2.4 0h-1.2m0 1.2 1.2-1.2" />
+            <path d="m4 9.7c-0.5 1.2-0.8 2.4-0.8 3.7 0 3.1 2.9 6.3 5.3 8.2 0.9 0.7 2.2 1.1 3.4 1.1m0.1-17.8c-1.1 0-2.1 0.2-3.2 0.7m11.2 4.1c0.5 1.2 0.8 2.4 0.8 3.7 0 3.1-2.9 6.3-5.3 8.2-0.9 0.7-2.2 1.1-3.4 1.1m-0.1-17.8c1.1 0 2.1 0.2 3.2 0.7" />
+            <path d="m4 9.7c-0.2-1.8-0.3-3.7 0.5-5.5s2.2-2.6 3.9-3m11.6 8.5c0.2-1.9 0.3-3.7-0.5-5.5s-2.2-2.6-3.9-3" />
+            <path d="m12 21.2-2.4 0.4m2.4-0.4 2.4 0.4" />
+          </g>
+        </svg>
+      );
+    case 'quilt':
+      return (
+        <svg {...common} fill="none" fillRule="evenodd" strokeLinecap="round" strokeLinejoin="round" strokeMiterlimit="2" clipRule="evenodd">
+          <path fill="none" stroke="currentColor" strokeWidth="65.6" d="M442.5 233.9c0-6.4-5.2-11.6-11.6-11.6h-197c-6.4 0-11.6 5.2-11.6 11.6v197c0 6.4 5.2 11.6 11.6 11.6h197c6.4 0 11.6-5.2 11.6-11.7v-197 .1Z" transform="matrix(.03053 0 0 .03046 -3.2 -3.2)" />
+          <path fill="none" stroke="currentColor" strokeWidth="65.6" d="M442.5 233.9c0-6.4-5.2-11.6-11.6-11.6h-197c-6.4 0-11.6 5.2-11.6 11.6v197c0 6.4 5.2 11.6 11.6 11.6h197c6.4 0 11.6-5.2 11.6-11.7v-197 .1Z" transform="matrix(.03053 0 0 .03046 -3.2 7)" />
+          <path fill="none" stroke="currentColor" strokeWidth="65.6" d="M442.5 233.9c0-6.4-5.2-11.6-11.6-11.6h-197c-6.4 0-11.6 5.2-11.6 11.6v197c0 6.4 5.2 11.6 11.6 11.6h197c6.4 0 11.6-5.2 11.6-11.7v-197 .1Z" transform="matrix(.03053 0 0 .03046 6.9 -3.2)" />
+          <path fill="none" stroke="currentColor" strokeWidth="70.4" d="M442.5 234.8c0-7-5.6-12.5-12.5-12.5H234.7c-6.8 0-12.4 5.6-12.4 12.5V430c0 6.9 5.6 12.5 12.4 12.5H430c6.9 0 12.5-5.6 12.5-12.5V234.8Z" transform="rotate(45 3.5 24) scale(.02843 .02835)" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+// Category name → lucide icon. Covers mod + modpack taxonomies (the two types
+// that surface categories most); anything unmapped falls back to a generic Tag
+// so a new Modrinth category never renders icon-less.
+const CATEGORY_ICONS = {
+  adventure: Compass, cursed: Skull, decoration: Palette, economy: DollarSign,
+  equipment: Swords, food: Apple, 'game-mechanics': Cog, library: BookOpen,
+  magic: Sparkles, management: ClipboardList, minigame: Dices, mobs: PawPrint,
+  optimization: Zap, social: MessageCircle, storage: Archive, technology: Cpu,
+  transportation: Truck, utility: Wrench, worldgen: Globe,
+  // modpack-only categories
+  challenging: Gauge, combat: Swords, 'kitchen-sink': Boxes, lightweight: Feather,
+  multiplayer: Users, quests: Scroll,
+};
+const categoryIcon = (name) => CATEGORY_ICONS[name] || Tag;
 
 const LIMIT = 20;
 
@@ -566,12 +644,14 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
 }
 
 // ── Filter rail ────────────────────────────────────────────────────────
-// Sticky left column. Three sections:
+// Sticky left column. Each filter group is its own collapsible card (Modrinth
+// layout): Game version, Loader, Categories. The rail itself sits on the page
+// base so the cards read as elevated surfaces.
 //   - Game version (long list, has its own filter input)
 //   - Loader (short fixed list — hidden for loader-agnostic types)
 //   - Categories (Modrinth taxonomy for the active type)
-// Each section is a vertical stack of toggleable chips. Multi-select within
-// a section is OR; between sections it's AND (handled in runSearch).
+// Each section is a vertical stack of toggleable rows. Multi-select within a
+// section is OR; between sections it's AND (handled in runSearch).
 function FilterRail({
   type, categories, mcVersions, mcVersionFilter, onMcVersionFilterChange,
   selectedCategories, selectedLoaders, selectedMcVersions,
@@ -580,8 +660,8 @@ function FilterRail({
 }) {
   const showLoaderSection = type === 'mod' || type === 'modpack';
   return (
-    <aside className="hidden md:flex flex-col w-60 lg:w-64 flex-shrink-0 h-full bg-[#1A1A1A] border-r border-[#2D2D2D] overflow-y-auto custom-scrollbar">
-      <div className="sticky top-0 z-10 bg-[#1A1A1A] border-b border-[#2D2D2D] px-4 py-3 flex items-center justify-between">
+    <aside className="hidden md:flex flex-col w-60 lg:w-64 flex-shrink-0 h-full bg-[#111111] border-r border-[#2D2D2D] overflow-y-auto custom-scrollbar">
+      <div className="sticky top-0 z-10 bg-[#111111] px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <SlidersHorizontal size={14} className="text-[#00AF5C]" />
           <span className="text-xs font-bold uppercase tracking-wider text-[#FFFFFF]">Filters</span>
@@ -601,10 +681,9 @@ function FilterRail({
         )}
       </div>
 
-      <div className="px-4 py-4 space-y-5">
+      <div className="px-3 pb-4 space-y-3">
         {/* Game version */}
-        <div>
-          <h4 className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-2">Minecraft version</h4>
+        <FilterCard title="Game version">
           <div className="relative mb-2">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#555555]" />
             <input
@@ -615,81 +694,106 @@ function FilterRail({
               className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-lg pl-7 pr-2 py-1.5 text-xs text-[#FFFFFF] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555]"
             />
           </div>
-          <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1 space-y-1">
-            {mcVersions.length === 0 && <p className="text-[10px] text-[#555555] px-1">No matches</p>}
+          <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1 space-y-0.5">
+            {mcVersions.length === 0 && <p className="text-[10px] text-[#555555] px-1 py-1">No matches</p>}
             {mcVersions.slice(0, 60).map(v => {
               const on = selectedMcVersions.has(v);
               return (
-                <button
-                  key={v}
-                  onClick={() => onToggleMcVersion(v)}
-                  className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded-md text-xs font-bold transition-colors ${
-                    on
-                      ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                      : 'text-[#A0A0A0] hover:bg-[#111111] hover:text-[#FFFFFF] border border-transparent'
-                  }`}
-                >
-                  <span className="tabular-nums">{v}</span>
-                  {on && <Check size={12} />}
-                </button>
+                <FilterRow key={v} selected={on} onClick={() => onToggleMcVersion(v)}>
+                  <span className="flex-1 text-left tabular-nums">{v}</span>
+                </FilterRow>
               );
             })}
           </div>
-        </div>
+        </FilterCard>
 
         {/* Loader */}
         {showLoaderSection && (
-          <div>
-            <h4 className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-2">Loader</h4>
-            <div className="space-y-1">
+          <FilterCard title="Loader">
+            <div className="space-y-0.5">
               {FILTERABLE_LOADERS.map(l => {
                 const on = selectedLoaders.has(l);
                 return (
-                  <button
-                    key={l}
-                    onClick={() => onToggleLoader(l)}
-                    className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                      on
-                        ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                        : 'text-[#A0A0A0] hover:bg-[#111111] hover:text-[#FFFFFF] border border-transparent'
-                    }`}
-                  >
-                    <span>{LOADER_LABELS[l] || l}</span>
-                    {on && <Check size={12} />}
-                  </button>
+                  <FilterRow key={l} selected={on} onClick={() => onToggleLoader(l)}>
+                    <LoaderGlyph loader={l} />
+                    <span className="flex-1 text-left">{LOADER_LABELS[l] || l}</span>
+                  </FilterRow>
                 );
               })}
             </div>
-          </div>
+          </FilterCard>
         )}
 
         {/* Categories */}
         {categories.length > 0 && (
-          <div>
-            <h4 className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-2">Categories</h4>
-            <div className="max-h-64 overflow-y-auto custom-scrollbar pr-1 space-y-1">
+          <FilterCard title="Category">
+            <div className="max-h-72 overflow-y-auto custom-scrollbar pr-1 space-y-0.5">
               {categories.map(c => {
                 const on = selectedCategories.has(c.name);
+                const Icon = categoryIcon(c.name);
                 return (
-                  <button
-                    key={c.name}
-                    onClick={() => onToggleCategory(c.name)}
-                    className={`w-full flex items-center justify-between gap-2 px-2 py-1 rounded-md text-xs font-bold transition-colors capitalize ${
-                      on
-                        ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                        : 'text-[#A0A0A0] hover:bg-[#111111] hover:text-[#FFFFFF] border border-transparent'
-                    }`}
-                  >
-                    <span>{c.name.replace(/-/g, ' ')}</span>
-                    {on && <Check size={12} />}
-                  </button>
+                  <FilterRow key={c.name} selected={on} onClick={() => onToggleCategory(c.name)}>
+                    <Icon size={14} className={on ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+                    <span className="flex-1 text-left capitalize">{c.name.replace(/-/g, ' ')}</span>
+                  </FilterRow>
                 );
               })}
             </div>
-          </div>
+          </FilterCard>
         )}
       </div>
     </aside>
+  );
+}
+
+// Collapsible filter group card. Header toggles open/closed with a rotating
+// chevron; body height-animates. Defaults open so the rail looks full on load.
+function FilterCard({ title, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="group w-full flex items-center justify-between px-3.5 py-2.5"
+      >
+        <span className="text-xs font-bold text-[#FFFFFF]">{title}</span>
+        <ChevronDown
+          size={15}
+          className={`text-[#555555] group-hover:text-[#A0A0A0] transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="overflow-hidden"
+          >
+            <div className="px-3.5 pb-3">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// One toggleable filter row. Icon/label live in children; the check appears on
+// the right when selected. Selected state uses the brand green accent.
+function FilterRow({ selected, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+        selected
+          ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
+          : 'text-[#A0A0A0] hover:bg-[#111111] hover:text-[#FFFFFF] border border-transparent'
+      }`}
+    >
+      {children}
+      {selected && <Check size={12} className="flex-shrink-0" />}
+    </button>
   );
 }
 
