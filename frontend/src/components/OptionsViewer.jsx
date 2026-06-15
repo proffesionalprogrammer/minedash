@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Save, Upload, Settings, List, Search, Image as ImageIcon, ChevronDown, Check, Cpu, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';
+import { useSystemRam } from '../hooks/useSystemRam';
 
 // Minecraft properties that have fixed allowed values
 const ENUM_PROPERTIES = {
@@ -147,7 +148,7 @@ function SidebarBtn({ active, onClick, icon, label }) {
 }
 
 const RAM_MIN = 1;
-const RAM_MAX = 32;
+const RAM_MAX_FALLBACK = 32; // used until the system's real total RAM is fetched
 
 function parseRamGB(val) {
   const n = parseInt(val);
@@ -164,8 +165,9 @@ function GeneralSettings({ server, onError }) {
   const [regenSeed, setRegenSeed] = useState('');
   const [regenLoading, setRegenLoading] = useState(false);
 
+  const ramMax = useSystemRam(RAM_MAX_FALLBACK);
   const handleRamChange = (val) => setRam(parseInt(val));
-  const ramPercent = ((ram - RAM_MIN) / (RAM_MAX - RAM_MIN)) * 100;
+  const ramPercent = ((ram - RAM_MIN) / (ramMax - RAM_MIN)) * 100;
 
   const handleSave = async () => {
     setLoading(true);
@@ -251,7 +253,7 @@ function GeneralSettings({ server, onError }) {
           <input
             type="range"
             min={RAM_MIN}
-            max={RAM_MAX}
+            max={ramMax}
             step={1}
             value={ram}
             onChange={(e) => handleRamChange(e.target.value)}
@@ -259,7 +261,7 @@ function GeneralSettings({ server, onError }) {
             className="w-full ram-slider"
           />
           <div className="flex justify-between text-xs text-[#555555]">
-            <span>{RAM_MIN} GB</span><span>{RAM_MAX} GB</span>
+            <span>{RAM_MIN} GB</span><span>{ramMax} GB</span>
           </div>
         </div>
       </div>

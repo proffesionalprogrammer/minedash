@@ -3,6 +3,7 @@ import { X, Server as ServerIcon, Cpu, Zap, Box, ChevronDown, Search, Loader2, C
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
+import { useSystemRam } from '../hooks/useSystemRam';
 
 // ─── Small option dropdown (no icons) ─────────────────────────────
 function OptionDropdown({ value, onChange, options }) {
@@ -57,7 +58,7 @@ function OptionDropdown({ value, onChange, options }) {
 }
 
 const RAM_MIN = 1;
-const RAM_MAX = 32;
+const RAM_MAX_FALLBACK = 32; // used until the system's real total RAM is fetched
 
 // Paper MC icon — a simplified paper/scroll SVG rendered as a React component
 function PaperIcon({ size = 16, className = '' }) {
@@ -410,7 +411,8 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
     setFormData(prev => ({ ...prev, ram: parseInt(val) }));
   };
 
-  const ramPercent = ((formData.ram - RAM_MIN) / (RAM_MAX - RAM_MIN)) * 100;
+  const ramMax = useSystemRam(RAM_MAX_FALLBACK);
+  const ramPercent = ((formData.ram - RAM_MIN) / (ramMax - RAM_MIN)) * 100;
 
   const fieldVariants = {
     hidden: { opacity: 0, y: 10 },
@@ -535,7 +537,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             <input
               type="range"
               min={RAM_MIN}
-              max={RAM_MAX}
+              max={ramMax}
               step={1}
               value={formData.ram}
               onChange={(e) => handleRamChange(e.target.value)}
@@ -544,7 +546,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             />
             <div className="flex justify-between text-xs text-[#555555] px-0.5">
               <span>{RAM_MIN} GB</span>
-              <span>{RAM_MAX} GB</span>
+              <span>{ramMax} GB</span>
             </div>
           </motion.div>
 

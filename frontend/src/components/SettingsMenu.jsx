@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical, Loader2, Sparkles, ChevronUp, ChevronDown, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Tooltip from './Tooltip';
+import { useSystemRam } from '../hooks/useSystemRam';
 
 // Branded number input — replaces the OS-default spinner arrows (which render
 // in light grey and clash with the dark theme) with stacked chevron buttons
@@ -103,7 +104,8 @@ export default function SettingsMenu({ settings, onChange, onError }) {
     }, 350);
   };
 
-  const ramPercent = Math.round(((draft.ramGb - 1) / (16 - 1)) * 100);
+  const ramMax = useSystemRam(16);
+  const ramPercent = Math.round(((draft.ramGb - 1) / (ramMax - 1)) * 100);
 
   return (
     <div className="relative" ref={wrapperRef}>
@@ -160,14 +162,14 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                 </div>
                 <input
                   type="range"
-                  min={1} max={16} step={1}
+                  min={1} max={ramMax} step={1}
                   value={draft.ramGb}
                   onChange={(e) => commit({ ...draft, ramGb: Number(e.target.value) })}
                   className="ram-slider w-full"
                   style={{ '--fill': `${ramPercent}%` }}
                 />
                 <div className="flex justify-between text-[10px] text-[#555555] mt-1 tabular-nums">
-                  <span>1 GB</span><span>8 GB</span><span>16 GB</span>
+                  <span>1 GB</span><span>{Math.round(ramMax / 2)} GB</span><span>{ramMax} GB</span>
                 </div>
               </div>
 
