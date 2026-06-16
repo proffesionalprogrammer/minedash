@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 
 import { io } from 'socket.io-client';
 import ServersList from './components/ServersList';
 import TitleBar from './components/TitleBar';
-import JavaSetupModal from './components/JavaSetupModal';
 import PlaySection from './components/PlaySection';
 import AccountMenu from './components/AccountMenu';
 import { useLaunchSession } from './hooks/useLaunchSession';
@@ -236,7 +235,6 @@ function App() {
   // Shape: { sessionId, localPort } | null.
   const [connectSession, setConnectSession] = useState(null);
   const [error, setError] = useState(null);
-  const [javaModal, setJavaModal] = useState(null);
   // Last servers payload from the 3s poll — used to skip identical updates so
   // the whole tree doesn't re-render when nothing changed.
   const lastServersJsonRef = useRef('');
@@ -677,16 +675,6 @@ function App() {
     }
   };
 
-  // Open the JavaSetupModal for a specific MC version, return a promise that
-  // resolves to true if the user chose to continue anyway, false if they
-  // cancelled. Callers (CreateServerModal pre-submit, MainPanel start) decide
-  // what to do with that signal — usually "retry with allowMismatch=true".
-  const showJavaGate = useCallback(({ installedVersion, requiredMajor, mcVersion }) => {
-    return new Promise((resolve) => {
-      setJavaModal({ installedVersion, requiredMajor, mcVersion, resolve });
-    });
-  }, []);
-
   const accountMenuProps = {
     accounts,
     activeAccountId,
@@ -806,7 +794,6 @@ function App() {
                   settings={launcherSettings}
                   onProfilesChanged={fetchInstalledProfiles}
                   onBack={() => setSelectedServer(null)}
-                  requestJavaGate={showJavaGate}
                   modpackInstalls={modpackInstalls}
                   onOpenDetail={openDetail}
                 />
@@ -833,26 +820,12 @@ function App() {
       </main>
 
       <AnimatePresence>
-        {javaModal && (
-          <JavaSetupModal
-            installedVersion={javaModal.installedVersion}
-            requiredMajor={javaModal.requiredMajor}
-            mcVersion={javaModal.mcVersion}
-            socket={socket}
-            onClose={() => { javaModal.resolve?.(false); setJavaModal(null); }}
-            onProceedAnyway={() => { javaModal.resolve?.(true); setJavaModal(null); }}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
         {isCreateModalOpen && (
           <Suspense fallback={null}>
             <CreateServerModal
               onClose={() => setIsCreateModalOpen(false)}
               onCreate={handleCreateServer}
               existingNames={servers.map(s => s.name.toLowerCase())}
-              requestJavaGate={showJavaGate}
             />
           </Suspense>
         )}

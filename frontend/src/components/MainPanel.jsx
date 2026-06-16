@@ -25,7 +25,7 @@ function pushHistory(prev, sample) {
   return next;
 }
 
-function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBack, requestJavaGate, modpackInstalls, onOpenDetail }) {
+function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBack, modpackInstalls, onOpenDetail }) {
   const joinSession = useLaunchSession({ socket, settings, onProfilesChanged, onError });
   const handleJoin = () => joinSession.launch({ joinServerId: server.id });
   const launcherSupported = ['vanilla', 'fabric', 'forge', 'neoforge'].includes(server.type);
@@ -177,21 +177,6 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
       const res = await fetch(`http://localhost:3001/api/servers/${server.id}/start`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) return;
-      if (data.code === 'java-version-mismatch' && requestJavaGate) {
-        const proceed = await requestJavaGate({
-          installedVersion: data.installedVersion,
-          requiredMajor: data.requiredMajor,
-          mcVersion: data.mcVersion,
-        });
-        if (!proceed) return;
-        const retry = await fetch(
-          `http://localhost:3001/api/servers/${server.id}/start?allowMismatch=true`,
-          { method: 'POST' }
-        );
-        const retryData = await retry.json();
-        if (!retry.ok) throw new Error(retryData.error || 'Failed to start server');
-        return;
-      }
       throw new Error(data.error || 'Failed to start server');
     } catch (err) {
       console.error(err);

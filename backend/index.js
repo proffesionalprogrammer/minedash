@@ -318,33 +318,12 @@ function getJavaPath() {
   return (_javaExe = 'java');
 }
 
-// ─── Java Version Check ────────────────────────────────────────────────────────
-function getJavaVersion() {
-  try {
-    const javaPath = getJavaPath();
-    // java -version prints to stderr
-    const out = require('child_process').execSync(
-      `"${javaPath}" -version 2>&1`,
-      { encoding: 'utf8', timeout: 6000 }
-    );
-    // "openjdk version "21.0.1" ..." or "java version "1.8.0_391""
-    const m = out.match(/"(\d+)(?:\.(\d+))?/);
-    if (!m) return null;
-    const major = parseInt(m[1]);
-    // Pre-9 versioning: 1.8 → 8
-    return major === 1 ? parseInt(m[2] || '0') : major;
-  } catch (_) {
-    return null;
-  }
-}
-
 // Managed Java pool + version helpers. Extracted to java-pool.js so the
 // launcher (and its forked launch worker) can share the exact same pool —
 // servers and launcher instances draw from the same DATA_DIR/runtimes/.
 const javaPool = require('./java-pool');
 javaPool.init(RUNTIMES_DIR);
 const {
-  RECOMMENDED_JAVA_MAJOR,
   requiredJavaMajor,
   findManagedJava,
   getJavaVersionForPath,
@@ -398,24 +377,6 @@ function spawnEnvForServer(id) {
   };
 }
 
-app.get('/api/java-status', (req, res) => {
-  const version = getJavaVersion();
-  const requestedMc = typeof req.query.version === 'string' ? req.query.version : null;
-  const requiredMajor = requestedMc ? requiredJavaMajor(requestedMc) : RECOMMENDED_JAVA_MAJOR;
-  const managedAvailable = !!findManagedJava(requiredMajor);
-  res.json({
-    version,
-    requiredMajor,
-    recommended: RECOMMENDED_JAVA_MAJOR,
-    mcVersion: requestedMc,
-    managedAvailable,
-    // ok when we already have an exact-match Java (system or managed). The
-    // start endpoint also accepts a missing match because it'll auto-install.
-    ok: (version !== null && version >= requiredMajor) || managedAvailable,
-    canAutoInstall: true,
-  });
-});
-
 // Total physical RAM on this machine, so the frontend RAM sliders can size
 // their max to the user's actual hardware instead of a hardcoded cap.
 app.get('/api/system/ram', (req, res) => {
@@ -424,28 +385,6 @@ app.get('/api/system/ram', (req, res) => {
     totalBytes,
     totalMb: Math.round(totalBytes / (1024 * 1024)),
     totalGb: Math.round(totalBytes / (1024 * 1024 * 1024)),
-  });
-});
-
-// Kick off a Java install. Returns immediately with a sessionId; progress is
-// streamed over the socket event `java_install_<sessionId>` as
-// { phase, percent, downloaded?, total?, name?, path?, error? }.
-app.post('/api/java/install', async (req, res) => {
-  const major = parseInt(req.body?.major, 10);
-  if (!Number.isInteger(major) || major < 8 || major > 50) {
-    return res.status(400).json({ error: 'Invalid Java major version' });
-  }
-
-  const existing = findManagedJava(major);
-  if (existing) return res.json({ alreadyInstalled: true, path: existing });
-
-  const sessionId = crypto.randomUUID();
-  res.json({ sessionId, major });
-
-  ensureManagedJavaSingleFlight(major, (progress) => {
-    io.emit(`java_install_${sessionId}`, progress);
-  }).catch((err) => {
-    io.emit(`java_install_${sessionId}`, { phase: 'error', error: err.message || String(err) });
   });
 });
 
@@ -2376,8 +2315,9 @@ app.post('/api/servers/:id/start', async (req, res) => {
       serverJavaPaths[id] = installedPath;
     } catch (err) {
       pushLog(`[MineDash] Auto-install of Java ${requiredMajor} failed: ${err.message}\n`);
-      // Fall back to the system Java so the user can at least try with what
-      // they have (the JavaSetupModal's "I know what I'm doing" path).
+      // Surface the failure to the user (the console already shows the reason).
+      // They can still force a start on whatever system Java they have via
+      // allowMismatch=true.
       return res.status(500).json({
         error: `Couldn't install Java ${requiredMajor}: ${err.message}`,
         code: 'java-install-failed',
