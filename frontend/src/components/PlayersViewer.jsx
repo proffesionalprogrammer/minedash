@@ -48,7 +48,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
   return (
     <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
       {players.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-full text-[#555555] font-medium">
+        <div className="flex flex-col items-center justify-center h-full text-[var(--c-text-muted)] font-medium">
           <Users size={48} className="mb-4 opacity-30" />
           <p>No players online</p>
           <p className="text-sm mt-1">Players will appear here when they join</p>
@@ -58,10 +58,10 @@ function OnlinePlayersView({ serverId, socket, onError }) {
           {players.map((playerName) => (
             <div
               key={playerName}
-              className="flex items-center justify-between p-4 bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-colors group"
+              className="flex items-center justify-between p-4 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl hover:border-[var(--c-text-muted)] transition-colors group"
             >
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl overflow-hidden border border-[#2D2D2D] flex-shrink-0 bg-[#111111]">
+                <div className="w-12 h-12 rounded-xl overflow-hidden border border-[var(--c-border)] flex-shrink-0 bg-[var(--c-base)]">
                   <img
                     src={`https://mc-heads.net/avatar/${playerName}/48`}
                     alt={playerName}
@@ -71,11 +71,11 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h4 className="font-bold text-[#FFFFFF] text-lg">{playerName}</h4>
+                    <h4 className="font-bold text-[var(--c-text-primary)] text-lg">{playerName}</h4>
                     <Tooltip content="Copy name">
                       <button
                         onClick={() => copyPlayerName(playerName)}
-                        className="p-1 text-[#555555] hover:text-[#FFFFFF] transition-colors"
+                        className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] transition-colors"
                       >
                         {copied === playerName ? <Check size={14} className="text-[#00AF5C]" /> : <Copy size={14} />}
                       </button>
@@ -83,7 +83,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse-glow" />
-                    <span className="text-xs text-[#A0A0A0]">Online</span>
+                    <span className="text-xs text-[var(--c-text-secondary)]">Online</span>
                   </div>
                 </div>
               </div>
@@ -93,7 +93,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                   <button
                     onClick={() => sendCommand(`op ${playerName}`, playerName)}
                     disabled={actionLoading[`op ${playerName}-${playerName}`]}
-                    className="p-2.5 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all"
+                    className="p-2.5 text-[var(--c-text-secondary)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all"
                   >
                     <Shield size={16} />
                   </button>
@@ -102,7 +102,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                   <button
                     onClick={() => sendCommand(`deop ${playerName}`, playerName)}
                     disabled={actionLoading[`deop ${playerName}-${playerName}`]}
-                    className="p-2.5 text-[#A0A0A0] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all"
+                    className="p-2.5 text-[var(--c-text-secondary)] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all"
                   >
                     <ShieldOff size={16} />
                   </button>
@@ -111,7 +111,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                   <button
                     onClick={() => sendCommand(`tp ${playerName} ~ ~ ~`, playerName)}
                     disabled={actionLoading[`tp ${playerName} ~ ~ ~-${playerName}`]}
-                    className="p-2.5 text-[#A0A0A0] hover:text-cyan-400 hover:bg-cyan-400/10 rounded-xl transition-all"
+                    className="p-2.5 text-[var(--c-text-secondary)] hover:text-cyan-400 hover:bg-cyan-400/10 rounded-xl transition-all"
                   >
                     <MapPin size={16} />
                   </button>
@@ -120,7 +120,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                   <button
                     onClick={() => sendCommand(`kick ${playerName}`, playerName)}
                     disabled={actionLoading[`kick ${playerName}-${playerName}`]}
-                    className="p-2.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all"
+                    className="p-2.5 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-all"
                   >
                     <UserX size={16} />
                   </button>
@@ -129,7 +129,7 @@ function OnlinePlayersView({ serverId, socket, onError }) {
                   <button
                     onClick={() => sendCommand(`ban ${playerName}`, playerName)}
                     disabled={actionLoading[`ban ${playerName}-${playerName}`]}
-                    className="p-2.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all"
+                    className="p-2.5 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-all"
                   >
                     <Ban size={16} />
                   </button>
@@ -226,7 +226,7 @@ function PlayerListsView({ serverId, onError }) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Sub-tabs across the lists */}
-      <div className="flex items-center gap-1 px-4 pt-3 pb-2 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+      <div className="flex items-center gap-1 px-4 pt-3 pb-2 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         {LIST_TABS.map(t => {
           const Icon = t.icon;
           const isActive = activeList === t.key;
@@ -238,35 +238,35 @@ function PlayerListsView({ serverId, onError }) {
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-colors ${
                 isActive
                   ? 'bg-[#00AF5C]/10 text-[#00AF5C]'
-                  : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
+                  : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)]'
               }`}
             >
               <Icon size={14} />
               {t.label}
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full tabular-nums ${
-                isActive ? 'bg-[#00AF5C]/15 text-[#00AF5C]' : 'bg-[#2D2D2D] text-[#A0A0A0]'
+                isActive ? 'bg-[#00AF5C]/15 text-[#00AF5C]' : 'bg-[var(--c-border)] text-[var(--c-text-secondary)]'
               }`}>{count}</span>
             </button>
           );
         })}
-        <div className="ml-auto flex items-center gap-1.5 text-xs font-bold text-[#A0A0A0]">
+        <div className="ml-auto flex items-center gap-1.5 text-xs font-bold text-[var(--c-text-secondary)]">
           {data.running ? (
             <><Wifi size={13} className="text-[#00AF5C]" /> live</>
           ) : (
-            <><WifiOff size={13} className="text-[#555555]" /> file</>
+            <><WifiOff size={13} className="text-[var(--c-text-muted)]" /> file</>
           )}
         </div>
       </div>
 
       {/* Add row */}
-      <form onSubmit={handleAdd} className="flex items-center gap-2 px-4 py-3 border-b border-[#2D2D2D]">
+      <form onSubmit={handleAdd} className="flex items-center gap-2 px-4 py-3 border-b border-[var(--c-border)]">
         <input
           type="text"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder={tab?.addPlaceholder || 'Add entry'}
           disabled={adding}
-          className="flex-1 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 font-medium placeholder-[#555555] disabled:opacity-50"
+          className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 font-medium placeholder-[var(--c-text-muted)] disabled:opacity-50"
         />
         <motion.button
           whileHover={{ scale: 1.03 }}
@@ -283,11 +283,11 @@ function PlayerListsView({ serverId, onError }) {
       {/* Entries */}
       <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-[#555555]">
+          <div className="flex items-center justify-center h-full text-[var(--c-text-muted)]">
             <Loader2 size={20} className="animate-spin" />
           </div>
         ) : entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#555555] font-medium">
+          <div className="flex flex-col items-center justify-center h-full text-[var(--c-text-muted)] font-medium">
             <ListChecks size={48} className="mb-4 opacity-30" />
             <p>No entries on this list</p>
             <p className="text-sm mt-1">Add one with the field above.</p>
@@ -305,15 +305,15 @@ function PlayerListsView({ serverId, onError }) {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, x: -8 }}
                     transition={{ duration: 0.18, delay: Math.min(i * 0.03, 0.3) }}
-                    className="flex items-center justify-between p-3 bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-colors group"
+                    className="flex items-center justify-between p-3 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl hover:border-[var(--c-text-muted)] transition-colors group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       {isIp ? (
-                        <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#111111] border border-[#2D2D2D] flex-shrink-0">
-                          <Globe size={16} className="text-[#A0A0A0]" />
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0">
+                          <Globe size={16} className="text-[var(--c-text-secondary)]" />
                         </div>
                       ) : (
-                        <div className="w-9 h-9 rounded-xl overflow-hidden border border-[#2D2D2D] flex-shrink-0 bg-[#111111]">
+                        <div className="w-9 h-9 rounded-xl overflow-hidden border border-[var(--c-border)] flex-shrink-0 bg-[var(--c-base)]">
                           <img
                             src={`https://mc-heads.net/avatar/${display}/36`}
                             alt={display}
@@ -323,16 +323,16 @@ function PlayerListsView({ serverId, onError }) {
                         </div>
                       )}
                       <div className="min-w-0">
-                        <div className="font-bold text-[#FFFFFF] text-sm truncate">{display}</div>
+                        <div className="font-bold text-[var(--c-text-primary)] text-sm truncate">{display}</div>
                         {reason && (
-                          <div className="text-xs text-[#A0A0A0] truncate">{reason}</div>
+                          <div className="text-xs text-[var(--c-text-secondary)] truncate">{reason}</div>
                         )}
                       </div>
                     </div>
                     <Tooltip content="Remove" align="end">
                       <button
                         onClick={() => handleRemove(display)}
-                        className="p-2 text-[#555555] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-colors opacity-0 group-hover:opacity-100"
+                        className="p-2 text-[var(--c-text-muted)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 size={15} />
                       </button>
@@ -346,7 +346,7 @@ function PlayerListsView({ serverId, onError }) {
       </div>
 
       {!data.running && (
-        <div className="flex items-start gap-2 px-4 py-2.5 border-t border-[#2D2D2D] bg-[#1A1A1A] text-xs text-[#A0A0A0]">
+        <div className="flex items-start gap-2 px-4 py-2.5 border-t border-[var(--c-border)] bg-[var(--c-surface-1)] text-xs text-[var(--c-text-secondary)]">
           <AlertTriangle size={13} className="text-amber-400 mt-0.5 flex-shrink-0" />
           <span>
             Server is offline — writing to the JSON file directly. Cracked names use an offline UUID,
@@ -362,13 +362,13 @@ function PlayersViewer({ serverId, socket, onError }) {
   const [subview, setSubview] = useState('online'); // 'online' | 'lists'
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <div className="flex items-center gap-3">
-          <Users size={18} className="text-[#A0A0A0]" />
-          <h3 className="font-bold text-[#FFFFFF]">Players</h3>
+          <Users size={18} className="text-[var(--c-text-secondary)]" />
+          <h3 className="font-bold text-[var(--c-text-primary)]">Players</h3>
         </div>
-        <div className="flex items-center gap-1 p-1 bg-[#111111] border border-[#2D2D2D] rounded-xl">
+        <div className="flex items-center gap-1 p-1 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl">
           {[
             { key: 'online', label: 'Online', icon: Users },
             { key: 'lists',  label: 'Lists',  icon: ListChecks },
@@ -380,7 +380,7 @@ function PlayersViewer({ serverId, socket, onError }) {
                 key={opt.key}
                 onClick={() => setSubview(opt.key)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                  active ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'text-[#A0A0A0] hover:text-[#FFFFFF]'
+                  active ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]'
                 }`}
               >
                 <Icon size={13} />

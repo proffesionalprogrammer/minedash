@@ -67,30 +67,30 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
   const hasNoServers = servers.length === 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#111111] p-8 md:p-12 overflow-y-auto custom-scrollbar relative">
+    <div className="flex-1 flex flex-col h-full bg-[var(--c-base)] p-8 md:p-12 overflow-y-auto custom-scrollbar relative">
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {deleteTarget && (
         <ModalPortal>
         <motion.div variants={modalBackdrop} initial="initial" animate="animate" exit="exit" className="fixed inset-x-0 bottom-0 bg-[#000000]/80 z-50 flex items-center justify-center backdrop-blur-sm" style={{ top: TITLEBAR_OFFSET }}>
-          <motion.div variants={modalPanel} initial="initial" animate="animate" exit="exit" className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
-            <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete Server</h3>
-            <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+          <motion.div variants={modalPanel} initial="initial" animate="animate" exit="exit" className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+            <h3 className="text-xl font-bold text-[var(--c-text-primary)] mb-2">Delete Server</h3>
+            <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
               Are you sure you want to permanently delete <span className="text-white font-bold">{deleteTarget.name}</span>?
               This will destroy all files, mods, and worlds. This action cannot be undone.
             </p>
-            <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
+            <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all"
+                className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={deleting}
-                className="px-4 py-2 bg-[#FF5555] hover:bg-[#FF4444] text-white rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50"
+                className="px-4 py-2 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 <Trash2 size={16} /> Delete Permanently
               </button>
@@ -113,7 +113,7 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
           >
             <motion.div
               variants={modalPanel} initial="initial" animate="animate" exit="exit"
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-2">
@@ -121,16 +121,16 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                   <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
                     <Copy size={16} className="text-[#00AF5C]" />
                   </div>
-                  <h3 className="text-lg font-bold text-[#FFFFFF]">Clone Server</h3>
+                  <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Clone Server</h3>
                 </div>
                 <button
                   onClick={() => !cloning && setCloneTarget(null)}
-                  className="p-1.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-lg transition-colors"
+                  className="p-1.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-lg transition-colors"
                 >
                   <X size={16} />
                 </button>
               </div>
-              <p className="text-sm text-[#A0A0A0] mb-4 leading-relaxed">
+              <p className="text-sm text-[var(--c-text-secondary)] mb-4 leading-relaxed">
                 Duplicate <span className="text-white font-bold">{cloneTarget.name}</span> — files, mods, world, config. The clone starts offline with a fresh address.
               </p>
               {cloneTarget.status === 'online' && (
@@ -139,7 +139,7 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                   <span>This server is online. Stop it before cloning — the JVM holds file locks that would corrupt the copy.</span>
                 </div>
               )}
-              <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">New server name</label>
+              <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">New server name</label>
               <input
                 autoFocus
                 type="text"
@@ -148,14 +148,14 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                 onKeyDown={(e) => { if (e.key === 'Enter') confirmClone(); if (e.key === 'Escape') setCloneTarget(null); }}
                 placeholder="My Server (Copy)"
                 disabled={cloning}
-                className={`w-full bg-[#111111] border ${cloneError ? 'border-[#FF5555] focus:border-[#FF5555] focus:ring-[#FF5555]/10' : 'border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none transition-all focus:ring-4 font-medium placeholder-[#555555]`}
+                className={`w-full bg-[var(--c-base)] border ${cloneError ? 'border-[var(--c-danger)] focus:border-[var(--c-danger)] focus:ring-[var(--c-danger)]/10' : 'border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none transition-all focus:ring-4 font-medium placeholder-[var(--c-text-muted)]`}
               />
-              {cloneError && <p className="text-xs text-[#FF5555] font-medium mt-2">{cloneError}</p>}
-              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
+              {cloneError && <p className="text-xs text-[var(--c-danger)] font-medium mt-2">{cloneError}</p>}
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[var(--c-border)]">
                 <button
                   onClick={() => setCloneTarget(null)}
                   disabled={cloning}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95"
                 >
                   Cancel
                 </button>
@@ -184,12 +184,12 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
             transition={{ duration: 0.4, ease: 'easeOut' }}
             className="flex flex-col items-center gap-6"
           >
-            <div className="w-20 h-20 bg-[#1E1E1E] border border-[#2D2D2D] rounded-3xl flex items-center justify-center">
-              <Server size={36} className="text-[#555555]" />
+            <div className="w-20 h-20 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-3xl flex items-center justify-center">
+              <Server size={36} className="text-[var(--c-text-muted)]" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-[#FFFFFF] mb-2">No servers yet</h2>
-              <p className="text-[#555555] text-sm max-w-xs">Create your first Minecraft server to get started. It only takes a minute.</p>
+              <h2 className="text-2xl font-bold text-[var(--c-text-primary)] mb-2">No servers yet</h2>
+              <p className="text-[var(--c-text-muted)] text-sm max-w-xs">Create your first Minecraft server to get started. It only takes a minute.</p>
             </div>
             <motion.button
               whileHover={{ scale: 1.03, boxShadow: '0 4px 20px rgba(0,175,92,0.3)' }}
@@ -202,14 +202,14 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
             </motion.button>
             <button
               onClick={onJoinClick}
-              className="flex items-center gap-2 text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+              className="flex items-center gap-2 text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors"
             >
               <Zap size={16} className="text-[#00AF5C]" />
               Join a friend's session
             </button>
           </motion.div>
 
-          <div className="absolute bottom-8 flex items-center gap-2 text-[#333333] text-xs">
+          <div className="absolute bottom-8 flex items-center gap-2 text-[var(--c-deep-3)] text-xs">
             <Flame size={14} /> Powered by MineDash
           </div>
         </div>
@@ -219,19 +219,19 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
           <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
             <div className="flex items-center gap-3 w-full md:w-auto md:ml-auto">
               <div className="relative flex-1 md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" size={18} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" size={18} />
                 <input
                   type="text"
                   placeholder="Search servers..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl pl-10 pr-4 py-2.5 text-[#FFFFFF] focus:outline-none focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 transition-all duration-300 text-sm"
+                  className="w-full bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl pl-10 pr-4 py-2.5 text-[var(--c-text-primary)] focus:outline-none focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 transition-all duration-300 text-sm"
                 />
               </div>
 
               <button
                 onClick={onJoinClick}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl transition-all duration-200 shadow-sm font-bold text-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl transition-all duration-200 shadow-sm font-bold text-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
               >
                 <Zap size={18} className="text-[#00AF5C]" />
                 Join a friend
@@ -239,7 +239,7 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
 
               <button
                 onClick={onCreateClick}
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl transition-all duration-200 shadow-sm font-bold text-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl transition-all duration-200 shadow-sm font-bold text-sm whitespace-nowrap hover:scale-[1.02] active:scale-95"
               >
                 <Plus size={18} />
                 New server
@@ -254,13 +254,13 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                 key={server.id}
                 variants={staggerItem}
                 whileHover={{ scale: 1.01, borderColor: '#555555' }}
-                className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-4 flex items-center gap-6 transition-colors group cursor-pointer"
+                className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-4 flex items-center gap-6 transition-colors group cursor-pointer"
               >
                 <div
                   onClick={() => onSelect(server)}
                   className="flex items-center gap-6 flex-1 cursor-pointer"
                 >
-                  <div className="w-20 h-20 bg-[#111111] rounded-xl overflow-hidden border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+                  <div className="w-20 h-20 bg-[var(--c-base)] rounded-xl overflow-hidden border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
                     <img
                       src={`http://localhost:3001/api/servers/${server.id}/icon.png`}
                       alt="Icon"
@@ -270,28 +270,28 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                         e.target.nextSibling.style.display = 'block';
                       }}
                     />
-                    <Server className="text-[#555555] hidden" size={32} />
+                    <Server className="text-[var(--c-text-muted)] hidden" size={32} />
                   </div>
 
                   <div className="flex-1 flex flex-col justify-center">
                     <div className="flex items-center gap-2 mb-2">
-                      <h3 className="text-xl font-bold text-[#FFFFFF] group-hover:text-[#00AF5C] transition-colors">{server.name}</h3>
-                      <span className="text-[#555555]">&gt;</span>
+                      <h3 className="text-xl font-bold text-[var(--c-text-primary)] group-hover:text-[#00AF5C] transition-colors">{server.name}</h3>
+                      <span className="text-[var(--c-text-muted)]">&gt;</span>
                     </div>
 
-                    <div className="flex items-center gap-4 text-sm text-[#A0A0A0]">
+                    <div className="flex items-center gap-4 text-sm text-[var(--c-text-secondary)]">
                       <div className="flex items-center gap-1.5">
                         <Gamepad2 size={16} />
                         <span>Minecraft {server.version}</span>
                       </div>
-                      <div className="w-px h-3 bg-[#2D2D2D]"></div>
+                      <div className="w-px h-3 bg-[var(--c-border)]"></div>
                       <div className="flex items-center gap-1.5">
                         <Settings size={16} />
                         <span className="capitalize">{server.type} {server.version}</span>
                       </div>
                       {server.customUrl && (
                         <>
-                          <div className="w-px h-3 bg-[#2D2D2D]"></div>
+                          <div className="w-px h-3 bg-[var(--c-border)]"></div>
                           <div className="flex items-center gap-1.5">
                             <LinkIcon size={16} />
                             <span>{server.customUrl}</span>
@@ -312,7 +312,7 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                   <Tooltip content="Clone Server">
                     <button
                       onClick={(e) => { e.stopPropagation(); openClone(server); }}
-                      className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      className="p-2 text-[var(--c-text-secondary)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
                     >
                       <Copy size={18} />
                     </button>
@@ -320,7 +320,7 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
                   <Tooltip content="Delete Server" align="end">
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteTarget(server); }}
-                      className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -330,14 +330,14 @@ export default function ServersList({ servers, onSelect, onCreateClick, onJoinCl
             ))}
 
             {filteredServers.length === 0 && (
-              <div className="text-center py-12 text-[#A0A0A0]">
+              <div className="text-center py-12 text-[var(--c-text-secondary)]">
                 <Server size={48} className="mx-auto mb-4 opacity-40" />
                 <p>No servers found.</p>
               </div>
             )}
           </motion.div>
 
-          <div className="mt-12 text-center text-[#555555] text-sm flex items-center justify-center gap-2">
+          <div className="mt-12 text-center text-[var(--c-text-muted)] text-sm flex items-center justify-center gap-2">
             <Flame size={16} /> Powered by MineDash
           </div>
         </div>

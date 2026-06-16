@@ -105,10 +105,10 @@ function BackupSelect({ value, options, onChange }) {
         ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full bg-[#111111] border ${isOpen ? 'border-[#00AF5C] ring-2 ring-[#00AF5C]/20' : 'border-[#2D2D2D] hover:border-[#555555]'} rounded-xl px-3 py-2 text-left flex items-center justify-between gap-2 text-sm text-[#FFFFFF] font-medium transition-all outline-none`}
+        className={`w-full bg-[var(--c-base)] border ${isOpen ? 'border-[#00AF5C] ring-2 ring-[#00AF5C]/20' : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'} rounded-xl px-3 py-2 text-left flex items-center justify-between gap-2 text-sm text-[var(--c-text-primary)] font-medium transition-all outline-none`}
       >
         <span>{selected?.label ?? value}</span>
-        <ChevronDown size={14} className={`text-[#555555] transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-[var(--c-text-muted)] transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && coords && createPortal(
         <AnimatePresence>
@@ -119,7 +119,7 @@ function BackupSelect({ value, options, onChange }) {
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.13, ease: 'easeOut' }}
             style={{ position: 'fixed', top: coords.top, left: coords.left, width: coords.width, zIndex: 9999 }}
-            className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
+            className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
           >
             {options.map(opt => {
               const isSel = String(opt.value) === String(value);
@@ -128,7 +128,7 @@ function BackupSelect({ value, options, onChange }) {
                   key={opt.value}
                   type="button"
                   onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between transition-colors ${isSel ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'text-[#A0A0A0] hover:bg-[#2D2D2D] hover:text-[#FFFFFF]'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between transition-colors ${isSel ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-border)] hover:text-[var(--c-text-primary)]'}`}
                 >
                   <span>{opt.label}</span>
                   {isSel && <Check size={13} />}
@@ -366,7 +366,7 @@ function BackupsViewer({ serverId, server, onError }) {
   }, [backups]);
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden relative">
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden relative">
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {deleteTarget && (
@@ -378,15 +378,15 @@ function BackupsViewer({ serverId, server, onError }) {
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
             >
-              <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete Backup</h3>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              <h3 className="text-xl font-bold text-[var(--c-text-primary)] mb-2">Delete Backup</h3>
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 Are you sure you want to permanently delete <span className="text-white font-bold">{deleteTarget}</span>? This action cannot be undone.
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
-                <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] active:scale-95">Cancel</button>
-                <button onClick={confirmDelete} className="px-4 py-2 bg-[#FF5555] hover:bg-[#FF4444] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] active:scale-95">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
+                <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] active:scale-95">Cancel</button>
+                <button onClick={confirmDelete} className="px-4 py-2 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] active:scale-95">
                   <Trash2 size={16} /> Delete
                 </button>
               </div>
@@ -407,20 +407,20 @@ function BackupsViewer({ serverId, server, onError }) {
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
             >
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2.5 bg-amber-500/10 rounded-xl">
                   <RotateCcw size={20} className="text-amber-500" />
                 </div>
-                <h3 className="text-xl font-bold text-[#FFFFFF]">Restore Backup</h3>
+                <h3 className="text-xl font-bold text-[var(--c-text-primary)]">Restore Backup</h3>
               </div>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 This will <span className="text-white font-bold">replace all current server files</span> with the backup{' '}
                 <span className="text-white font-bold">{restoreTarget}</span>. If the server is running, it will be stopped and restarted automatically. This action cannot be undone.
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
-                <button onClick={() => setRestoreTarget(null)} disabled={restoring} className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95">Cancel</button>
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
+                <button onClick={() => setRestoreTarget(null)} disabled={restoring} className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95">Cancel</button>
                 <button onClick={confirmRestore} disabled={restoring} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2 disabled:opacity-50 hover:scale-[1.02] active:scale-95">
                   <RotateCcw size={16} className={restoring ? 'animate-spin' : ''} />
                   {restoring ? 'Restoring...' : 'Restore Backup'}
@@ -433,8 +433,8 @@ function BackupsViewer({ serverId, server, onError }) {
       </AnimatePresence>
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D] bg-[#1A1A1A]">
-        <h3 className="font-bold text-[#FFFFFF]">Server Backups</h3>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
+        <h3 className="font-bold text-[var(--c-text-primary)]">Server Backups</h3>
         <motion.button
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}
@@ -448,15 +448,15 @@ function BackupsViewer({ serverId, server, onError }) {
       </div>
 
       {/* Auto-backup settings panel */}
-      <div className="border-b border-[#2D2D2D] bg-[#161616]">
+      <div className="border-b border-[var(--c-border)] bg-[var(--c-deep-2)]">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
               <Shield size={16} className="text-[#00AF5C]" />
             </div>
             <div>
-              <p className="text-sm font-bold text-[#FFFFFF]">Auto-backup World</p>
-              <p className="text-xs text-[#555555]">Automatically back up your world on a schedule</p>
+              <p className="text-sm font-bold text-[var(--c-text-primary)]">Auto-backup World</p>
+              <p className="text-xs text-[var(--c-text-muted)]">Automatically back up your world on a schedule</p>
             </div>
           </div>
           {/* Toggle switch */}
@@ -464,7 +464,7 @@ function BackupsViewer({ serverId, server, onError }) {
             onClick={() => handleToggleAutoBackup(!autoBackup)}
             disabled={savingSettings}
             className={`relative w-12 h-6 rounded-full transition-colors duration-300 disabled:opacity-50 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-[#00AF5C]/50 ${
-              autoBackup ? 'bg-[#00AF5C]' : 'bg-[#2D2D2D]'
+              autoBackup ? 'bg-[#00AF5C]' : 'bg-[var(--c-border)]'
             }`}
           >
             <motion.div
@@ -490,20 +490,20 @@ function BackupsViewer({ serverId, server, onError }) {
                 if (def?.height === 'auto') setPanelOverflow('visible');
               }}
             >
-              <div className="px-6 pb-5 flex flex-wrap items-center gap-4 border-t border-[#2D2D2D] pt-4">
+              <div className="px-6 pb-5 flex flex-wrap items-center gap-4 border-t border-[var(--c-border)] pt-4">
                 <div className="flex items-center gap-3">
-                  <Clock size={14} className="text-[#555555]" />
-                  <span className="text-sm font-medium text-[#A0A0A0]">Frequency</span>
+                  <Clock size={14} className="text-[var(--c-text-muted)]" />
+                  <span className="text-sm font-medium text-[var(--c-text-secondary)]">Frequency</span>
                   <BackupSelect
                     value={backupIntervalHours}
                     options={INTERVAL_OPTIONS}
                     onChange={handleIntervalChange}
                   />
                 </div>
-                <div className="w-px h-4 bg-[#2D2D2D] hidden sm:block" />
+                <div className="w-px h-4 bg-[var(--c-border)] hidden sm:block" />
                 <div className="flex items-center gap-3">
-                  <Archive size={14} className="text-[#555555]" />
-                  <span className="text-sm font-medium text-[#A0A0A0]">Retention</span>
+                  <Archive size={14} className="text-[var(--c-text-muted)]" />
+                  <span className="text-sm font-medium text-[var(--c-text-secondary)]">Retention</span>
                   <BackupSelect
                     value={keepLastNBackups}
                     options={RETENTION_OPTIONS}
@@ -511,7 +511,7 @@ function BackupsViewer({ serverId, server, onError }) {
                   />
                 </div>
                 {savingSettings && (
-                  <span className="text-xs text-[#555555] ml-auto">Saving…</span>
+                  <span className="text-xs text-[var(--c-text-muted)] ml-auto">Saving…</span>
                 )}
               </div>
             </motion.div>
@@ -521,35 +521,35 @@ function BackupsViewer({ serverId, server, onError }) {
 
       {/* Stats strip */}
       {!loading && backups.length > 0 && (
-        <div className="grid grid-cols-3 gap-px bg-[#2D2D2D] border-b border-[#2D2D2D]">
-          <div className="bg-[#111111] px-6 py-3 flex items-center gap-3">
+        <div className="grid grid-cols-3 gap-px bg-[var(--c-border)] border-b border-[var(--c-border)]">
+          <div className="bg-[var(--c-base)] px-6 py-3 flex items-center gap-3">
             <div className="p-2 bg-[#00AF5C]/10 rounded-lg">
               <Archive size={14} className="text-[#00AF5C]" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-[#555555] font-bold">Backups</p>
-              <p className="text-sm font-bold text-[#FFFFFF] tabular-nums truncate">
-                {stats.count}{stats.pinnedCount > 0 && <span className="text-[#A0A0A0] font-medium"> · {stats.pinnedCount} pinned</span>}
+              <p className="text-[10px] uppercase tracking-wider text-[var(--c-text-muted)] font-bold">Backups</p>
+              <p className="text-sm font-bold text-[var(--c-text-primary)] tabular-nums truncate">
+                {stats.count}{stats.pinnedCount > 0 && <span className="text-[var(--c-text-secondary)] font-medium"> · {stats.pinnedCount} pinned</span>}
               </p>
             </div>
           </div>
-          <div className="bg-[#111111] px-6 py-3 flex items-center gap-3">
+          <div className="bg-[var(--c-base)] px-6 py-3 flex items-center gap-3">
             <div className="p-2 bg-[#00AF5C]/10 rounded-lg">
               <HardDrive size={14} className="text-[#00AF5C]" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-[#555555] font-bold">Total size</p>
-              <p className="text-sm font-bold text-[#FFFFFF] tabular-nums truncate">{formatBytes(stats.totalBytes)}</p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--c-text-muted)] font-bold">Total size</p>
+              <p className="text-sm font-bold text-[var(--c-text-primary)] tabular-nums truncate">{formatBytes(stats.totalBytes)}</p>
             </div>
           </div>
-          <div className="bg-[#111111] px-6 py-3 flex items-center gap-3">
+          <div className="bg-[var(--c-base)] px-6 py-3 flex items-center gap-3">
             <div className="p-2 bg-[#00AF5C]/10 rounded-lg">
               <Clock size={14} className="text-[#00AF5C]" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-[#555555] font-bold">Last backup</p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--c-text-muted)] font-bold">Last backup</p>
               <Tooltip content={stats.lastBackupMs ? new Date(stats.lastBackupMs).toLocaleString() : ''} align="start" className="w-full min-w-0">
-                <p className="text-sm font-bold text-[#FFFFFF] truncate w-full">
+                <p className="text-sm font-bold text-[var(--c-text-primary)] truncate w-full">
                   {stats.lastBackupMs ? relativeTime(stats.lastBackupMs) : '—'}
                 </p>
               </Tooltip>
@@ -560,15 +560,15 @@ function BackupsViewer({ serverId, server, onError }) {
 
       {/* Search + sort */}
       {!loading && backups.length > 0 && (
-        <div className="flex items-center gap-3 px-6 py-3 border-b border-[#2D2D2D] bg-[#161616]">
+        <div className="flex items-center gap-3 px-6 py-3 border-b border-[var(--c-border)] bg-[var(--c-deep-2)]">
           <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555] pointer-events-none" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)] pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search backups..."
-              className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-2 focus:ring-[#00AF5C]/20 rounded-xl pl-9 pr-3 py-2 text-sm text-[#FFFFFF] outline-none transition-all placeholder-[#555555] font-medium"
+              className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-2 focus:ring-[#00AF5C]/20 rounded-xl pl-9 pr-3 py-2 text-sm text-[var(--c-text-primary)] outline-none transition-all placeholder-[var(--c-text-muted)] font-medium"
             />
           </div>
           <BackupSelect
@@ -582,7 +582,7 @@ function BackupsViewer({ serverId, server, onError }) {
       {/* Backup list */}
       <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-[#A0A0A0] font-medium">
+          <div className="flex items-center justify-center h-full text-[var(--c-text-secondary)] font-medium">
             Loading backups...
           </div>
         ) : backups.length === 0 ? (
@@ -590,8 +590,8 @@ function BackupsViewer({ serverId, server, onError }) {
             <div className="p-5 bg-[#00AF5C]/5 rounded-3xl mb-5 border border-[#00AF5C]/10">
               <Sparkles size={40} className="text-[#00AF5C]" />
             </div>
-            <h4 className="text-base font-bold text-[#FFFFFF] mb-1">No backups yet</h4>
-            <p className="text-sm text-[#A0A0A0] max-w-xs">Create your first backup to keep your world safe — or flip on auto-backup above and forget about it.</p>
+            <h4 className="text-base font-bold text-[var(--c-text-primary)] mb-1">No backups yet</h4>
+            <p className="text-sm text-[var(--c-text-secondary)] max-w-xs">Create your first backup to keep your world safe — or flip on auto-backup above and forget about it.</p>
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
@@ -604,7 +604,7 @@ function BackupsViewer({ serverId, server, onError }) {
             </motion.button>
           </div>
         ) : visibleBackups.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#555555] font-medium px-6 text-center">
+          <div className="flex flex-col items-center justify-center h-full text-[var(--c-text-muted)] font-medium px-6 text-center">
             <Search size={36} className="mb-3 opacity-30" />
             <p>No backups match "{search}".</p>
             <button onClick={() => setSearch('')} className="text-xs mt-2 text-[#00AF5C] hover:underline font-bold">Clear search</button>
@@ -621,16 +621,16 @@ function BackupsViewer({ serverId, server, onError }) {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(i * 0.03, 0.3), duration: 0.25 }}
-                  className={`flex items-center justify-between p-4 bg-[#1E1E1E] border rounded-2xl hover:border-[#555555] transition-all duration-200 group ${backup.pinned ? 'border-[#00AF5C]/40 bg-[#00AF5C]/[0.03]' : 'border-[#2D2D2D]'}`}
+                  className={`flex items-center justify-between p-4 bg-[var(--c-surface-2)] border rounded-2xl hover:border-[var(--c-text-muted)] transition-all duration-200 group ${backup.pinned ? 'border-[#00AF5C]/40 bg-[#00AF5C]/[0.03]' : 'border-[var(--c-border)]'}`}
                 >
                   <div className="flex items-center gap-4 min-w-0 flex-1">
-                    <div className={`p-3 rounded-xl border ${backup.pinned ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30' : 'bg-[#111111] text-[#A0A0A0] border-[#2D2D2D]'}`}>
+                    <div className={`p-3 rounded-xl border ${backup.pinned ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30' : 'bg-[var(--c-base)] text-[var(--c-text-secondary)] border-[var(--c-border)]'}`}>
                       <Archive size={20} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-bold text-[#FFFFFF] truncate">{friendlyTitle(backup)}</h4>
-                        <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-md ${isAuto ? 'bg-[#A0A0A0]/10 text-[#A0A0A0]' : 'bg-[#00AF5C]/10 text-[#00AF5C]'}`}>
+                        <h4 className="font-bold text-[var(--c-text-primary)] truncate">{friendlyTitle(backup)}</h4>
+                        <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-md ${isAuto ? 'bg-[var(--c-text-secondary)]/10 text-[var(--c-text-secondary)]' : 'bg-[#00AF5C]/10 text-[#00AF5C]'}`}>
                           {isAuto ? 'Auto' : 'Manual'}
                         </span>
                         {backup.pinned && (
@@ -639,8 +639,8 @@ function BackupsViewer({ serverId, server, onError }) {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-[#A0A0A0] mt-1 truncate">
-                        {backup.size} · {relativeTime(dateMs)} · <span className="text-[#555555]">{new Date(dateMs).toLocaleString()}</span>
+                      <p className="text-xs text-[var(--c-text-secondary)] mt-1 truncate">
+                        {backup.size} · {relativeTime(dateMs)} · <span className="text-[var(--c-text-muted)]">{new Date(dateMs).toLocaleString()}</span>
                       </p>
                     </div>
                   </div>
@@ -649,7 +649,7 @@ function BackupsViewer({ serverId, server, onError }) {
                     <Tooltip content={backup.pinned ? 'Unpin (allow auto-cleanup)' : 'Pin (protect from auto-cleanup)'}>
                       <button
                         onClick={() => handleTogglePin(backup)}
-                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${backup.pinned ? 'text-amber-400 hover:bg-amber-500/10' : 'text-[#555555] opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:bg-amber-500/10'}`}
+                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${backup.pinned ? 'text-amber-400 hover:bg-amber-500/10' : 'text-[var(--c-text-muted)] opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:bg-amber-500/10'}`}
                       >
                         {backup.pinned ? <Pin size={18} /> : <PinOff size={18} />}
                       </button>
@@ -657,7 +657,7 @@ function BackupsViewer({ serverId, server, onError }) {
                     <Tooltip content="Rename">
                       <button
                         onClick={() => openRename(backup)}
-                        className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                        className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
                       >
                         <Pencil size={18} />
                       </button>
@@ -665,7 +665,7 @@ function BackupsViewer({ serverId, server, onError }) {
                     <Tooltip content="Restore Backup">
                       <button
                         onClick={() => setRestoreTarget(backup.name)}
-                        className="p-2 text-[#A0A0A0] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                        className="p-2 text-[var(--c-text-secondary)] hover:text-amber-500 hover:bg-amber-500/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
                       >
                         <RotateCcw size={18} />
                       </button>
@@ -673,7 +673,7 @@ function BackupsViewer({ serverId, server, onError }) {
                     <Tooltip content="Download Backup">
                       <button
                         onClick={() => handleDownload(backup.name)}
-                        className="p-2 text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                        className="p-2 text-[var(--c-text-secondary)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
                       >
                         <Download size={18} />
                       </button>
@@ -681,7 +681,7 @@ function BackupsViewer({ serverId, server, onError }) {
                     <Tooltip content="Delete Backup" align="end">
                       <button
                         onClick={() => setDeleteTarget(backup.name)}
-                        className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                        className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -706,7 +706,7 @@ function BackupsViewer({ serverId, server, onError }) {
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-2">
@@ -714,16 +714,16 @@ function BackupsViewer({ serverId, server, onError }) {
                   <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
                     <Pencil size={16} className="text-[#00AF5C]" />
                   </div>
-                  <h3 className="text-lg font-bold text-[#FFFFFF]">Rename Backup</h3>
+                  <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Rename Backup</h3>
                 </div>
                 <button
                   onClick={() => !renaming && setRenameTarget(null)}
-                  className="p-1.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-lg transition-colors"
+                  className="p-1.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-lg transition-colors"
                 >
                   <X size={16} />
                 </button>
               </div>
-              <p className="text-xs text-[#A0A0A0] mb-4">Give this backup a memorable label like "pre-1.21-update" or "before-mod-install".</p>
+              <p className="text-xs text-[var(--c-text-secondary)] mb-4">Give this backup a memorable label like "pre-1.21-update" or "before-mod-install".</p>
               <input
                 autoFocus
                 type="text"
@@ -732,15 +732,15 @@ function BackupsViewer({ serverId, server, onError }) {
                 onKeyDown={(e) => { if (e.key === 'Enter') confirmRename(); if (e.key === 'Escape') setRenameTarget(null); }}
                 placeholder="my-special-backup"
                 disabled={renaming}
-                className={`w-full bg-[#111111] border ${renameError ? 'border-[#FF5555] focus:border-[#FF5555] focus:ring-[#FF5555]/10' : 'border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none transition-all focus:ring-4 font-medium placeholder-[#555555]`}
+                className={`w-full bg-[var(--c-base)] border ${renameError ? 'border-[var(--c-danger)] focus:border-[var(--c-danger)] focus:ring-[var(--c-danger)]/10' : 'border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none transition-all focus:ring-4 font-medium placeholder-[var(--c-text-muted)]`}
               />
-              <p className="text-[10px] text-[#555555] mt-1.5">.zip is added automatically</p>
-              {renameError && <p className="text-xs text-[#FF5555] font-medium mt-2">{renameError}</p>}
-              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
+              <p className="text-[10px] text-[var(--c-text-muted)] mt-1.5">.zip is added automatically</p>
+              {renameError && <p className="text-xs text-[var(--c-danger)] font-medium mt-2">{renameError}</p>}
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[var(--c-border)]">
                 <button
                   onClick={() => setRenameTarget(null)}
                   disabled={renaming}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95"
                 >
                   Cancel
                 </button>
@@ -767,7 +767,7 @@ function BackupsViewer({ serverId, server, onError }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.95 }}
             transition={{ type: 'spring', duration: 0.4, bounce: 0.2 }}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-5 py-3 bg-[#1E1E1E] border border-[#00AF5C]/30 text-[#FFFFFF] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-50 whitespace-nowrap"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 px-5 py-3 bg-[var(--c-surface-2)] border border-[#00AF5C]/30 text-[var(--c-text-primary)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-50 whitespace-nowrap"
           >
             <CheckCircle2 size={18} className="text-[#00AF5C] flex-shrink-0" />
             <span className="text-sm font-medium">{toast}</span>

@@ -22,8 +22,8 @@ export default function BrowseInstallToast({ toasts = [], onPlay, onDismiss, onC
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-            className={`w-[360px] bg-[#1A1A1A] border rounded-2xl shadow-2xl shadow-black/60 overflow-hidden pointer-events-auto ${
-              toast.phase === 'error' ? 'border-[#FF5555]/30' : 'border-[#00AF5C]/30'
+            className={`w-[360px] bg-[var(--c-surface-1)] border rounded-2xl shadow-2xl shadow-black/60 overflow-hidden pointer-events-auto ${
+              toast.phase === 'error' ? 'border-[var(--c-danger)]/30' : 'border-[#00AF5C]/30'
             }`}
           >
             {renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers })}
@@ -57,37 +57,37 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
     return Check;
   })();
 
-  const accent = isError ? 'text-[#FF5555]' : 'text-[#00AF5C]';
+  const accent = isError ? 'text-[var(--c-danger)]' : 'text-[#00AF5C]';
 
   return (
     <>
       <div className="flex items-center gap-3 p-4">
-        <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+        <div className="w-12 h-12 rounded-xl overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
           {toast.iconUrl
             ? <img src={toast.iconUrl} alt="" className="w-full h-full object-cover" />
             : <HeaderIcon size={20} className={`${accent} ${inFlight ? 'animate-spin' : ''}`} />}
         </div>
         <div className="flex-1 min-w-0">
           <p className={`text-xs font-bold uppercase tracking-wider ${accent}`}>{headerLabel}</p>
-          <p className="text-sm font-bold text-[#FFFFFF] truncate">{toast.title}</p>
+          <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{toast.title}</p>
           {toast.kind === 'modpack' && phase === 'done' && (
-            <p className="text-[10px] text-[#A0A0A0] truncate">{toast.loader} {toast.version}</p>
+            <p className="text-[10px] text-[var(--c-text-secondary)] truncate">{toast.loader} {toast.version}</p>
           )}
           {toast.kind === 'server' && inFlight && (
-            <p className="text-[10px] text-[#A0A0A0] truncate">
+            <p className="text-[10px] text-[var(--c-text-secondary)] truncate">
               {phase === 'downloading' ? 'Pulling .mrpack from Modrinth…' : 'Extracting and creating server…'}
             </p>
           )}
           {isError && toast.error && (
             <Tooltip content={toast.error} align="start" className="w-full min-w-0">
-              <p className="text-[10px] text-[#A0A0A0] truncate w-full">{toast.error}</p>
+              <p className="text-[10px] text-[var(--c-text-secondary)] truncate w-full">{toast.error}</p>
             </Tooltip>
           )}
         </div>
         <Tooltip content={inFlight ? 'Cancel install' : 'Dismiss'} align="end" className="flex-shrink-0">
           <button
             onClick={() => (inFlight ? onCancel?.(toast.id) : onDismiss?.(toast.id))}
-            className="p-1.5 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors"
+            className="p-1.5 rounded-lg text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors"
             aria-label={inFlight ? 'Cancel' : 'Dismiss'}
           >
             <X size={14} />
@@ -96,7 +96,7 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
       </div>
 
       {inFlight && (
-        <div className="h-0.5 bg-[#2D2D2D] overflow-hidden">
+        <div className="h-0.5 bg-[var(--c-border)] overflow-hidden">
           <motion.div
             className="h-full bg-[#00AF5C]"
             initial={{ x: '-100%' }}
@@ -110,11 +110,11 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
       {/* Cancel row — while a server install is still downloading/creating, give
           the user an explicit Stop so they don't have to wait out a big pack. */}
       {toast.kind === 'server' && inFlight && (
-        <div className="flex border-t border-[#2D2D2D]">
+        <div className="flex border-t border-[var(--c-border)]">
           <motion.button
             onClick={() => onCancel?.(toast.id)}
             whileTap={{ scale: 0.97 }}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 text-sm font-bold transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 text-sm font-bold transition-colors"
           >
             <X size={14} />
             Cancel
@@ -125,7 +125,7 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
       {/* Action row — only when the install is in a terminal state and has a
           relevant follow-up (Play or Go to Servers). */}
       {toast.kind === 'modpack' && phase === 'done' && (
-        <div className="flex border-t border-[#2D2D2D]">
+        <div className="flex border-t border-[var(--c-border)]">
           <motion.button
             onClick={() => onPlay?.(toast)}
             whileTap={{ scale: 0.97 }}
@@ -137,7 +137,7 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
         </div>
       )}
       {toast.kind === 'server' && phase === 'done' && (
-        <div className="flex border-t border-[#2D2D2D]">
+        <div className="flex border-t border-[var(--c-border)]">
           <motion.button
             onClick={() => onGoToServers?.(toast)}
             whileTap={{ scale: 0.97 }}

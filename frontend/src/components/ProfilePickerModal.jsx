@@ -278,18 +278,18 @@ export default function ProfilePickerModal({
         exit={{ scale: 0.95, opacity: 0 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
         onClick={e => e.stopPropagation()}
-        className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl w-full max-w-md flex flex-col max-h-[80vh] overflow-hidden"
+        className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl w-full max-w-md flex flex-col max-h-[80vh] overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-[#2D2D2D]">
+        <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-[var(--c-border)]">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">Install</p>
-            <h2 className="text-lg font-bold text-[#FFFFFF] truncate">{hit?.title || 'Project'}</h2>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Install</p>
+            <h2 className="text-lg font-bold text-[var(--c-text-primary)] truncate">{hit?.title || 'Project'}</h2>
           </div>
           <button
             onClick={() => !installing && onClose?.(null)}
             disabled={installing}
-            className="p-2 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors disabled:opacity-40"
+            className="p-2 rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors disabled:opacity-40"
             aria-label="Close"
           >
             <X size={16} />
@@ -299,13 +299,13 @@ export default function ProfilePickerModal({
         {/* Search */}
         <div className="px-6 pt-4 pb-2">
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
             <input
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search for profile"
-              className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-9 pr-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555]"
+              className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-9 pr-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)]"
             />
           </div>
         </div>
@@ -315,19 +315,19 @@ export default function ProfilePickerModal({
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={18} className="text-[#00AF5C] animate-spin mr-2" />
-              <span className="text-sm text-[#A0A0A0]">Loading profiles…</span>
+              <span className="text-sm text-[var(--c-text-secondary)]">Loading profiles…</span>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center text-center py-10">
-              <div className="p-3 bg-[#1E1E1E] rounded-2xl mb-3">
-                <ScrollText size={28} className="text-[#A0A0A0]" />
+              <div className="p-3 bg-[var(--c-surface-2)] rounded-2xl mb-3">
+                <ScrollText size={28} className="text-[var(--c-text-secondary)]" />
               </div>
-              <p className="text-sm font-bold text-[#FFFFFF]">
+              <p className="text-sm font-bold text-[var(--c-text-primary)]">
                 {compatible.length === 0
                   ? 'No compatible profiles'
                   : 'No profiles match'}
               </p>
-              <p className="text-xs text-[#A0A0A0] mt-1 max-w-xs">
+              <p className="text-xs text-[var(--c-text-secondary)] mt-1 max-w-xs">
                 {compatible.length === 0
                   ? `Create a new profile to install this ${labelFor(type).toLowerCase()}.`
                   : 'Try a different search.'}
@@ -345,17 +345,17 @@ export default function ProfilePickerModal({
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-left ${
                       on
                         ? 'bg-[#00AF5C]/10 border border-[#00AF5C]/30'
-                        : 'border border-transparent hover:bg-[#1E1E1E]'
+                        : 'border border-transparent hover:bg-[var(--c-surface-2)]'
                     }`}
                   >
-                    <div className="w-9 h-9 rounded-lg bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center overflow-hidden">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center overflow-hidden">
                       {inst.iconUrl
                         ? <img src={inst.iconUrl} alt="" className="w-full h-full object-cover" />
                         : <Icon size={16} className="text-[#00AF5C]" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-[#FFFFFF] truncate">{inst.displayName}</p>
-                      <p className="text-[10px] text-[#A0A0A0] truncate">{LOADER_LABEL[inst.loader] || inst.loader} {inst.version}</p>
+                      <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{inst.displayName}</p>
+                      <p className="text-[10px] text-[var(--c-text-secondary)] truncate">{LOADER_LABEL[inst.loader] || inst.loader} {inst.version}</p>
                     </div>
                     {on && <Check size={14} className="text-[#00AF5C] flex-shrink-0" />}
                   </button>
@@ -371,10 +371,10 @@ export default function ProfilePickerModal({
             <motion.div
               initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-              className="overflow-hidden border-t border-[#2D2D2D]"
+              className="overflow-hidden border-t border-[var(--c-border)]"
             >
-              <div className="px-6 py-3 bg-[#111111]">
-                <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-2">
+              <div className="px-6 py-3 bg-[var(--c-base)]">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] mb-2">
                   New profile {suggestion ? `· ${LOADER_LABEL[suggestion.loader] || suggestion.loader} ${suggestion.version}` : ''}
                 </p>
                 <div className="flex items-center gap-2">
@@ -388,7 +388,7 @@ export default function ProfilePickerModal({
                       if (e.key === 'Escape') { setCreatingNew(false); setNewName(''); }
                     }}
                     placeholder={`${hit?.title || 'New'} profile`}
-                    className="flex-1 bg-[#1A1A1A] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-1.5 text-sm text-[#FFFFFF] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555]"
+                    className="flex-1 bg-[var(--c-surface-1)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)]"
                   />
                   <button
                     onClick={handleCreateNew}
@@ -405,12 +405,12 @@ export default function ProfilePickerModal({
         </AnimatePresence>
 
         {/* Footer actions */}
-        <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-[#2D2D2D]">
+        <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-[var(--c-border)]">
           <Tooltip content={suggestion ? `New ${LOADER_LABEL[suggestion.loader] || suggestion.loader} ${suggestion.version} profile` : 'No compatible loader/version available'} align="start">
             <button
               onClick={() => { setCreatingNew(c => !c); setNewName(''); }}
               disabled={!suggestion || installing}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] rounded-xl transition-colors disabled:opacity-40"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] rounded-xl transition-colors disabled:opacity-40"
             >
               <Plus size={14} />
               New Profile

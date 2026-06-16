@@ -110,23 +110,23 @@ export default function StatCard({ icon, label, detail, value, secondary, color,
       whileHover={{ y: -2 }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       onDoubleClick={onDoubleClick}
-      className={`w-full bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#3D3D3D] rounded-2xl overflow-hidden transition-colors flex flex-col ${onDoubleClick ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`w-full bg-[var(--c-surface-2)] border border-[var(--c-border)] hover:border-[var(--c-border-soft)] rounded-2xl overflow-hidden transition-colors flex flex-col ${onDoubleClick ? 'cursor-pointer' : 'cursor-default'}`}
     >
       <div className={`px-5 pt-5 flex-1 ${history === undefined ? 'pb-5' : 'pb-3'}`}>
         <div className="flex items-start justify-between mb-1">
           <div className="flex items-baseline gap-1.5 min-w-0">
-            <span className="text-3xl font-bold tabular-nums text-[#FFFFFF] truncate">{value}</span>
+            <span className="text-3xl font-bold tabular-nums text-[var(--c-text-primary)] truncate">{value}</span>
             {secondary && (
-              <span className="text-sm font-medium text-[#555555] tabular-nums flex-shrink-0">/ {secondary}</span>
+              <span className="text-sm font-medium text-[var(--c-text-muted)] tabular-nums flex-shrink-0">/ {secondary}</span>
             )}
           </div>
-          <div className="text-[#555555] flex-shrink-0 mt-1">
+          <div className="text-[var(--c-text-muted)] flex-shrink-0 mt-1">
             {React.cloneElement(icon, { size: 18 })}
           </div>
         </div>
-        <p className="text-sm font-medium text-[#A0A0A0]">
+        <p className="text-sm font-medium text-[var(--c-text-secondary)]">
           {label}
-          {detail && <span className="text-[#555555]"> · <span className="tabular-nums">{detail}</span></span>}
+          {detail && <span className="text-[var(--c-text-muted)]"> · <span className="tabular-nums">{detail}</span></span>}
         </p>
       </div>
       {history !== undefined && <Sparkline data={history} color={lineColor} height={56} />}

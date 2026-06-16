@@ -27,7 +27,7 @@ export default function AccountMenu({ accounts, activeAccountId, microsoftConfig
         whileTap={{ scale: 0.97 }}
         className={`flex items-center gap-2 pl-2 pr-3 py-2 rounded-2xl border transition-all duration-200 ${
           active
-            ? 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#555555]'
+            ? 'bg-[var(--c-surface-2)] border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
             : 'bg-[#00AF5C]/10 border-[#00AF5C]/30 hover:bg-[#00AF5C]/15'
         }`}
       >
@@ -38,10 +38,10 @@ export default function AccountMenu({ accounts, activeAccountId, microsoftConfig
             <User size={14} />
           </div>
         )}
-        <span className="text-sm font-bold text-[#FFFFFF] max-w-[120px] truncate">
+        <span className="text-sm font-bold text-[var(--c-text-primary)] max-w-[120px] truncate">
           {active ? active.username : 'Sign in'}
         </span>
-        <ChevronDown size={14} className={`text-[#A0A0A0] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-[var(--c-text-secondary)] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </motion.button>
 
       <AnimatePresence>

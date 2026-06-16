@@ -159,23 +159,32 @@ Copies `instances/<source>/` to `instances/<newId>/`, skipping `logs/`, `crash-r
 
 ### Color palette
 
-| Role | Hex | Used for |
-|------|-----|----------|
-| Brand primary | `#00AF5C` | Buttons, active tabs, accents, charts, success states |
-| Brand hover | `#00964F` | Hover state of primary buttons |
-| Background base | `#111111` | Page background, deepest surface |
-| Surface 1 | `#1A1A1A` | Header strips, modals, dropdown menus |
-| Surface 2 | `#1E1E1E` | Cards, list rows |
-| Border / muted bg | `#2D2D2D` | All borders, dividers, disabled-button backgrounds |
-| Border hover | `#555555` (or `#3D3D3D` for soft) | Hover-state borders |
-| Muted text / icons | `#555555` | Subdued labels, default icon color |
-| Secondary text | `#A0A0A0` | Body text, descriptions |
-| Primary text | `#FFFFFF` | Headlines, values |
-| Destructive | `#FF5555` (hover `#FF4444`) | Delete, errors |
-| Warning / restore | `amber-500` (`#F59E0B`) / `amber-400` | Backup restore, "are you sure" warnings, pinned chip |
-| Modpacks accent | `violet-500` / `violet-400` | The modpacks tab only |
+> **The app is theme-aware (Light / Dark / OLED).** Neutrals are CSS-variable
+> **tokens** defined in `frontend/src/index.css` (`:root` = dark, equal to the
+> original hexes, so dark is unchanged; `[data-theme="light"]`/`["oled"]`
+> override). The theme is set on `<html data-theme>` from `App.jsx` +
+> `main.jsx`, persisted via `theme` in the launcher settings, and picked in
+> **Settings → Appearance**. **For neutrals, use the token, not the raw hex** —
+> raw hexes don't flip and will stay dark in Light/OLED mode. Brand accents
+> (green, amber, violet, loader colours) stay literal — they're theme-invariant.
 
-Use Tailwind arbitrary value syntax: `bg-[#1E1E1E]`, `border-[#2D2D2D]`, `text-[#A0A0A0]`. **Don't use Tailwind's named greens** — they don't match the brand.
+| Role | Token (use this) | Dark hex | Used for |
+|------|------|-----|----------|
+| Brand primary | `#00AF5C` (literal) | `#00AF5C` | Buttons, active tabs, accents, charts, success states |
+| Brand hover | `#00964F` (literal) | `#00964F` | Hover state of primary buttons |
+| Background base | `var(--c-base)` | `#111111` | Page background, deepest surface |
+| Surface 1 | `var(--c-surface-1)` | `#1A1A1A` | Header strips, modals, dropdown menus |
+| Surface 2 | `var(--c-surface-2)` | `#1E1E1E` | Cards, list rows |
+| Border / muted bg | `var(--c-border)` | `#2D2D2D` | All borders, dividers, disabled-button backgrounds |
+| Border hover | `var(--c-text-muted)` (or `var(--c-border-soft)`) | `#555555` / `#3D3D3D` | Hover-state borders |
+| Muted text / icons | `var(--c-text-muted)` | `#555555` | Subdued labels, default icon color |
+| Secondary text | `var(--c-text-secondary)` | `#A0A0A0` | Body text, descriptions |
+| Primary text | `var(--c-text-primary)` | `#FFFFFF` | Headlines, values |
+| Destructive | `var(--c-danger)` (hover `var(--c-danger-hover)`) | `#FF5555` / `#FF4444` | Delete, errors |
+| Warning / restore | `amber-500` (`#F59E0B`) / `amber-400` | — | Backup restore, "are you sure" warnings, pinned chip |
+| Modpacks accent | `violet-500` / `violet-400` | — | The modpacks tab only |
+
+Use Tailwind arbitrary value syntax with the token: `bg-[var(--c-surface-2)]`, `border-[var(--c-border)]`, `text-[var(--c-text-secondary)]`. Opacity modifiers work (`bg-[var(--c-surface-1)]/80` — Tailwind v4 emits `color-mix`). **White text on a coloured surface uses the `text-white` keyword** (not `text-[var(--c-text-primary)]`, which flips dark in Light mode). **Don't use Tailwind's named greys/greens** — they don't match the brand and don't theme.
 
 Translucent overlays follow the pattern `bg-[#00AF5C]/10`, `border-[#00AF5C]/20`, etc. Soft hover/focus rings: `focus:ring-4 focus:ring-[#00AF5C]/10`.
 

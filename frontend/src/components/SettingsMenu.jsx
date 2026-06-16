@@ -17,7 +17,7 @@ function NumberInput({ value, onChange, min, step = 1, disabled }) {
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
-        className="branded-number w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-3 pr-8 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums"
+        className="branded-number w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-3 pr-8 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums"
       />
       <div className="absolute right-1 top-1 bottom-1 flex flex-col gap-0.5 pointer-events-none">
         <button
@@ -25,7 +25,7 @@ function NumberInput({ value, onChange, min, step = 1, disabled }) {
           tabIndex={-1}
           onClick={() => bump(step)}
           disabled={disabled}
-          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[#555555] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[#555555]"
+          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[var(--c-text-muted)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[var(--c-text-muted)]"
         >
           <ChevronUp size={10} strokeWidth={3} />
         </button>
@@ -34,7 +34,7 @@ function NumberInput({ value, onChange, min, step = 1, disabled }) {
           tabIndex={-1}
           onClick={() => bump(-step)}
           disabled={disabled}
-          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[#555555] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[#555555]"
+          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[var(--c-text-muted)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[var(--c-text-muted)]"
         >
           <ChevronDown size={10} strokeWidth={3} />
         </button>
@@ -119,7 +119,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
           className={`p-2.5 rounded-2xl border transition-all duration-200 ${
             open
               ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-              : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
+              : 'bg-[var(--c-surface-2)] border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:border-[var(--c-text-muted)]'
           }`}
         >
           <Settings size={18} />
@@ -133,17 +133,17 @@ export default function SettingsMenu({ settings, onChange, onError }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ type: 'spring', duration: 0.25, bounce: 0.15 }}
-            className="absolute right-0 mt-2 w-[min(440px,calc(100vw-2rem))] z-50 bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden"
+            className="absolute right-0 mt-2 w-[min(440px,calc(100vw-2rem))] z-50 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden"
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#2D2D2D]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--c-border)]">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-[#00AF5C]/10 rounded-xl"><Settings size={16} className="text-[#00AF5C]" /></div>
-                <h3 className="text-base font-bold text-[#FFFFFF]">Settings</h3>
+                <h3 className="text-base font-bold text-[var(--c-text-primary)]">Settings</h3>
               </div>
               <AnimatePresence>
                 {saving && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold text-[#555555]">
+                    className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">
                     <Loader2 size={12} className="animate-spin" /> Saving
                   </motion.div>
                 )}
@@ -156,7 +156,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <MemoryStick size={14} className="text-[#00AF5C]" />
-                    <label className="text-xs font-bold text-[#FFFFFF]">Memory (RAM)</label>
+                    <label className="text-xs font-bold text-[var(--c-text-primary)]">Memory (RAM)</label>
                   </div>
                   <span className="text-xs font-bold text-[#00AF5C] tabular-nums">{draft.ramGb} GB</span>
                 </div>
@@ -168,7 +168,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   className="ram-slider w-full"
                   style={{ '--fill': `${ramPercent}%` }}
                 />
-                <div className="flex justify-between text-[10px] text-[#555555] mt-1 tabular-nums">
+                <div className="flex justify-between text-[10px] text-[var(--c-text-muted)] mt-1 tabular-nums">
                   <span>1 GB</span><span>{Math.round(ramMax / 2)} GB</span><span>{ramMax} GB</span>
                 </div>
               </div>
@@ -176,8 +176,8 @@ export default function SettingsMenu({ settings, onChange, onError }) {
               {/* Window size */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <Monitor size={14} className="text-[#A0A0A0]" />
-                  <label className="text-xs font-bold text-[#FFFFFF]">Window size</label>
+                  <Monitor size={14} className="text-[var(--c-text-secondary)]" />
+                  <label className="text-xs font-bold text-[var(--c-text-primary)]">Window size</label>
                 </div>
                 <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   <NumberInput
@@ -186,7 +186,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                     onChange={(v) => commit({ ...draft, windowWidth: v })}
                     disabled={draft.fullscreen}
                   />
-                  <span className="text-[#555555] text-xs font-bold">×</span>
+                  <span className="text-[var(--c-text-muted)] text-xs font-bold">×</span>
                   <NumberInput
                     min={240}
                     value={draft.windowHeight}
@@ -194,7 +194,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                     disabled={draft.fullscreen}
                   />
                 </div>
-                <label className="flex items-center gap-2 mt-2 cursor-pointer text-xs text-[#A0A0A0] hover:text-[#FFFFFF]">
+                <label className="flex items-center gap-2 mt-2 cursor-pointer text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
                   <span className="custom-checkbox-wrapper">
                     <input type="checkbox" className="custom-checkbox"
                       checked={draft.fullscreen}
@@ -208,8 +208,8 @@ export default function SettingsMenu({ settings, onChange, onError }) {
               {/* Java path */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <Coffee size={14} className="text-[#A0A0A0]" />
-                  <label className="text-xs font-bold text-[#FFFFFF]">Java executable</label>
+                  <Coffee size={14} className="text-[var(--c-text-secondary)]" />
+                  <label className="text-xs font-bold text-[var(--c-text-primary)]">Java executable</label>
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -217,23 +217,23 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                     placeholder="Auto (use detected Java)"
                     value={draft.javaPath}
                     onChange={(e) => commit({ ...draft, javaPath: e.target.value })}
-                    className="flex-1 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono"
+                    className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono"
                   />
                   {draft.javaPath && (
                     <button onClick={() => commit({ ...draft, javaPath: '' })}
-                      className="px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-xs font-bold transition-all">
+                      className="px-3 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl text-xs font-bold transition-all">
                       Auto
                     </button>
                   )}
                 </div>
-                <p className="text-[10px] text-[#555555] mt-1">Leave blank to auto-detect.</p>
+                <p className="text-[10px] text-[var(--c-text-muted)] mt-1">Leave blank to auto-detect.</p>
               </div>
 
               {/* After launch */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  {draft.afterLaunch === 'hide' ? <EyeOff size={14} className="text-[#A0A0A0]" /> : <Eye size={14} className="text-[#A0A0A0]" />}
-                  <label className="text-xs font-bold text-[#FFFFFF]">After launch</label>
+                  {draft.afterLaunch === 'hide' ? <EyeOff size={14} className="text-[var(--c-text-secondary)]" /> : <Eye size={14} className="text-[var(--c-text-secondary)]" />}
+                  <label className="text-xs font-bold text-[var(--c-text-primary)]">After launch</label>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {[
@@ -247,7 +247,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                         className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
                           active
                             ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30'
-                            : 'bg-[#1E1E1E] text-[#A0A0A0] border-[#2D2D2D] hover:border-[#555555]'
+                            : 'bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
                         }`}>
                         {opt.label}
                       </button>
@@ -259,10 +259,10 @@ export default function SettingsMenu({ settings, onChange, onError }) {
               {/* Version list filters */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <FlaskConical size={14} className="text-[#A0A0A0]" />
-                  <label className="text-xs font-bold text-[#FFFFFF]">Version list</label>
+                  <FlaskConical size={14} className="text-[var(--c-text-secondary)]" />
+                  <label className="text-xs font-bold text-[var(--c-text-primary)]">Version list</label>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-[#A0A0A0] hover:text-[#FFFFFF]">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
                   <span className="custom-checkbox-wrapper">
                     <input type="checkbox" className="custom-checkbox"
                       checked={draft.showSnapshots}
@@ -271,7 +271,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   </span>
                   Show snapshots (vanilla only)
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-[#A0A0A0] hover:text-[#FFFFFF]">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
                   <span className="custom-checkbox-wrapper">
                     <input type="checkbox" className="custom-checkbox"
                       checked={draft.onlyInstalled}
@@ -289,7 +289,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
               {window.electronAPI?.getAppVersion && (
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-changelog'))}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                   <Sparkles size={14} className="text-[#00AF5C]" />
                   What's new in this version
                 </button>
@@ -299,7 +299,7 @@ export default function SettingsMenu({ settings, onChange, onError }) {
                   this custom event and flips showOnboarding back on. */}
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-onboarding'))}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                 <Compass size={14} className="text-[#00AF5C]" />
                 Replay onboarding tour
               </button>
@@ -307,8 +307,8 @@ export default function SettingsMenu({ settings, onChange, onError }) {
               {/* Version footer — small gray line so the user can tell what
                   build they're on without digging through About menus.
                   Mirrors VS Code / Discord conventions. */}
-              <div className="border-t border-[#2D2D2D] pt-3 mt-1">
-                <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] text-center">
+              <div className="border-t border-[var(--c-border)] pt-3 mt-1">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] text-center">
                   MineDash {appVersion ? `v${appVersion}` : (window.electronAPI ? '' : 'dev build')}
                 </p>
               </div>

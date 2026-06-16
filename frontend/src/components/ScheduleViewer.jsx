@@ -135,16 +135,16 @@ export default function ScheduleViewer({ serverId, onError }) {
   };
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden relative">
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden relative">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
             <Calendar size={16} className="text-[#00AF5C]" />
           </div>
           <div>
-            <h3 className="font-bold text-[#FFFFFF]">Scheduled Tasks</h3>
-            <p className="text-xs text-[#A0A0A0]">Run actions on a recurring time-of-day schedule</p>
+            <h3 className="font-bold text-[var(--c-text-primary)]">Scheduled Tasks</h3>
+            <p className="text-xs text-[var(--c-text-secondary)]">Run actions on a recurring time-of-day schedule</p>
           </div>
         </div>
         <motion.button
@@ -161,7 +161,7 @@ export default function ScheduleViewer({ serverId, onError }) {
       {/* List */}
       <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-[#A0A0A0] font-medium">
+          <div className="flex items-center justify-center h-full text-[var(--c-text-secondary)] font-medium">
             <Loader2 size={18} className="animate-spin mr-2" /> Loading tasks...
           </div>
         ) : tasks.length === 0 ? (
@@ -169,8 +169,8 @@ export default function ScheduleViewer({ serverId, onError }) {
             <div className="p-5 bg-[#00AF5C]/5 rounded-3xl mb-5 border border-[#00AF5C]/10">
               <Calendar size={40} className="text-[#00AF5C]" />
             </div>
-            <h4 className="text-base font-bold text-[#FFFFFF] mb-1">No scheduled tasks yet</h4>
-            <p className="text-sm text-[#A0A0A0] max-w-sm">Schedule a 3am daily backup, a Sunday-morning restart, or a chat broadcast — anything you can do from the console.</p>
+            <h4 className="text-base font-bold text-[var(--c-text-primary)] mb-1">No scheduled tasks yet</h4>
+            <p className="text-sm text-[var(--c-text-secondary)] max-w-sm">Schedule a 3am daily backup, a Sunday-morning restart, or a chat broadcast — anything you can do from the console.</p>
           </div>
         ) : (
           <div className="space-y-2 p-2">
@@ -184,24 +184,24 @@ export default function ScheduleViewer({ serverId, onError }) {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(i * 0.03, 0.3), duration: 0.25 }}
-                  className={`flex items-center justify-between p-4 bg-[#1E1E1E] border rounded-2xl hover:border-[#555555] transition-all duration-200 group ${task.enabled ? 'border-[#2D2D2D]' : 'border-[#2D2D2D] opacity-60'}`}
+                  className={`flex items-center justify-between p-4 bg-[var(--c-surface-2)] border rounded-2xl hover:border-[var(--c-text-muted)] transition-all duration-200 group ${task.enabled ? 'border-[var(--c-border)]' : 'border-[var(--c-border)] opacity-60'}`}
                 >
                   <div className="flex items-center gap-4 min-w-0 flex-1">
-                    <div className={`p-3 rounded-xl border ${task.enabled ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30' : 'bg-[#111111] text-[#A0A0A0] border-[#2D2D2D]'}`}>
+                    <div className={`p-3 rounded-xl border ${task.enabled ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30' : 'bg-[var(--c-base)] text-[var(--c-text-secondary)] border-[var(--c-border)]'}`}>
                       <Icon size={20} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-bold text-[#FFFFFF] truncate">{task.name}</h4>
-                        <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-md bg-[#A0A0A0]/10 text-[#A0A0A0]">
+                        <h4 className="font-bold text-[var(--c-text-primary)] truncate">{task.name}</h4>
+                        <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-md bg-[var(--c-text-secondary)]/10 text-[var(--c-text-secondary)]">
                           {meta.label}
                         </span>
                       </div>
-                      <p className="text-xs text-[#A0A0A0] mt-1 truncate">
+                      <p className="text-xs text-[var(--c-text-secondary)] mt-1 truncate">
                         <Clock size={11} className="inline mr-1 -mt-0.5" />
                         {describeSchedule(task)}
                         {task.type === 'command' && task.command && (
-                          <span className="text-[#555555]"> · <code className="font-mono">{task.command}</code></span>
+                          <span className="text-[var(--c-text-muted)]"> · <code className="font-mono">{task.command}</code></span>
                         )}
                       </p>
                     </div>
@@ -211,7 +211,7 @@ export default function ScheduleViewer({ serverId, onError }) {
                     <Tooltip content={task.enabled ? 'Disable task' : 'Enable task'}>
                       <button
                         onClick={() => toggleEnabled(task)}
-                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${task.enabled ? 'text-[#00AF5C] hover:bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0] hover:bg-[#2D2D2D]'}`}
+                        className={`p-2 rounded-xl transition-all duration-200 hover:scale-110 ${task.enabled ? 'text-[#00AF5C] hover:bg-[#00AF5C]/10' : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] hover:bg-[var(--c-border)]'}`}
                       >
                         <Power size={18} />
                       </button>
@@ -219,7 +219,7 @@ export default function ScheduleViewer({ serverId, onError }) {
                     <Tooltip content="Delete task" align="end">
                       <button
                         onClick={() => deleteTask(task)}
-                        className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
+                        className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-all duration-200 hover:scale-110 opacity-60 group-hover:opacity-100"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -244,7 +244,7 @@ export default function ScheduleViewer({ serverId, onError }) {
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
@@ -252,11 +252,11 @@ export default function ScheduleViewer({ serverId, onError }) {
                   <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
                     <Calendar size={16} className="text-[#00AF5C]" />
                   </div>
-                  <h3 className="text-lg font-bold text-[#FFFFFF]">New Scheduled Task</h3>
+                  <h3 className="text-lg font-bold text-[var(--c-text-primary)]">New Scheduled Task</h3>
                 </div>
                 <button
                   onClick={() => !submitting && setShowCreate(false)}
-                  className="p-1.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-lg transition-colors"
+                  className="p-1.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-lg transition-colors"
                 >
                   <X size={16} />
                 </button>
@@ -264,7 +264,7 @@ export default function ScheduleViewer({ serverId, onError }) {
 
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Task name</label>
+                  <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">Task name</label>
                   <input
                     autoFocus
                     type="text"
@@ -272,12 +272,12 @@ export default function ScheduleViewer({ serverId, onError }) {
                     onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
                     placeholder="Daily 3am backup"
                     disabled={submitting}
-                    className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none transition-all font-medium placeholder-[#555555]"
+                    className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none transition-all font-medium placeholder-[var(--c-text-muted)]"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Action</label>
+                  <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">Action</label>
                   <div className="grid grid-cols-3 gap-2">
                     {TASK_TYPES.map(t => {
                       const Icon = t.icon;
@@ -287,7 +287,7 @@ export default function ScheduleViewer({ serverId, onError }) {
                           key={t.value}
                           type="button"
                           onClick={() => setForm(f => ({ ...f, type: t.value }))}
-                          className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${selected ? 'bg-[#00AF5C]/10 border-[#00AF5C]/40 text-[#00AF5C]' : 'bg-[#111111] border-[#2D2D2D] text-[#A0A0A0] hover:border-[#555555]'}`}
+                          className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${selected ? 'bg-[#00AF5C]/10 border-[#00AF5C]/40 text-[#00AF5C]' : 'bg-[var(--c-base)] border-[var(--c-border)] text-[var(--c-text-secondary)] hover:border-[var(--c-text-muted)]'}`}
                         >
                           <Icon size={18} />
                           <span className="text-xs font-bold">{t.label}</span>
@@ -299,21 +299,21 @@ export default function ScheduleViewer({ serverId, onError }) {
 
                 {form.type === 'command' && (
                   <div>
-                    <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Console command</label>
+                    <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">Console command</label>
                     <input
                       type="text"
                       value={form.command}
                       onChange={(e) => setForm(f => ({ ...f, command: e.target.value }))}
                       placeholder="say Server restarting in 5 minutes"
                       disabled={submitting}
-                      className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none transition-all font-mono placeholder-[#555555]"
+                      className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none transition-all font-mono placeholder-[var(--c-text-muted)]"
                     />
-                    <p className="text-[10px] text-[#555555] mt-1">Leading slash is optional. Runs only if the server is online.</p>
+                    <p className="text-[10px] text-[var(--c-text-muted)] mt-1">Leading slash is optional. Runs only if the server is online.</p>
                   </div>
                 )}
 
                 <div>
-                  <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Time</label>
+                  <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">Time</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -321,23 +321,23 @@ export default function ScheduleViewer({ serverId, onError }) {
                       max={23}
                       value={form.hour}
                       onChange={(e) => setForm(f => ({ ...f, hour: Math.max(0, Math.min(23, Number(e.target.value) || 0)) }))}
-                      className="w-20 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none transition-all tabular-nums text-center"
+                      className="w-20 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none transition-all tabular-nums text-center"
                     />
-                    <span className="text-[#555555] font-bold">:</span>
+                    <span className="text-[var(--c-text-muted)] font-bold">:</span>
                     <input
                       type="number"
                       min={0}
                       max={59}
                       value={form.minute}
                       onChange={(e) => setForm(f => ({ ...f, minute: Math.max(0, Math.min(59, Number(e.target.value) || 0)) }))}
-                      className="w-20 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none transition-all tabular-nums text-center"
+                      className="w-20 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none transition-all tabular-nums text-center"
                     />
-                    <span className="text-xs text-[#555555] ml-2">24-hour, server local time</span>
+                    <span className="text-xs text-[var(--c-text-muted)] ml-2">24-hour, server local time</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Days <span className="text-[#555555] font-normal">(leave blank for every day)</span></label>
+                  <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">Days <span className="text-[var(--c-text-muted)] font-normal">(leave blank for every day)</span></label>
                   <div className="flex gap-1.5">
                     {DAYS.map(d => {
                       const selected = form.days.includes(d.value);
@@ -346,7 +346,7 @@ export default function ScheduleViewer({ serverId, onError }) {
                           <button
                             type="button"
                             onClick={() => toggleDay(d.value)}
-                            className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${selected ? 'bg-[#00AF5C]/10 border-[#00AF5C]/40 text-[#00AF5C]' : 'bg-[#111111] border-[#2D2D2D] text-[#A0A0A0] hover:border-[#555555]'}`}
+                            className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${selected ? 'bg-[#00AF5C]/10 border-[#00AF5C]/40 text-[#00AF5C]' : 'bg-[var(--c-base)] border-[var(--c-border)] text-[var(--c-text-secondary)] hover:border-[var(--c-text-muted)]'}`}
                           >
                             {d.short}
                           </button>
@@ -357,18 +357,18 @@ export default function ScheduleViewer({ serverId, onError }) {
                 </div>
 
                 {formError && (
-                  <div className="flex items-start gap-2 px-3 py-2 bg-[#FF5555]/10 border border-[#FF5555]/20 rounded-xl text-xs text-[#FF5555]">
+                  <div className="flex items-start gap-2 px-3 py-2 bg-[var(--c-danger)]/10 border border-[var(--c-danger)]/20 rounded-xl text-xs text-[var(--c-danger)]">
                     <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
                     <span>{formError}</span>
                   </div>
                 )}
               </div>
 
-              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[var(--c-border)]">
                 <button
                   onClick={() => setShowCreate(false)}
                   disabled={submitting}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 disabled:opacity-50 hover:scale-[1.02] active:scale-95"
                 >
                   Cancel
                 </button>

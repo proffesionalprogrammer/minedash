@@ -32,7 +32,7 @@ export default function TitleBar() {
 
   return (
     <div
-      className="flex items-center justify-between h-[38px] bg-[#111111] flex-shrink-0 select-none"
+      className="flex items-center justify-between h-[38px] bg-[var(--c-base)] flex-shrink-0 select-none"
       style={{ WebkitAppRegion: 'drag' }}
     >
       {/* Branding */}
@@ -63,10 +63,10 @@ function TitleBarButton({ onClick, children, label, close }) {
       onClick={onClick}
       aria-label={label}
       className={`w-11 h-full flex items-center justify-center transition-colors
-        text-[#888888]
+        text-[var(--c-gray-mid)]
         ${close
-          ? 'hover:bg-[#FF5555] hover:text-white'
-          : 'hover:bg-[#2D2D2D] hover:text-white'
+          ? 'hover:bg-[var(--c-danger)] hover:text-white'
+          : 'hover:bg-[var(--c-border)] hover:text-white'
         }`}
     >
       {children}

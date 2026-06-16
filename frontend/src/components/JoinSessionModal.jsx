@@ -110,7 +110,7 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
       >
         <motion.div
           variants={modalPanel} initial="initial" animate="animate" exit="exit"
-          className="bg-[#1A1A1A] border border-[#2D2D2D] p-8 rounded-3xl w-full max-w-lg shadow-2xl mx-4"
+          className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-8 rounded-3xl w-full max-w-lg shadow-2xl mx-4"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-2">
@@ -118,14 +118,14 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
               <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
                 <Zap size={18} className="text-[#00AF5C]" />
               </div>
-              <h3 className="text-lg font-bold text-[#FFFFFF]">Join a friend</h3>
+              <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Join a friend</h3>
               <span className="px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[9px] font-bold uppercase tracking-wider">
                 Beta
               </span>
             </div>
             <button
               onClick={() => !busy && close()}
-              className="p-1.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-lg transition-colors"
+              className="p-1.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-lg transition-colors"
             >
               <X size={16} />
             </button>
@@ -134,22 +134,22 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
           {/* Step: paste invite code */}
           {step === 'paste' && (
             <>
-              <p className="text-sm text-[#A0A0A0] mb-4 leading-relaxed">
+              <p className="text-sm text-[var(--c-text-secondary)] mb-4 leading-relaxed">
                 Paste the invite code your friend gave you. You'll get a reply code to send back — once they paste it, you'll connect automatically.
               </p>
-              <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">Invite code</label>
+              <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Invite code</label>
               <textarea
                 autoFocus
                 value={inviteInput}
                 onChange={(e) => { setInviteInput(e.target.value); if (detail) setDetail(''); }}
                 placeholder="Paste your friend's invite code here…"
-                className="w-full h-24 mt-1.5 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2 font-mono text-xs text-[#FFFFFF] resize-none custom-scrollbar outline-none transition-all placeholder-[#555555]"
+                className="w-full h-24 mt-1.5 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2 font-mono text-xs text-[var(--c-text-primary)] resize-none custom-scrollbar outline-none transition-all placeholder-[var(--c-text-muted)]"
               />
-              {detail && <p className="text-xs text-[#FF5555] font-medium mt-2">{detail}</p>}
-              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
+              {detail && <p className="text-xs text-[var(--c-danger)] font-medium mt-2">{detail}</p>}
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[var(--c-border)]">
                 <button
                   onClick={close}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all"
                 >
                   Cancel
                 </button>
@@ -168,16 +168,16 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
           {/* Step: show reply code, awaiting host */}
           {step === 'reply' && (
             <>
-              <p className="text-sm text-[#A0A0A0] mb-4 leading-relaxed">
+              <p className="text-sm text-[var(--c-text-secondary)] mb-4 leading-relaxed">
                 Send this reply code back to your host. As soon as they paste it into MineDash, you'll connect.
               </p>
-              <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">Reply code</label>
+              <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Reply code</label>
               <div className="flex items-stretch gap-2 mt-1.5">
                 <textarea
                   readOnly
                   value={replyCode}
                   onFocus={(e) => e.target.select()}
-                  className="flex-1 h-24 bg-[#111111] border border-[#2D2D2D] rounded-xl px-3 py-2 font-mono text-xs text-[#A0A0A0] resize-none custom-scrollbar outline-none"
+                  className="flex-1 h-24 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl px-3 py-2 font-mono text-xs text-[var(--c-text-secondary)] resize-none custom-scrollbar outline-none"
                 />
                 <button
                   onClick={() => copyText(replyCode, 'reply')}
@@ -186,7 +186,7 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
                   {copied === 'reply' ? <Check size={16} /> : <Copy size={16} />}
                 </button>
               </div>
-              <div className="flex items-center gap-2 text-sm text-[#A0A0A0] pt-5 mt-5 border-t border-[#2D2D2D]">
+              <div className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)] pt-5 mt-5 border-t border-[var(--c-border)]">
                 <Loader2 size={16} className="animate-spin text-[#00AF5C]" />
                 Waiting for your host to connect…
               </div>
@@ -200,12 +200,12 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
                 <Check size={16} className="text-[#00AF5C]" />
                 <span className="text-sm font-bold text-[#00AF5C]">Connected!</span>
               </div>
-              <p className="text-sm text-[#A0A0A0] mb-3 leading-relaxed flex items-center gap-2">
-                <Gamepad2 size={16} className="text-[#A0A0A0]" />
+              <p className="text-sm text-[var(--c-text-secondary)] mb-3 leading-relaxed flex items-center gap-2">
+                <Gamepad2 size={16} className="text-[var(--c-text-secondary)]" />
                 In Minecraft, go to Multiplayer → Add Server and use this address:
               </p>
               <div className="flex items-center gap-4">
-                <div className="flex-1 bg-[#111111] border border-[#2D2D2D] rounded-xl px-5 py-3.5 font-mono text-xl text-[#FFFFFF] font-bold tracking-wide">
+                <div className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl px-5 py-3.5 font-mono text-xl text-[var(--c-text-primary)] font-bold tracking-wide">
                   {address}
                 </div>
                 <button
@@ -215,19 +215,19 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
                   {copied === 'addr' ? <><Check size={18} />Copied!</> : <><Copy size={18} />Copy</>}
                 </button>
               </div>
-              <p className="text-xs text-[#555555] mt-3">
+              <p className="text-xs text-[var(--c-text-muted)] mt-3">
                 You can close this window and head to the Launcher — the connection stays open until you disconnect.
               </p>
-              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[var(--c-border)]">
                 <button
                   onClick={() => onClose()}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all"
                 >
                   Close
                 </button>
                 <button
                   onClick={disconnect}
-                  className="px-4 py-2 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 border border-[#FF5555]/20 text-[#FF5555] rounded-xl text-sm font-bold transition-all"
+                  className="px-4 py-2 bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 border border-[var(--c-danger)]/20 text-[var(--c-danger)] rounded-xl text-sm font-bold transition-all"
                 >
                   Disconnect
                 </button>
@@ -238,16 +238,16 @@ export default function JoinSessionModal({ socket, connectSession, onConnected, 
           {/* Step: failed */}
           {step === 'failed' && (
             <>
-              <div className="bg-[#FF5555]/5 border border-[#FF5555]/20 rounded-xl p-4 text-sm text-[#FF5555] font-medium mb-3">
+              <div className="bg-[var(--c-danger)]/5 border border-[var(--c-danger)]/20 rounded-xl p-4 text-sm text-[var(--c-danger)] font-medium mb-3">
                 {detail || 'Could not connect directly.'}
               </div>
-              <p className="text-sm text-[#A0A0A0] leading-relaxed">
+              <p className="text-sm text-[var(--c-text-secondary)] leading-relaxed">
                 Direct connections fail on strict networks (e.g. mobile / CGNAT). Ask your host to share a Radmin VPN address instead.
               </p>
-              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-5 mt-5 border-t border-[var(--c-border)]">
                 <button
                   onClick={close}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all"
                 >
                   Close
                 </button>

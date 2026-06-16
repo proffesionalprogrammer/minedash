@@ -22,10 +22,10 @@ function OptionDropdown({ value, onChange, options }) {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full bg-[#111111] border ${isOpen ? 'border-[#00AF5C] ring-2 ring-[#00AF5C]/20' : 'border-[#2D2D2D] hover:border-[#555555]'} rounded-xl px-3 py-2 text-left flex items-center justify-between text-sm text-[#FFFFFF] font-medium transition-all outline-none`}
+        className={`w-full bg-[var(--c-base)] border ${isOpen ? 'border-[#00AF5C] ring-2 ring-[#00AF5C]/20' : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'} rounded-xl px-3 py-2 text-left flex items-center justify-between text-sm text-[var(--c-text-primary)] font-medium transition-all outline-none`}
       >
         <span>{selected?.label ?? value}</span>
-        <ChevronDown size={14} className={`text-[#555555] transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-[var(--c-text-muted)] transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       <AnimatePresence>
         {isOpen && (
@@ -34,7 +34,7 @@ function OptionDropdown({ value, onChange, options }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.13, ease: 'easeOut' }}
-            className="absolute z-50 w-full mt-1.5 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
+            className="absolute z-50 w-full mt-1.5 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
           >
             {options.map(opt => {
               const isSel = String(opt.value) === String(value);
@@ -43,7 +43,7 @@ function OptionDropdown({ value, onChange, options }) {
                   key={opt.value}
                   type="button"
                   onClick={() => { onChange(opt.value); setIsOpen(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between transition-colors ${isSel ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'text-[#A0A0A0] hover:bg-[#2D2D2D] hover:text-[#FFFFFF]'}`}
+                  className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between transition-colors ${isSel ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-border)] hover:text-[var(--c-text-primary)]'}`}
                 >
                   <span>{opt.label}</span>
                   {isSel && <Check size={13} />}
@@ -128,7 +128,7 @@ function CustomDropdown({ value, onChange, options }) {
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
-        className={`w-full bg-[#111111] border ${isOpen ? 'border-[#00AF5C] ring-4 ring-[#00AF5C]/10' : 'border-[#2D2D2D] hover:border-[#555555]'} rounded-2xl px-4 py-3 text-left flex items-center gap-3 transition-all outline-none`}
+        className={`w-full bg-[var(--c-base)] border ${isOpen ? 'border-[#00AF5C] ring-4 ring-[#00AF5C]/10' : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'} rounded-2xl px-4 py-3 text-left flex items-center gap-3 transition-all outline-none`}
       >
         {selected && (
           <>
@@ -136,11 +136,11 @@ function CustomDropdown({ value, onChange, options }) {
               <selected.icon size={16} className="text-[#00AF5C]" />
             </div>
             <div className="flex-1 min-w-0">
-              <span className="text-[#FFFFFF] font-medium">{selected.label}</span>
+              <span className="text-[var(--c-text-primary)] font-medium">{selected.label}</span>
             </div>
           </>
         )}
-        <ChevronDown size={16} className={`text-[#555555] transition-transform duration-200 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`text-[var(--c-text-muted)] transition-transform duration-200 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       
       <AnimatePresence>
@@ -150,7 +150,7 @@ function CustomDropdown({ value, onChange, options }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute z-50 w-full mt-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden"
+            className="absolute z-50 w-full mt-2 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden"
           >
             {options.map((option) => {
               const Icon = option.icon;
@@ -162,16 +162,16 @@ function CustomDropdown({ value, onChange, options }) {
                   onClick={() => { onChange(option.value); setIsOpen(false); }}
                   className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-all outline-none ${
                     isSelected
-                      ? 'bg-[#00AF5C]/10 text-[#FFFFFF]'
-                      : 'text-[#A0A0A0] hover:bg-[#2D2D2D] hover:text-[#FFFFFF]'
+                      ? 'bg-[#00AF5C]/10 text-[var(--c-text-primary)]'
+                      : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-border)] hover:text-[var(--c-text-primary)]'
                   }`}
                 >
-                  <div className={`p-1.5 rounded-lg flex-shrink-0 ${isSelected ? 'bg-[#00AF5C]/20' : 'bg-[#111111]'}`}>
-                    <Icon size={16} className={isSelected ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+                  <div className={`p-1.5 rounded-lg flex-shrink-0 ${isSelected ? 'bg-[#00AF5C]/20' : 'bg-[var(--c-base)]'}`}>
+                    <Icon size={16} className={isSelected ? 'text-[#00AF5C]' : 'text-[var(--c-text-muted)]'} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm">{option.label}</div>
-                    <div className="text-xs text-[#555555] mt-0.5">{option.desc}</div>
+                    <div className="text-xs text-[var(--c-text-muted)] mt-0.5">{option.desc}</div>
                   </div>
                   {isSelected && <Check size={16} className="text-[#00AF5C] flex-shrink-0" />}
                 </button>
@@ -284,13 +284,13 @@ function VersionAutocomplete({ value, onChange, serverType }) {
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={loading ? 'Loading versions...' : 'Search versions...'}
-          className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-2xl pl-4 pr-10 py-3 text-[#FFFFFF] outline-none transition-all focus:ring-4 focus:ring-[#00AF5C]/10 font-medium placeholder-[#555555]"
+          className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-2xl pl-4 pr-10 py-3 text-[var(--c-text-primary)] outline-none transition-all focus:ring-4 focus:ring-[#00AF5C]/10 font-medium placeholder-[var(--c-text-muted)]"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2">
           {loading ? (
             <Loader2 size={16} className="text-[#00AF5C] animate-spin" />
           ) : (
-            <Search size={16} className="text-[#555555]" />
+            <Search size={16} className="text-[var(--c-text-muted)]" />
           )}
         </div>
       </div>
@@ -302,7 +302,7 @@ function VersionAutocomplete({ value, onChange, serverType }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute z-50 w-full mt-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden"
+            className="absolute z-50 w-full mt-2 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden"
           >
             <div ref={listRef} className="max-h-48 overflow-y-auto custom-scrollbar">
               {filteredVersions.length > 0 ? (
@@ -315,8 +315,8 @@ function VersionAutocomplete({ value, onChange, serverType }) {
                       ver === value
                         ? 'bg-[#00AF5C]/10 text-[#00AF5C]'
                         : idx === highlightedIdx
-                        ? 'bg-[#2D2D2D] text-[#FFFFFF]'
-                        : 'text-[#A0A0A0] hover:bg-[#2D2D2D] hover:text-[#FFFFFF]'
+                        ? 'bg-[var(--c-border)] text-[var(--c-text-primary)]'
+                        : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-border)] hover:text-[var(--c-text-primary)]'
                     }`}
                   >
                     <span>{ver}</span>
@@ -324,7 +324,7 @@ function VersionAutocomplete({ value, onChange, serverType }) {
                   </button>
                 ))
               ) : (
-                <div className="px-4 py-6 text-center text-sm text-[#555555]">
+                <div className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">
                   No versions found for this server type.
                 </div>
               )}
@@ -439,22 +439,22 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         transition={{ type: 'spring', duration: 0.5, bounce: 0.15 }}
-        className="relative w-full max-w-xl bg-[#1E1E1E] border border-[#2D2D2D] rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+        className="relative w-full max-w-xl bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-8 py-6 border-b border-[#2D2D2D]">
+        <div className="flex items-center justify-between px-8 py-6 border-b border-[var(--c-border)]">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-[#00AF5C]/10 text-[#00AF5C] rounded-xl">
               <ServerIcon size={24} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-[#FFFFFF]">Create New Server</h2>
-              <p className="text-sm font-medium text-[#A0A0A0]">Configure your local instance</p>
+              <h2 className="text-xl font-bold text-[var(--c-text-primary)]">Create New Server</h2>
+              <p className="text-sm font-medium text-[var(--c-text-secondary)]">Configure your local instance</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-colors"
+            className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-colors"
           >
             <X size={20} />
           </button>
@@ -469,7 +469,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             animate="visible"
             className="space-y-2"
           >
-            <label className="text-sm font-bold text-[#FFFFFF]">Server Name</label>
+            <label className="text-sm font-bold text-[var(--c-text-primary)]">Server Name</label>
             <input
               type="text"
               required
@@ -480,10 +480,10 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
                 if (nameError) setNameError('');
               }}
               disabled={submitting}
-              className={`w-full bg-[#111111] border ${nameError ? 'border-[#FF5555] focus:border-[#FF5555] focus:ring-[#FF5555]/10' : 'border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-2xl px-4 py-3 text-[#FFFFFF] outline-none transition-all focus:ring-4 font-medium placeholder-[#555555] disabled:opacity-50`}
+              className={`w-full bg-[var(--c-base)] border ${nameError ? 'border-[var(--c-danger)] focus:border-[var(--c-danger)] focus:ring-[var(--c-danger)]/10' : 'border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-[#00AF5C]/10'} rounded-2xl px-4 py-3 text-[var(--c-text-primary)] outline-none transition-all focus:ring-4 font-medium placeholder-[var(--c-text-muted)] disabled:opacity-50`}
             />
             {nameError && (
-              <p className="text-xs text-[#FF5555] font-medium mt-1">{nameError}</p>
+              <p className="text-xs text-[var(--c-danger)] font-medium mt-1">{nameError}</p>
             )}
           </motion.div>
 
@@ -496,8 +496,8 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             className="grid grid-cols-2 gap-6"
           >
             <div className="space-y-2">
-              <label className="text-sm font-bold text-[#FFFFFF] flex items-center gap-2">
-                <Box size={16} className="text-[#A0A0A0]" />
+              <label className="text-sm font-bold text-[var(--c-text-primary)] flex items-center gap-2">
+                <Box size={16} className="text-[var(--c-text-secondary)]" />
                 Server Type
               </label>
               <CustomDropdown
@@ -507,8 +507,8 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-bold text-[#FFFFFF] flex items-center gap-2">
-                <Zap size={16} className="text-[#A0A0A0]" />
+              <label className="text-sm font-bold text-[var(--c-text-primary)] flex items-center gap-2">
+                <Zap size={16} className="text-[var(--c-text-secondary)]" />
                 Version
               </label>
               <VersionAutocomplete
@@ -528,8 +528,8 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             className="space-y-3"
           >
             <div className="flex items-center justify-between">
-              <label className="text-sm font-bold text-[#FFFFFF] flex items-center gap-2">
-                <Cpu size={16} className="text-[#A0A0A0]" />
+              <label className="text-sm font-bold text-[var(--c-text-primary)] flex items-center gap-2">
+                <Cpu size={16} className="text-[var(--c-text-secondary)]" />
                 Memory
               </label>
               <span className="text-sm font-bold text-[#00AF5C] bg-[#00AF5C]/10 px-3 py-1 rounded-lg tabular-nums">{formData.ram} GB</span>
@@ -544,7 +544,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
               style={{ '--fill': `${ramPercent}%` }}
               className="w-full ram-slider"
             />
-            <div className="flex justify-between text-xs text-[#555555] px-0.5">
+            <div className="flex justify-between text-xs text-[var(--c-text-muted)] px-0.5">
               <span>{RAM_MIN} GB</span>
               <span>{ramMax} GB</span>
             </div>
@@ -556,7 +556,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             variants={fieldVariants}
             initial="hidden"
             animate="visible"
-            className="space-y-4 border-t border-[#2D2D2D] pt-4"
+            className="space-y-4 border-t border-[var(--c-border)] pt-4"
           >
             <div className="flex items-center gap-3">
               <label className="custom-checkbox-wrapper">
@@ -569,7 +569,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
                 />
                 <span className="custom-checkbox-visual" />
               </label>
-              <label htmlFor="autoRestart" className="text-sm font-bold text-[#FFFFFF] cursor-pointer select-none">
+              <label htmlFor="autoRestart" className="text-sm font-bold text-[var(--c-text-primary)] cursor-pointer select-none">
                 Auto-Restart Server on Crash
               </label>
             </div>
@@ -587,7 +587,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
                   />
                   <span className="custom-checkbox-visual" />
                 </label>
-                <label htmlFor="autoBackup" className="text-sm font-bold text-[#FFFFFF] cursor-pointer select-none">
+                <label htmlFor="autoBackup" className="text-sm font-bold text-[var(--c-text-primary)] cursor-pointer select-none">
                   Auto-Backup World
                 </label>
               </div>
@@ -607,7 +607,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
                     className="grid grid-cols-2 gap-4 pl-7"
                   >
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-[#A0A0A0]">Backup every</label>
+                      <label className="text-xs font-bold text-[var(--c-text-secondary)]">Backup every</label>
                       <OptionDropdown
                         value={formData.backupIntervalHours}
                         onChange={(v) => setFormData({ ...formData, backupIntervalHours: Number(v) })}
@@ -621,7 +621,7 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-[#A0A0A0]">Keep last</label>
+                      <label className="text-xs font-bold text-[var(--c-text-secondary)]">Keep last</label>
                       <OptionDropdown
                         value={formData.keepLastNBackups}
                         onChange={(v) => setFormData({ ...formData, keepLastNBackups: Number(v) })}
@@ -645,12 +645,12 @@ function CreateServerModal({ onClose, onCreate, existingNames = [], requestJavaG
             variants={fieldVariants}
             initial="hidden"
             animate="visible"
-            className="pt-4 flex justify-end gap-3 border-t border-[#2D2D2D] mt-6"
+            className="pt-4 flex justify-end gap-3 border-t border-[var(--c-border)] mt-6"
           >
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-2xl font-bold transition-colors"
+              className="px-6 py-2.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-2xl font-bold transition-colors"
             >
               Cancel
             </button>

@@ -98,7 +98,7 @@ export default function Tooltip({ children, content, side = 'top', align = 'cent
               className="pointer-events-none fixed z-[100] block"
               style={{ left: pos.x, top: pos.y }}
             >
-              <span className={`block ${anchorClass} ${wrapClass} px-2.5 py-1.5 bg-[#1A1A1A] border border-[#2D2D2D] text-[#FFFFFF] text-xs font-bold rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.5)]`}>
+              <span className={`block ${anchorClass} ${wrapClass} px-2.5 py-1.5 bg-[var(--c-surface-1)] border border-[var(--c-border)] text-[var(--c-text-primary)] text-xs font-bold rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.5)]`}>
                 {content}
               </span>
             </motion.span>

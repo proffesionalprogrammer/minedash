@@ -322,30 +322,30 @@ export default function ProjectDetailModal({
           exit={{ scale: 0.95, opacity: 0 }}
           transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
           onClick={e => e.stopPropagation()}
-          className="bg-[#111111] border border-[#2D2D2D] rounded-3xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden shadow-2xl shadow-black/50"
+          className="bg-[var(--c-base)] border border-[var(--c-border)] rounded-3xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden shadow-2xl shadow-black/50"
         >
           {/* Header */}
-          <div className="flex items-start gap-4 px-6 md:px-8 pt-6 pb-5 border-b border-[#2D2D2D] flex-shrink-0">
+          <div className="flex items-start gap-4 px-6 md:px-8 pt-6 pb-5 border-b border-[var(--c-border)] flex-shrink-0">
             {stack.length > 1 && (
               <Tooltip content="Back to previous project" side="bottom" align="start" className="flex-shrink-0">
                 <button
                   onClick={drillBack}
-                  className="p-2 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors"
+                  className="p-2 rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors"
                 >
                   <ArrowLeft size={16} />
                 </button>
               </Tooltip>
             )}
-            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#1E1E1E] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[var(--c-surface-2)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
               {headerIcon
                 ? <img src={headerIcon} alt="" className="w-full h-full object-cover" />
                 : <span className="text-[#00AF5C] font-black text-2xl">{headerTitle?.[0] || '?'}</span>}
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-2xl font-black text-[#FFFFFF] truncate">{headerTitle}</h2>
+                <h2 className="text-2xl font-black text-[var(--c-text-primary)] truncate">{headerTitle}</h2>
                 {license && (
-                  <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[#1E1E1E] text-[#A0A0A0] border border-[#2D2D2D] flex-shrink-0">
+                  <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] border border-[var(--c-border)] flex-shrink-0">
                     {license}
                   </span>
                 )}
@@ -354,30 +354,30 @@ export default function ProjectDetailModal({
                 </span>
               </div>
               {headerAuthor && (
-                <p className="text-xs text-[#A0A0A0]">by <span className="font-bold text-[#FFFFFF]">{headerAuthor}</span></p>
+                <p className="text-xs text-[var(--c-text-secondary)]">by <span className="font-bold text-[var(--c-text-primary)]">{headerAuthor}</span></p>
               )}
               {project?.description && (
-                <p className="text-sm text-[#A0A0A0] line-clamp-2">{project.description}</p>
+                <p className="text-sm text-[var(--c-text-secondary)] line-clamp-2">{project.description}</p>
               )}
-              <div className="flex items-center gap-4 text-xs text-[#A0A0A0] tabular-nums pt-1">
+              <div className="flex items-center gap-4 text-xs text-[var(--c-text-secondary)] tabular-nums pt-1">
                 <Tooltip content={`${(headerDls || 0).toLocaleString()} downloads`} side="bottom" align="start">
                   <span className="flex items-center gap-1.5">
-                    <Download size={13} className="text-[#555555]" />
-                    <span className="font-bold text-[#FFFFFF]">{fmt(headerDls)}</span>
+                    <Download size={13} className="text-[var(--c-text-muted)]" />
+                    <span className="font-bold text-[var(--c-text-primary)]">{fmt(headerDls)}</span>
                   </span>
                 </Tooltip>
                 {headerFollows != null && (
                   <Tooltip content={`${(headerFollows || 0).toLocaleString()} followers`} side="bottom">
                     <span className="flex items-center gap-1.5">
-                      <Heart size={13} className="text-[#555555]" />
-                      <span className="font-bold text-[#FFFFFF]">{fmt(headerFollows)}</span>
+                      <Heart size={13} className="text-[var(--c-text-muted)]" />
+                      <span className="font-bold text-[var(--c-text-primary)]">{fmt(headerFollows)}</span>
                     </span>
                   </Tooltip>
                 )}
                 {project?.updated && (
                   <Tooltip content={`Updated ${fmtDateAbs(project.updated)}`} side="bottom">
                     <span className="flex items-center gap-1.5">
-                      <Calendar size={13} className="text-[#555555]" />
+                      <Calendar size={13} className="text-[var(--c-text-muted)]" />
                       Updated {fmtRelative(project.updated)}
                     </span>
                   </Tooltip>
@@ -387,7 +387,7 @@ export default function ProjectDetailModal({
             <button
               onClick={() => !installingMain && onClose?.()}
               disabled={installingMain}
-              className="p-2 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors disabled:opacity-40 flex-shrink-0"
+              className="p-2 rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors disabled:opacity-40 flex-shrink-0"
               aria-label="Close"
             >
               <X size={18} />
@@ -405,7 +405,7 @@ export default function ProjectDetailModal({
           )}
 
           {/* Action row */}
-          <div className="px-6 md:px-8 py-3 border-b border-[#2D2D2D] flex items-center gap-2 flex-wrap flex-shrink-0">
+          <div className="px-6 md:px-8 py-3 border-b border-[var(--c-border)] flex items-center gap-2 flex-wrap flex-shrink-0">
             <motion.button
               onClick={handleMainInstall}
               disabled={installingMain || loadingProject}
@@ -421,7 +421,7 @@ export default function ProjectDetailModal({
                 onClick={handleInstallAsServerClick}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="flex items-center gap-1.5 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] text-[#FFFFFF] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-sm font-bold transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] text-[var(--c-text-primary)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-sm font-bold transition-colors"
               >
                 <ServerIcon size={14} />
                 Install as server
@@ -431,7 +431,7 @@ export default function ProjectDetailModal({
               href={`https://modrinth.com/${effectiveType}/${project?.slug || activeProjectId}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] rounded-xl text-sm font-bold transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] rounded-xl text-sm font-bold transition-colors"
             >
               <ExternalLink size={14} />
               Open on Modrinth
@@ -442,7 +442,7 @@ export default function ProjectDetailModal({
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div className="flex-1 min-w-0 flex flex-col">
               {/* Tab strip */}
-              <div className="px-6 md:px-8 pt-3 flex items-center gap-1 border-b border-[#2D2D2D] flex-shrink-0 relative">
+              <div className="px-6 md:px-8 pt-3 flex items-center gap-1 border-b border-[var(--c-border)] flex-shrink-0 relative">
                 {TABS.map(({ key, label, icon: Icon }) => {
                   const active = activeTab === key;
                   return (
@@ -450,7 +450,7 @@ export default function ProjectDetailModal({
                       key={key}
                       onClick={() => setActiveTab(key)}
                       className={`relative flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors ${
-                        active ? 'text-[#00AF5C]' : 'text-[#A0A0A0] hover:text-[#FFFFFF]'
+                        active ? 'text-[#00AF5C]' : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]'
                       }`}
                     >
                       <Icon size={13} />
@@ -554,13 +554,13 @@ function DescriptionTab({ loading, body }) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-        <span className="text-sm text-[#A0A0A0]">Loading description…</span>
+        <span className="text-sm text-[var(--c-text-secondary)]">Loading description…</span>
       </div>
     );
   }
   if (!body) {
     return (
-      <p className="text-sm text-[#555555] italic py-8 text-center">
+      <p className="text-sm text-[var(--c-text-muted)] italic py-8 text-center">
         This project has no description.
       </p>
     );
@@ -577,13 +577,13 @@ function GalleryTab({ gallery, loading, onOpen }) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-        <span className="text-sm text-[#A0A0A0]">Loading gallery…</span>
+        <span className="text-sm text-[var(--c-text-secondary)]">Loading gallery…</span>
       </div>
     );
   }
   if (!gallery || gallery.length === 0) {
     return (
-      <div className="flex flex-col items-center py-16 text-[#555555]">
+      <div className="flex flex-col items-center py-16 text-[var(--c-text-muted)]">
         <ImageIcon size={32} className="mb-3 opacity-30" />
         <p className="text-sm">No gallery images</p>
       </div>
@@ -596,15 +596,15 @@ function GalleryTab({ gallery, loading, onOpen }) {
           key={g.url + i}
           whileHover={{ y: -2 }}
           onClick={() => onOpen(i)}
-          className="group block text-left bg-[#1A1A1A] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-2xl overflow-hidden transition-colors"
+          className="group block text-left bg-[var(--c-surface-1)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-2xl overflow-hidden transition-colors"
         >
-          <div className="aspect-video bg-[#111111] overflow-hidden">
+          <div className="aspect-video bg-[var(--c-base)] overflow-hidden">
             <img src={g.url} alt={g.title || ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
           </div>
           {(g.title || g.description) && (
             <div className="p-3">
-              {g.title && <p className="text-sm font-bold text-[#FFFFFF] truncate">{g.title}</p>}
-              {g.description && <p className="text-xs text-[#A0A0A0] line-clamp-2 mt-0.5">{g.description}</p>}
+              {g.title && <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{g.title}</p>}
+              {g.description && <p className="text-xs text-[var(--c-text-secondary)] line-clamp-2 mt-0.5">{g.description}</p>}
             </div>
           )}
         </motion.button>
@@ -620,13 +620,13 @@ function VersionsTab({
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-        <span className="text-sm text-[#A0A0A0]">Loading versions…</span>
+        <span className="text-sm text-[var(--c-text-secondary)]">Loading versions…</span>
       </div>
     );
   }
   if (versions.length === 0) {
     return (
-      <p className="text-sm text-[#555555] italic py-8 text-center">
+      <p className="text-sm text-[var(--c-text-muted)] italic py-8 text-center">
         No published versions.
       </p>
     );
@@ -655,7 +655,7 @@ function DependenciesTab({ deps, loading, rootProjectId, onOpenSub }) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-        <span className="text-sm text-[#A0A0A0]">Loading dependencies…</span>
+        <span className="text-sm text-[var(--c-text-secondary)]">Loading dependencies…</span>
       </div>
     );
   }
@@ -667,7 +667,7 @@ function DependenciesTab({ deps, loading, rootProjectId, onOpenSub }) {
   const projects = deps.projects || [];
   if (projects.length === 0) {
     return (
-      <p className="text-sm text-[#555555] italic py-8 text-center">
+      <p className="text-sm text-[var(--c-text-muted)] italic py-8 text-center">
         This project lists no dependencies.
       </p>
     );
@@ -691,16 +691,16 @@ function DependenciesTab({ deps, loading, rootProjectId, onOpenSub }) {
 
   const TYPE_COLORS = {
     required:     'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/20',
-    optional:     'bg-[#1E1E1E] text-[#A0A0A0] border-[#2D2D2D]',
+    optional:     'bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] border-[var(--c-border)]',
     embedded:     'bg-violet-500/10 text-violet-400 border-violet-500/30',
-    incompatible: 'bg-[#FF5555]/10 text-[#FF5555] border-[#FF5555]/20',
+    incompatible: 'bg-[var(--c-danger)]/10 text-[var(--c-danger)] border-[var(--c-danger)]/20',
   };
 
   return (
     <div className="space-y-2">
       {projects.map(p => {
         const t = typeByDepId[p.id] || typeByDepId[p.slug] || 'related';
-        const color = TYPE_COLORS[t] || 'bg-[#1E1E1E] text-[#A0A0A0] border-[#2D2D2D]';
+        const color = TYPE_COLORS[t] || 'bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] border-[var(--c-border)]';
         return (
           <motion.button
             key={p.id}
@@ -709,28 +709,28 @@ function DependenciesTab({ deps, loading, rootProjectId, onOpenSub }) {
               title: p.title, author: p.team, icon_url: p.icon_url,
               downloads: p.downloads, follows: p.followers,
             })}
-            className="w-full flex items-center gap-3 p-3 bg-[#1A1A1A] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-2xl transition-colors text-left"
+            className="w-full flex items-center gap-3 p-3 bg-[var(--c-surface-1)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-2xl transition-colors text-left"
           >
-            <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
               {p.icon_url
                 ? <img src={p.icon_url} alt="" className="w-full h-full object-cover" />
                 : <span className="text-[#00AF5C] font-black">{p.title?.[0] || '?'}</span>}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-bold text-[#FFFFFF] truncate">{p.title}</p>
+                <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{p.title}</p>
                 <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md border ${color} flex-shrink-0`}>
                   {t}
                 </span>
                 {p.project_type && (
-                  <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[#2D2D2D] text-[#A0A0A0] border border-[#2D2D2D] flex-shrink-0 capitalize">
+                  <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[var(--c-border)] text-[var(--c-text-secondary)] border border-[var(--c-border)] flex-shrink-0 capitalize">
                     {p.project_type}
                   </span>
                 )}
               </div>
-              {p.description && <p className="text-xs text-[#A0A0A0] line-clamp-1 mt-0.5">{p.description}</p>}
+              {p.description && <p className="text-xs text-[var(--c-text-secondary)] line-clamp-1 mt-0.5">{p.description}</p>}
             </div>
-            <ExternalLink size={14} className="text-[#555555] flex-shrink-0" />
+            <ExternalLink size={14} className="text-[var(--c-text-muted)] flex-shrink-0" />
           </motion.button>
         );
       })}
@@ -741,10 +741,10 @@ function DependenciesTab({ deps, loading, rootProjectId, onOpenSub }) {
 function RightRail({ project, loading }) {
   if (loading) {
     return (
-      <aside className="hidden lg:flex flex-col w-64 flex-shrink-0 border-l border-[#2D2D2D] bg-[#0E0E0E] overflow-y-auto custom-scrollbar p-5">
+      <aside className="hidden lg:flex flex-col w-64 flex-shrink-0 border-l border-[var(--c-border)] bg-[var(--c-deep-1)] overflow-y-auto custom-scrollbar p-5">
         <div className="space-y-3">
           {[0, 1, 2, 3].map(i => (
-            <div key={i} className="h-4 bg-[#1E1E1E] rounded animate-pulse" style={{ width: `${60 + i * 10}%` }} />
+            <div key={i} className="h-4 bg-[var(--c-surface-2)] rounded animate-pulse" style={{ width: `${60 + i * 10}%` }} />
           ))}
         </div>
       </aside>
@@ -761,7 +761,7 @@ function RightRail({ project, loading }) {
   const categories = (project.categories || []).filter(c => !['fabric','forge','neoforge','quilt'].includes(c));
 
   return (
-    <aside className="hidden lg:flex flex-col w-64 flex-shrink-0 border-l border-[#2D2D2D] bg-[#0E0E0E] overflow-y-auto custom-scrollbar p-5 space-y-5">
+    <aside className="hidden lg:flex flex-col w-64 flex-shrink-0 border-l border-[var(--c-border)] bg-[var(--c-deep-1)] overflow-y-auto custom-scrollbar p-5 space-y-5">
       {/* Stats */}
       <RailSection title="Project">
         <RailRow label="Published">{fmtDateAbs(project.published)}</RailRow>
@@ -775,7 +775,7 @@ function RightRail({ project, loading }) {
         <RailSection title="Categories">
           <div className="flex flex-wrap gap-1">
             {categories.map(c => (
-              <span key={c} className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#1E1E1E] text-[#A0A0A0] border border-[#2D2D2D] capitalize">
+              <span key={c} className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] border border-[var(--c-border)] capitalize">
                 {c.replace(/-/g, ' ')}
               </span>
             ))}
@@ -788,7 +788,7 @@ function RightRail({ project, loading }) {
           <div className="space-y-1">
             {links.map(l => (
               <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#1E1E1E] rounded-lg transition-colors">
+                className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-[var(--c-text-secondary)] hover:text-[#00AF5C] hover:bg-[var(--c-surface-2)] rounded-lg transition-colors">
                 <l.icon size={12} />
                 {l.label}
                 <ExternalLink size={10} className="ml-auto opacity-60" />
@@ -803,7 +803,7 @@ function RightRail({ project, loading }) {
           <div className="space-y-1">
             {donations.map(d => (
               <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-[#A0A0A0] hover:text-[#00AF5C] hover:bg-[#1E1E1E] rounded-lg transition-colors">
+                className="flex items-center gap-2 px-2 py-1.5 text-xs font-bold text-[var(--c-text-secondary)] hover:text-[#00AF5C] hover:bg-[var(--c-surface-2)] rounded-lg transition-colors">
                 <HeartHandshake size={12} />
                 {d.platform || d.id}
                 <ExternalLink size={10} className="ml-auto opacity-60" />
@@ -819,7 +819,7 @@ function RightRail({ project, loading }) {
 function RailSection({ title, children }) {
   return (
     <div>
-      <h4 className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-2">{title}</h4>
+      <h4 className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] mb-2">{title}</h4>
       <div className="space-y-1">{children}</div>
     </div>
   );
@@ -827,8 +827,8 @@ function RailSection({ title, children }) {
 function RailRow({ label, children }) {
   return (
     <div className="flex items-center justify-between gap-2 text-xs">
-      <span className="text-[#555555]">{label}</span>
-      <span className="text-[#FFFFFF] font-bold truncate">{children}</span>
+      <span className="text-[var(--c-text-muted)]">{label}</span>
+      <span className="text-[var(--c-text-primary)] font-bold truncate">{children}</span>
     </div>
   );
 }
@@ -849,7 +849,7 @@ function Lightbox({ items, index, onPrev, onNext, onClose }) {
           {index > 0 && (
             <button
               onClick={onPrev}
-              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-[#1A1A1A]/80 hover:bg-[#1A1A1A] text-[#FFFFFF] backdrop-blur-sm transition-colors"
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-[var(--c-surface-1)]/80 hover:bg-[var(--c-surface-1)] text-[var(--c-text-primary)] backdrop-blur-sm transition-colors"
               aria-label="Previous image"
             >
               <ChevronLeft size={20} />
@@ -858,7 +858,7 @@ function Lightbox({ items, index, onPrev, onNext, onClose }) {
           {index < items.length - 1 && (
             <button
               onClick={onNext}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-[#1A1A1A]/80 hover:bg-[#1A1A1A] text-[#FFFFFF] backdrop-blur-sm transition-colors"
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-[var(--c-surface-1)]/80 hover:bg-[var(--c-surface-1)] text-[var(--c-text-primary)] backdrop-blur-sm transition-colors"
               aria-label="Next image"
             >
               <ChevronRight size={20} />
@@ -866,16 +866,16 @@ function Lightbox({ items, index, onPrev, onNext, onClose }) {
           )}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 rounded-xl bg-[#1A1A1A]/80 hover:bg-[#1A1A1A] text-[#FFFFFF] backdrop-blur-sm transition-colors"
+            className="absolute top-4 right-4 p-2 rounded-xl bg-[var(--c-surface-1)]/80 hover:bg-[var(--c-surface-1)] text-[var(--c-text-primary)] backdrop-blur-sm transition-colors"
             aria-label="Close"
           >
             <X size={18} />
           </button>
         </div>
         <div className="mt-4 max-w-2xl text-center" onClick={e => e.stopPropagation()}>
-          {item.title && <p className="text-sm font-bold text-[#FFFFFF]">{item.title}</p>}
-          {item.description && <p className="text-xs text-[#A0A0A0] mt-1">{item.description}</p>}
-          <p className="text-[10px] text-[#555555] mt-2 tabular-nums">
+          {item.title && <p className="text-sm font-bold text-[var(--c-text-primary)]">{item.title}</p>}
+          {item.description && <p className="text-xs text-[var(--c-text-secondary)] mt-1">{item.description}</p>}
+          <p className="text-[10px] text-[var(--c-text-muted)] mt-2 tabular-nums">
             {index + 1} / {items.length}
           </p>
         </div>

@@ -140,23 +140,23 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
         initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
         onClick={e => e.stopPropagation()}
-        className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-6 max-w-2xl w-full flex flex-col max-h-[80vh]"
+        className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-6 max-w-2xl w-full flex flex-col max-h-[80vh]"
       >
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
             <Globe size={18} className="text-[#00AF5C]" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-bold text-[#FFFFFF]">Worlds & screenshots</h3>
-            <p className="text-xs text-[#A0A0A0] truncate">{inst.displayName}</p>
+            <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Worlds & screenshots</h3>
+            <p className="text-xs text-[var(--c-text-secondary)] truncate">{inst.displayName}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors">
+          <button onClick={onClose} className="p-2 rounded-lg text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors">
             <X size={16} />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1.5 mb-4 border-b border-[#2D2D2D] pb-3">
+        <div className="flex items-center gap-1.5 mb-4 border-b border-[var(--c-border)] pb-3">
           {[
             { key: 'worlds', label: 'Worlds', icon: Globe, count: worlds?.length },
             { key: 'screenshots', label: 'Screenshots', icon: Camera, count: screenshots?.length },
@@ -168,12 +168,12 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors duration-150 ${
                 tab === key
                   ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                  : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                  : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
               }`}
             >
               <Icon size={14} /> {label}
               {typeof count === 'number' && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tab === key ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[#2D2D2D] text-[#555555]'}`}>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${tab === key ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[var(--c-border)] text-[var(--c-text-muted)]'}`}>
                   {count}
                 </span>
               )}
@@ -194,30 +194,30 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
                     key={w.name}
                     initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(idx * 0.03, 0.3), duration: 0.18 }}
-                    className="group flex items-center gap-3 px-3 py-2 bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#555555] rounded-xl transition-colors"
+                    className="group flex items-center gap-3 px-3 py-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] rounded-xl transition-colors"
                   >
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
                       {w.hasIcon
                         ? <img src={`${base}/worlds/${encodeURIComponent(w.name)}/icon`} alt="" className="w-full h-full object-cover" draggable={false} />
                         : <Globe size={16} className="text-[#00AF5C]" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-[#FFFFFF] truncate">{w.name}</p>
-                      <p className="text-[10px] text-[#555555] tabular-nums">
+                      <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{w.name}</p>
+                      <p className="text-[10px] text-[var(--c-text-muted)] tabular-nums">
                         {humanBytes(w.sizeBytes)} · last played {fmtDate(w.lastPlayed)}
                       </p>
                     </div>
                     {pendingDelete === `world:${w.name}` ? (
                       <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <span className="text-[10px] font-bold text-[#FF5555]">Delete forever?</span>
+                        <span className="text-[10px] font-bold text-[var(--c-danger)]">Delete forever?</span>
                         <button
                           onClick={() => handleDeleteWorld(w.name)}
                           disabled={busy === w.name}
-                          className="p-1.5 rounded-lg bg-[#FF5555] hover:bg-[#FF4444] text-white disabled:opacity-50"
+                          className="p-1.5 rounded-lg bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white disabled:opacity-50"
                         >
                           {busy === w.name ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                         </button>
-                        <button onClick={() => setPendingDelete(null)} className="p-1.5 rounded-lg bg-[#1A1A1A] border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF]">
+                        <button onClick={() => setPendingDelete(null)} className="p-1.5 rounded-lg bg-[var(--c-surface-1)] border border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
                           <X size={12} />
                         </button>
                       </div>
@@ -250,7 +250,7 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
                     key={s.filename}
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     transition={{ delay: Math.min(idx * 0.02, 0.3), duration: 0.18 }}
-                    className="group relative aspect-video bg-[#111111] border border-[#2D2D2D] hover:border-[#555555] rounded-xl overflow-hidden transition-colors"
+                    className="group relative aspect-video bg-[var(--c-base)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] rounded-xl overflow-hidden transition-colors"
                   >
                     <img
                       src={`${base}/screenshots/${encodeURIComponent(s.filename)}/file`}
@@ -268,7 +268,7 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
                         <button
                           onClick={() => handleDeleteScreenshot(s.filename)}
                           disabled={busy === s.filename}
-                          className="p-1.5 rounded-lg bg-[#000000]/70 text-white hover:text-[#FF5555] transition-colors disabled:opacity-50"
+                          className="p-1.5 rounded-lg bg-[#000000]/70 text-white hover:text-[var(--c-danger)] transition-colors disabled:opacity-50"
                         >
                           {busy === s.filename ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                         </button>
@@ -299,13 +299,13 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
               transition={{ duration: 0.15 }}
               src={`${base}/screenshots/${encodeURIComponent(lightbox)}/file`}
               alt={lightbox}
-              className="max-w-full max-h-full rounded-2xl border border-[#2D2D2D] shadow-2xl"
+              className="max-w-full max-h-full rounded-2xl border border-[var(--c-border)] shadow-2xl"
               onClick={e => e.stopPropagation()}
               draggable={false}
             />
             <button
               onClick={e => { e.stopPropagation(); setLightbox(null); }}
-              className="absolute top-4 right-4 p-2 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+              className="absolute top-4 right-4 p-2 rounded-xl bg-[var(--c-surface-1)] border border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors"
             >
               <X size={16} />
             </button>
@@ -313,7 +313,7 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
               <button
                 aria-label="Previous screenshot"
                 onClick={e => { e.stopPropagation(); stepLightbox(-1); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-xl bg-[#1A1A1A]/90 border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555] transition-colors"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-2.5 rounded-xl bg-[var(--c-surface-1)]/90 border border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:border-[var(--c-text-muted)] transition-colors"
               >
                 <ChevronLeft size={18} />
               </button>
@@ -322,17 +322,17 @@ export default function InstanceWorldsModal({ inst, onClose, onError }) {
               <button
                 aria-label="Next screenshot"
                 onClick={e => { e.stopPropagation(); stepLightbox(1); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-xl bg-[#1A1A1A]/90 border border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555] transition-colors"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-xl bg-[var(--c-surface-1)]/90 border border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:border-[var(--c-text-muted)] transition-colors"
               >
                 <ChevronRight size={18} />
               </button>
             )}
             {lightboxIndex !== -1 && (
               <div
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#1A1A1A]/90 border border-[#2D2D2D] pointer-events-none max-w-[80%]"
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--c-surface-1)]/90 border border-[var(--c-border)] pointer-events-none max-w-[80%]"
               >
-                <span className="text-[10px] text-[#A0A0A0] font-mono truncate">{lightbox}</span>
-                <span className="text-[10px] font-bold text-[#555555] tabular-nums flex-shrink-0">
+                <span className="text-[10px] text-[var(--c-text-secondary)] font-mono truncate">{lightbox}</span>
+                <span className="text-[10px] font-bold text-[var(--c-text-muted)] tabular-nums flex-shrink-0">
                   {lightboxIndex + 1} / {screenshots.length}
                 </span>
               </div>
@@ -353,8 +353,8 @@ function IconBtn({ title, onClick, disabled, danger, children }) {
         disabled={disabled}
         className={`p-2 rounded-lg transition-all disabled:opacity-50 ${
           danger
-            ? 'text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10'
-            : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D]'
+            ? 'text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10'
+            : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)]'
         }`}
       >
         {children}
@@ -367,16 +367,16 @@ function Spinner({ label }) {
   return (
     <div className="flex items-center justify-center py-12">
       <Loader2 size={18} className="text-[#00AF5C] animate-spin mr-2" />
-      <span className="text-sm text-[#A0A0A0]">{label}</span>
+      <span className="text-sm text-[var(--c-text-secondary)]">{label}</span>
     </div>
   );
 }
 
 function Empty({ icon: Icon, title, hint }) {
   return (
-    <div className="flex flex-col items-center py-14 text-[#555555]">
+    <div className="flex flex-col items-center py-14 text-[var(--c-text-muted)]">
       <Icon size={32} className="mb-3 opacity-30" />
-      <p className="text-sm font-bold text-[#A0A0A0]">{title}</p>
+      <p className="text-sm font-bold text-[var(--c-text-secondary)]">{title}</p>
       <p className="text-xs mt-1 max-w-xs text-center">{hint}</p>
     </div>
   );

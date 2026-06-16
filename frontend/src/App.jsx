@@ -54,7 +54,7 @@ const TABS = {
   // Settings is a destination view but deliberately NOT in TAB_ORDER — it's
   // reached via the gear icon, not the inactive-pill row. It still needs a
   // TABS entry so the header title/icon/subtitle resolve when it's active.
-  settings:  { label: 'Settings',  subtitle: 'Memory, Java, accounts, and updates.',            icon: Settings },
+  settings:  { label: 'Settings',  subtitle: 'Appearance, memory, Java, accounts, and updates.', icon: Settings },
 };
 
 // Order matters — the row of inactive tab pills renders in this order, so the
@@ -67,7 +67,7 @@ function AppHeader({ view, onChange, accountMenuProps }) {
   const settingsActive = view === 'settings';
 
   return (
-    <header className="flex items-center justify-between gap-4 px-6 md:px-10 py-4 bg-[#111111] border-b border-[#2D2D2D] flex-shrink-0 relative z-30">
+    <header className="flex items-center justify-between gap-4 px-6 md:px-10 py-4 bg-[var(--c-base)] border-b border-[var(--c-border)] flex-shrink-0 relative z-30">
       <div className="flex items-center gap-4 min-w-0">
         <motion.div
           key={view}
@@ -80,12 +80,12 @@ function AppHeader({ view, onChange, accountMenuProps }) {
             <ActiveIcon size={22} className="text-[#00AF5C]" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-2xl font-black text-[#FFFFFF] tracking-tight leading-tight">{active.label}</h1>
-            <p className="text-xs text-[#A0A0A0] truncate">{active.subtitle}</p>
+            <h1 className="text-2xl font-black text-[var(--c-text-primary)] tracking-tight leading-tight">{active.label}</h1>
+            <p className="text-xs text-[var(--c-text-secondary)] truncate">{active.subtitle}</p>
           </div>
         </motion.div>
 
-        <div className="hidden sm:block w-px h-10 bg-[#2D2D2D]" />
+        <div className="hidden sm:block w-px h-10 bg-[var(--c-border)]" />
 
         {/* All tabs render in TAB_ORDER and keep their position — the active one
             is just highlighted in place rather than promoted out of the row, so
@@ -106,7 +106,7 @@ function AppHeader({ view, onChange, accountMenuProps }) {
                 className={`group relative flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-colors overflow-hidden border ${
                   isActive
                     ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-                    : 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#00AF5C]/40 text-[#A0A0A0] hover:text-[#FFFFFF]'
+                    : 'bg-[var(--c-surface-2)] border-[var(--c-border)] hover:border-[#00AF5C]/40 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]'
                 }`}
               >
                 {/* Soft brand-green shimmer that sweeps across on hover — inactive tabs only. */}
@@ -141,7 +141,7 @@ function AppHeader({ view, onChange, accountMenuProps }) {
             className={`p-2.5 rounded-2xl border transition-all duration-200 ${
               settingsActive
                 ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-                : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'
+                : 'bg-[var(--c-surface-2)] border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:border-[var(--c-text-muted)]'
             }`}
           >
             <Settings size={18} />
@@ -481,6 +481,24 @@ function App() {
       .catch(() => {});
   }, []);
 
+  // Apply the selected colour theme to <html data-theme>. 'system' tracks the
+  // OS preference live via matchMedia. The preference is mirrored to
+  // localStorage so main.jsx can paint the right theme before React mounts.
+  useEffect(() => {
+    const pref = launcherSettings?.theme || 'dark';
+    try { localStorage.setItem('minedash-theme', pref); } catch { /* private mode */ }
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const apply = () => {
+      const resolved = pref === 'system' ? (mq.matches ? 'light' : 'dark') : pref;
+      document.documentElement.setAttribute('data-theme', resolved);
+    };
+    apply();
+    if (pref === 'system') {
+      mq.addEventListener('change', apply);
+      return () => mq.removeEventListener('change', apply);
+    }
+  }, [launcherSettings?.theme]);
+
   // Settings menu fires this when the user clicks "Replay onboarding tour".
   useEffect(() => {
     const handler = () => setShowOnboarding(true);
@@ -609,11 +627,11 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#111111] text-[#FFFFFF] font-sans selection:bg-[#00AF5C]/20">
+    <div className="flex flex-col h-full bg-[var(--c-base)] text-[var(--c-text-primary)] font-sans selection:bg-[#00AF5C]/20">
       <TitleBar />
       <AppHeader view={view} onChange={setView} accountMenuProps={accountMenuProps} />
 
-      <main className="flex-1 flex flex-col overflow-hidden bg-[#111111] z-10 relative">
+      <main className="flex-1 flex flex-col overflow-hidden bg-[var(--c-base)] z-10 relative">
         <AnimatePresence mode="wait">
           {view === 'play' ? (
             <motion.div
@@ -798,11 +816,11 @@ function App() {
             initial={{ opacity: 0, y: 50, x: '-50%' }}
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={{ opacity: 0, y: 20, x: '-50%' }}
-            className="fixed bottom-6 left-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-[#1E1E1E] text-[#FF5555] border border-[#FF5555]/30 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+            className="fixed bottom-6 left-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-[var(--c-surface-2)] text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
           >
             <AlertCircle size={20} />
             <span className="font-bold text-sm">{error}</span>
-            <button onClick={() => setError(null)} className="ml-2 text-[#FF5555] hover:text-[#FF3333]">
+            <button onClick={() => setError(null)} className="ml-2 text-[var(--c-danger)] hover:text-[#FF3333]">
               <X size={16} />
             </button>
           </motion.div>

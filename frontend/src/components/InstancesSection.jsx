@@ -329,7 +329,7 @@ export default function InstancesSection({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#111111] px-6 md:px-10 py-6 overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-[var(--c-base)] px-6 md:px-10 py-6 overflow-hidden">
       <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 mb-5">
@@ -338,8 +338,8 @@ export default function InstancesSection({
               <Boxes size={20} className="text-[#00AF5C]" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-[#FFFFFF]">My Instances</h2>
-              <p className="text-xs text-[#A0A0A0]">
+              <h2 className="text-xl font-bold text-[var(--c-text-primary)]">My Instances</h2>
+              <p className="text-xs text-[var(--c-text-secondary)]">
                 {loading
                   ? 'Loading…'
                   : `${Math.max(0, instances.length - installingInstanceIds.size)} installed${liveInstalls.length > 0 ? ` · ${liveInstalls.length} downloading` : ''}`}
@@ -351,13 +351,13 @@ export default function InstancesSection({
         {/* Search + sort */}
         <div className="flex items-center gap-2 mb-4">
           <div className="relative flex-1 min-w-0">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
             <input
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search instances…"
-              className="w-full bg-[#1A1A1A] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium"
+              className="w-full bg-[var(--c-surface-1)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-medium"
             />
           </div>
           <Select value={sort} onChange={setSort} options={SORT_OPTIONS} className="flex-shrink-0" />
@@ -369,7 +369,7 @@ export default function InstancesSection({
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-              <span className="text-sm text-[#A0A0A0]">Loading instances…</span>
+              <span className="text-sm text-[var(--c-text-secondary)]">Loading instances…</span>
             </div>
           ) : visibleInstances.length === 0 && liveInstalls.length === 0 ? (
             <EmptyState hasQuery={!!query.trim()} />
@@ -445,20 +445,20 @@ export default function InstancesSection({
 
 function EmptyState({ hasQuery }) {
   return (
-    <div className="flex flex-col items-center py-20 text-[#555555]">
-      <div className="p-4 bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl mb-4">
-        <Boxes size={36} className="text-[#555555]" />
+    <div className="flex flex-col items-center py-20 text-[var(--c-text-muted)]">
+      <div className="p-4 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl mb-4">
+        <Boxes size={36} className="text-[var(--c-text-muted)]" />
       </div>
       {hasQuery ? (
         <>
-          <p className="text-sm font-bold text-[#A0A0A0]">No instances match</p>
+          <p className="text-sm font-bold text-[var(--c-text-secondary)]">No instances match</p>
           <p className="text-xs mt-1">Try a different search.</p>
         </>
       ) : (
         <>
-          <p className="text-sm font-bold text-[#A0A0A0]">No instances yet</p>
+          <p className="text-sm font-bold text-[var(--c-text-secondary)]">No instances yet</p>
           <p className="text-xs mt-1 max-w-xs text-center">
-            Head to <span className="font-bold text-[#FFFFFF]">Browse</span> and install a modpack, or create one from the <span className="font-bold text-[#FFFFFF]">Launcher</span> tab.
+            Head to <span className="font-bold text-[var(--c-text-primary)]">Browse</span> and install a modpack, or create one from the <span className="font-bold text-[var(--c-text-primary)]">Launcher</span> tab.
           </p>
         </>
       )}
@@ -477,13 +477,13 @@ function InstallingCard({ entry, onCancel }) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-[#1A1A1A] border border-[#00AF5C]/30 rounded-2xl overflow-hidden flex flex-col"
+      className="bg-[var(--c-surface-1)] border border-[#00AF5C]/30 rounded-2xl overflow-hidden flex flex-col"
     >
-      <div className="group/icon aspect-square bg-[#111111] flex items-center justify-center relative overflow-hidden">
+      <div className="group/icon aspect-square bg-[var(--c-base)] flex items-center justify-center relative overflow-hidden">
         {entry.iconUrl
           ? <img src={entry.iconUrl} alt="" className="w-full h-full object-cover opacity-60" />
           : <Download size={36} className="text-[#00AF5C]/50" />}
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#1A1A1A] flex items-end justify-center pb-3">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[var(--c-surface-1)] flex items-end justify-center pb-3">
           <Loader2 size={20} className="text-[#00AF5C] animate-spin" />
         </div>
         {/* Cancel overlay — appears on hover so the download can be stopped
@@ -496,7 +496,7 @@ function InstallingCard({ entry, onCancel }) {
             disabled={cancelling}
             whileHover={cancelling ? {} : { scale: 1.05 }}
             whileTap={cancelling ? {} : { scale: 0.95 }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#1E1E1E] text-[#A0A0A0] hover:text-[#FF5555] border border-[#2D2D2D] hover:border-[#FF5555]/40 transition-colors disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] border border-[var(--c-border)] hover:border-[var(--c-danger)]/40 transition-colors disabled:opacity-60"
           >
             <Square size={12} fill="currentColor" />
             {cancelling ? 'Stopping…' : 'Cancel'}
@@ -504,11 +504,11 @@ function InstallingCard({ entry, onCancel }) {
         </div>
       </div>
       <div className="p-3">
-        <p className="text-sm font-bold text-[#FFFFFF] truncate">{entry.title || 'Installing modpack…'}</p>
+        <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{entry.title || 'Installing modpack…'}</p>
         <p className="text-[10px] text-[#00AF5C] font-bold truncate mt-0.5">
           {cancelling ? 'Cancelling…' : (entry.statusText || 'Starting…')}
         </p>
-        <div className="mt-2 h-1 bg-[#2D2D2D] rounded-full overflow-hidden">
+        <div className="mt-2 h-1 bg-[var(--c-border)] rounded-full overflow-hidden">
           <motion.div
             initial={false}
             animate={{ width: `${pct}%` }}
@@ -516,7 +516,7 @@ function InstallingCard({ entry, onCancel }) {
             className="h-full bg-[#00AF5C]"
           />
         </div>
-        <p className="text-[10px] text-[#A0A0A0] tabular-nums mt-1">
+        <p className="text-[10px] text-[var(--c-text-secondary)] tabular-nums mt-1">
           {entry.total > 0 ? `${entry.task.toLocaleString()} / ${entry.total.toLocaleString()} files` : 'Preparing…'}
         </p>
       </div>
@@ -543,12 +543,12 @@ function InstanceCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index * 0.02, 0.2), duration: 0.2 }}
       whileHover={{ y: -3 }}
-      className="group relative bg-[#1A1A1A] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-2xl overflow-hidden flex flex-col transition-colors"
+      className="group relative bg-[var(--c-surface-1)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-2xl overflow-hidden flex flex-col transition-colors"
     >
       {/* Icon / cover area. Modpacks ship their own cover art (inst.iconUrl);
           hand-made and server instances fall back to the shared dusk cover so
           every card reads as a real instance rather than a bare loader glyph. */}
-      <div className="aspect-square bg-[#111111] flex items-center justify-center relative overflow-hidden">
+      <div className="aspect-square bg-[var(--c-base)] flex items-center justify-center relative overflow-hidden">
         <img
           src={inst.iconUrl || duskCover}
           alt=""
@@ -561,7 +561,7 @@ function InstanceCard({
         {(isModpack || isServerInstance) && (
           <span className={`absolute top-2 left-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md border ${
             isServerInstance
-              ? 'bg-[#1A1A1A]/80 text-[#A0A0A0] border-[#2D2D2D]'
+              ? 'bg-[var(--c-surface-1)]/80 text-[var(--c-text-secondary)] border-[var(--c-border)]'
               : 'bg-[#00AF5C]/15 text-[#00AF5C] border-[#00AF5C]/30'
           }`}>
             {isServerInstance ? 'Server' : 'Modpack'}
@@ -586,10 +586,10 @@ function InstanceCard({
             </Tooltip>
           )}
           <Tooltip content={`${loaderLabel}${inst.version ? ` ${inst.version}` : ''}`} side="bottom" align="end">
-            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#1A1A1A]/85 border border-[#2D2D2D] backdrop-blur-sm shadow-sm shadow-black/30">
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--c-surface-1)]/85 border border-[var(--c-border)] backdrop-blur-sm shadow-sm shadow-black/30">
               {GLYPH_LOADERS.has(inst.loader)
                 ? <LoaderGlyph loader={inst.loader} size={16} />
-                : <LoaderIcon size={15} className="text-[#A0A0A0]" strokeWidth={2} />}
+                : <LoaderIcon size={15} className="text-[var(--c-text-secondary)]" strokeWidth={2} />}
             </span>
           </Tooltip>
         </div>
@@ -602,15 +602,15 @@ function InstanceCard({
             {launchPhase === 'launched' ? (
               <>
                 <Play size={22} className="text-[#00AF5C]" fill="currentColor" />
-                <p className="text-xs font-bold text-[#FFFFFF]">Game running</p>
+                <p className="text-xs font-bold text-[var(--c-text-primary)]">Game running</p>
               </>
             ) : (
               <>
                 <Loader2 size={22} className="text-[#00AF5C] animate-spin" />
-                <p className="text-[11px] font-bold text-[#FFFFFF] line-clamp-2 leading-tight">
+                <p className="text-[11px] font-bold text-[var(--c-text-primary)] line-clamp-2 leading-tight">
                   {launchStatus || 'Preparing…'}
                 </p>
-                <div className="w-3/4 h-1 bg-[#2D2D2D] rounded-full overflow-hidden">
+                <div className="w-3/4 h-1 bg-[var(--c-border)] rounded-full overflow-hidden">
                   <motion.div
                     initial={false}
                     animate={{ width: `${launchProgress}%` }}
@@ -621,7 +621,7 @@ function InstanceCard({
                 <button
                   onClick={(e) => { e.stopPropagation(); onCancelLaunch?.(); }}
                   disabled={launchPhase === 'cancelling'}
-                  className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-[#1E1E1E] text-[#A0A0A0] hover:text-[#FF5555] border border-[#2D2D2D] hover:border-[#FF5555]/40 transition-colors disabled:opacity-50"
+                  className="mt-1 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] border border-[var(--c-border)] hover:border-[var(--c-danger)]/40 transition-colors disabled:opacity-50"
                 >
                   <Square size={10} fill="currentColor" />
                   {launchPhase === 'cancelling' ? 'Stopping…' : 'Stop'}
@@ -668,24 +668,24 @@ function InstanceCard({
                 if (e.key === 'Enter') onSubmitRename();
                 if (e.key === 'Escape') onCancelRename();
               }}
-              className="flex-1 min-w-0 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-lg px-2 py-1 text-sm text-[#FFFFFF] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all"
+              className="flex-1 min-w-0 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-lg px-2 py-1 text-sm text-[var(--c-text-primary)] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all"
             />
             <button onClick={onSubmitRename} disabled={busy} className="p-1.5 rounded-lg bg-[#00AF5C] text-white disabled:opacity-50">
               {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
             </button>
-            <button onClick={onCancelRename} className="p-1.5 rounded-lg bg-[#1E1E1E] text-[#A0A0A0] hover:text-[#FFFFFF]">
+            <button onClick={onCancelRename} className="p-1.5 rounded-lg bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
               <X size={12} />
             </button>
           </div>
         ) : (
           <Tooltip content={inst.displayName} align="start" className="w-full min-w-0">
-            <p className="text-sm font-bold text-[#FFFFFF] truncate w-full">
+            <p className="text-sm font-bold text-[var(--c-text-primary)] truncate w-full">
               {inst.displayName}
             </p>
           </Tooltip>
         )}
         <div className="flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1 text-[10px] text-[#A0A0A0] font-bold truncate">
+          <span className="flex items-center gap-1 text-[10px] text-[var(--c-text-secondary)] font-bold truncate">
             <LoaderIcon size={10} />
             {loaderLabel} {inst.version}
           </span>
@@ -709,20 +709,20 @@ function InstanceCard({
         {pendingDelete && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[#1A1A1A]/95 backdrop-blur-sm p-3 text-center"
+            className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[var(--c-surface-1)]/95 backdrop-blur-sm p-3 text-center"
           >
-            <Trash2 size={20} className="text-[#FF5555]" />
-            <p className="text-sm font-bold text-[#FFFFFF]">Delete this instance?</p>
-            <p className="text-[10px] text-[#A0A0A0]">The on-disk profile (mods, worlds) will be removed.</p>
+            <Trash2 size={20} className="text-[var(--c-danger)]" />
+            <p className="text-sm font-bold text-[var(--c-text-primary)]">Delete this instance?</p>
+            <p className="text-[10px] text-[var(--c-text-secondary)]">The on-disk profile (mods, worlds) will be removed.</p>
             <div className="flex items-center gap-2 mt-1">
-              <button onClick={onCancelDelete} className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] bg-[#1E1E1E]">
+              <button onClick={onCancelDelete} className="px-3 py-1.5 rounded-lg text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-2)]">
                 Cancel
               </button>
               <motion.button
                 onClick={onConfirmDelete}
                 whileTap={{ scale: 0.97 }}
                 disabled={busy}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#FF5555] hover:bg-[#FF4444] text-white disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white disabled:opacity-50"
               >
                 {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                 Delete
@@ -782,7 +782,7 @@ function KebabMenu({ onOpenFolder, onStartRename, onAskDelete, onJavaPick, onWor
       <button
         ref={btnRef}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="p-1 rounded-md text-[#555555] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] transition-colors"
+        className="p-1 rounded-md text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] transition-colors"
         aria-label="More actions"
       >
         <MoreVertical size={14} />
@@ -794,7 +794,7 @@ function KebabMenu({ onOpenFolder, onStartRename, onAskDelete, onJavaPick, onWor
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.12 }}
           style={{ position: 'fixed', top: coords.top, left: coords.left, width: MENU_W }}
-          className="z-[100] bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-xl shadow-black/40 overflow-hidden"
+          className="z-[100] bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-xl shadow-black/40 overflow-hidden"
         >
           <MenuRow icon={FolderOpen} label="Open folder"          onClick={() => { setOpen(false); onOpenFolder(); }} />
           <MenuRow icon={Pencil}     label="Rename"               onClick={() => { setOpen(false); onStartRename(); }} />
@@ -815,8 +815,8 @@ function MenuRow({ icon: Icon, label, onClick, danger }) {
       onClick={onClick}
       className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold transition-colors ${
         danger
-          ? 'text-[#FF5555] hover:bg-[#FF5555]/10'
-          : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E]'
+          ? 'text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10'
+          : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)]'
       }`}
     >
       <Icon size={12} />

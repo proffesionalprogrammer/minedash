@@ -168,17 +168,17 @@ export default function PluginsViewer({ serverId, serverVersion }) {
       {/* Search bar */}
       <div className="flex items-center gap-3 mb-3">
         <div className="relative flex-1">
-          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555555]" />
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
           <input
             type="text"
             placeholder="Search plugins on Hangar..."
             value={query}
             onChange={e => handleQueryChange(e.target.value)}
-            className="w-full pl-12 pr-4 py-2.5 bg-[#1E1E1E] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl text-sm text-[#FFFFFF] outline-none transition-all placeholder-[#555555] focus:ring-4 focus:ring-[#00AF5C]/10 font-medium"
+            className="w-full pl-12 pr-4 py-2.5 bg-[var(--c-surface-2)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl text-sm text-[var(--c-text-primary)] outline-none transition-all placeholder-[var(--c-text-muted)] focus:ring-4 focus:ring-[#00AF5C]/10 font-medium"
           />
         </div>
         {serverVersion && (
-          <span className="text-xs font-bold bg-[#1E1E1E] text-[#A0A0A0] px-3 py-2 rounded-xl border border-[#2D2D2D] whitespace-nowrap flex-shrink-0">
+          <span className="text-xs font-bold bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] px-3 py-2 rounded-xl border border-[var(--c-border)] whitespace-nowrap flex-shrink-0">
             Paper {serverVersion}
           </span>
         )}
@@ -193,7 +193,7 @@ export default function PluginsViewer({ serverId, serverVersion }) {
             className={`px-2.5 py-1 text-xs font-bold rounded-lg capitalize transition-all ${
               category === cat
                 ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                : 'text-[#555555] hover:text-[#A0A0A0] border border-[#2D2D2D] hover:border-[#555555] bg-[#1E1E1E]'
+                : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] bg-[var(--c-surface-2)]'
             }`}
           >
             {cat.replace('-', ' ')}
@@ -206,16 +206,16 @@ export default function PluginsViewer({ serverId, serverVersion }) {
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 size={24} className="text-[#00AF5C] animate-spin" />
-            <span className="ml-3 text-[#A0A0A0] font-medium">Searching Hangar...</span>
+            <span className="ml-3 text-[var(--c-text-secondary)] font-medium">Searching Hangar...</span>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center py-20 text-[#FF5555]">
+          <div className="flex flex-col items-center py-20 text-[var(--c-danger)]">
             <AlertCircle size={32} className="mb-3" />
             <p className="font-bold">Search failed</p>
-            <p className="text-sm text-[#A0A0A0] mt-1">{error}</p>
+            <p className="text-sm text-[var(--c-text-secondary)] mt-1">{error}</p>
           </div>
         ) : results.length === 0 ? (
-          <div className="flex flex-col items-center py-20 text-[#555555]">
+          <div className="flex flex-col items-center py-20 text-[var(--c-text-muted)]">
             <Package size={48} className="mb-4 opacity-30" />
             <p className="font-bold">No plugins found</p>
             <p className="text-xs mt-1">Try a different search or remove the category filter</p>
@@ -233,10 +233,10 @@ export default function PluginsViewer({ serverId, serverVersion }) {
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.03, duration: 0.25 }}
-                  className="flex gap-4 p-4 bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-all group"
+                  className="flex gap-4 p-4 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl hover:border-[var(--c-text-muted)] transition-all group"
                 >
                   {/* Icon */}
-                  <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-xl overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
                     {plugin.iconUrl ? (
                       <img src={plugin.iconUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -249,13 +249,13 @@ export default function PluginsViewer({ serverId, serverVersion }) {
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <h4 className="font-bold text-[#FFFFFF] text-sm truncate">{plugin.name}</h4>
-                      <span className="text-xs text-[#555555] flex-shrink-0">
+                      <h4 className="font-bold text-[var(--c-text-primary)] text-sm truncate">{plugin.name}</h4>
+                      <span className="text-xs text-[var(--c-text-muted)] flex-shrink-0">
                         by {plugin.namespace?.owner || 'Unknown'}
                       </span>
                     </div>
-                    <p className="text-xs text-[#A0A0A0] line-clamp-1 mb-1.5">{plugin.description}</p>
-                    <div className="flex items-center gap-3 text-xs text-[#555555]">
+                    <p className="text-xs text-[var(--c-text-secondary)] line-clamp-1 mb-1.5">{plugin.description}</p>
+                    <div className="flex items-center gap-3 text-xs text-[var(--c-text-muted)]">
                       <span className="flex items-center gap-1">
                         <Download size={11} />{fmt(plugin.stats?.downloads)}
                       </span>
@@ -297,22 +297,22 @@ export default function PluginsViewer({ serverId, serverVersion }) {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#2D2D2D]">
-          <span className="text-xs text-[#555555]">
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--c-border)]">
+          <span className="text-xs text-[var(--c-text-muted)]">
             {totalCount.toLocaleString()} plugins • Page {page + 1} of {totalPages}
           </span>
           <div className="flex gap-2">
             <button
               onClick={() => handlePageChange(page - 1)}
               disabled={page === 0}
-              className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"
+              className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"
             >
               <ChevronLeft size={16} />
             </button>
             <button
               onClick={() => handlePageChange(page + 1)}
               disabled={page >= totalPages - 1}
-              className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"
+              className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"
             >
               <ChevronRight size={16} />
             </button>
@@ -329,8 +329,8 @@ export default function PluginsViewer({ serverId, serverVersion }) {
             exit={{ opacity: 0, y: 10 }}
             className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] border ${
               toast.isError
-                ? 'bg-[#1E1E1E] border-[#FF5555]/30 text-[#FF5555]'
-                : 'bg-[#1E1E1E] border-[#00AF5C]/30 text-[#FFFFFF]'
+                ? 'bg-[var(--c-surface-2)] border-[var(--c-danger)]/30 text-[var(--c-danger)]'
+                : 'bg-[var(--c-surface-2)] border-[#00AF5C]/30 text-[var(--c-text-primary)]'
             }`}
           >
             {toast.isError

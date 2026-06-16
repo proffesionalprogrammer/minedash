@@ -305,7 +305,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
 
   return (
     <div
-      className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden relative"
+      className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden relative"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -324,7 +324,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
           >
             <Upload size={36} className="text-[#00AF5C] mb-2" />
             <p className="text-sm font-bold text-white">Drop to upload</p>
-            <p className="text-xs text-[#A0A0A0] mt-1">.jar mods · single .zip modpack · multiple files OK</p>
+            <p className="text-xs text-[var(--c-text-secondary)] mt-1">.jar mods · single .zip modpack · multiple files OK</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -337,18 +337,18 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             className="fixed inset-0 bg-[#000000]/80 z-[100] flex items-center justify-center backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
-              <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete Mod</h3>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+              <h3 className="text-xl font-bold text-[var(--c-text-primary)] mb-2">Delete Mod</h3>
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 Are you sure you want to permanently delete <span className="text-white font-bold">{deleteTarget}</span>? This action cannot be undone.
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
                 <button onClick={() => setDeleteTarget(null)}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200">
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
                   Cancel
                 </button>
                 <button onClick={confirmDelete}
-                  className="px-4 py-2 bg-[#FF5555] hover:bg-[#FF4444] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
+                  className="px-4 py-2 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
                   <Trash2 size={16} /> Delete
                 </button>
               </div>
@@ -366,18 +366,18 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             className="fixed inset-0 bg-[#000000]/80 z-[100] flex items-center justify-center backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
-              <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete {selected.size} Mod{selected.size !== 1 ? 's' : ''}</h3>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+              <h3 className="text-xl font-bold text-[var(--c-text-primary)] mb-2">Delete {selected.size} Mod{selected.size !== 1 ? 's' : ''}</h3>
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 Permanently delete <span className="text-white font-bold">{selected.size}</span> selected mod{selected.size !== 1 ? 's' : ''}? This cannot be undone.
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
                 <button onClick={() => setBulkDeleteConfirm(false)}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200">
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
                   Cancel
                 </button>
                 <button onClick={handleBulkDelete}
-                  className="px-4 py-2 bg-[#FF5555] hover:bg-[#FF4444] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
+                  className="px-4 py-2 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
                   <Trash2 size={16} /> Delete All
                 </button>
               </div>
@@ -395,18 +395,18 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             className="fixed inset-0 bg-[#000000]/80 z-[100] flex items-center justify-center backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
-              <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Extract Modpack</h3>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+              <h3 className="text-xl font-bold text-[var(--c-text-primary)] mb-2">Extract Modpack</h3>
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 You selected <span className="text-white font-bold">{modpackFile.name}</span>. Do you want to extract this as a modpack?
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
                 <button onClick={() => { uploadFile(modpackFile, false); setModpackFile(null); }}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200">
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
                   Upload as Mod
                 </button>
                 <button onClick={() => setModpackFile(null)}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200">
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
                   Cancel
                 </button>
                 <button onClick={() => { uploadFile(modpackFile, true); setModpackFile(null); }}
@@ -421,17 +421,17 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
       </AnimatePresence>
 
       {/* Tabs */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <div className="flex items-center gap-1">
           <button onClick={() => { setViewMode('installed'); exitMultiSelect(); }}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
               viewMode === 'installed'
-                ? 'bg-[#1E1E1E] text-[#FFFFFF] border border-[#2D2D2D]'
-                : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                ? 'bg-[var(--c-surface-2)] text-[var(--c-text-primary)] border border-[var(--c-border)]'
+                : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
             }`}>
             <FolderOpen size={16} />
             Installed
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${viewMode === 'installed' ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[#2D2D2D] text-[#555555]'}`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${viewMode === 'installed' ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[var(--c-border)] text-[var(--c-text-muted)]'}`}>
               {mods.length}
             </span>
           </button>
@@ -439,7 +439,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
               viewMode === 'browse'
                 ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
             }`}>
             <Globe size={16} />
             Browse Mods
@@ -448,7 +448,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
               viewMode === 'modpacks'
                 ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20'
-                : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
             }`}>
             <Layers size={16} />
             Modpacks
@@ -457,7 +457,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
               viewMode === 'datapacks'
                 ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
             }`}>
             <Database size={16} />
             Data Packs
@@ -466,7 +466,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
 
         {viewMode === 'installed' && (
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 border-r border-[#2D2D2D] pr-3">
+            <div className="flex items-center gap-1 border-r border-[var(--c-border)] pr-3">
               {[
                 { key: 'all', label: 'All', count: mods.length },
                 { key: 'enabled', label: 'Enabled', count: enabledCount },
@@ -474,10 +474,10 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
               ].map(f => (
                 <button key={f.key} onClick={() => setStatusFilter(f.key)}
                   className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
-                    statusFilter === f.key ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20' : 'text-[#555555] hover:text-[#A0A0A0] border border-transparent hover:border-[#2D2D2D]'
+                    statusFilter === f.key ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20' : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] border border-transparent hover:border-[var(--c-border)]'
                   }`}>
                   {f.label}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusFilter === f.key ? 'bg-[#00AF5C]/20 text-[#00AF5C]' : 'bg-[#2D2D2D] text-[#555555]'}`}>{f.count}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusFilter === f.key ? 'bg-[#00AF5C]/20 text-[#00AF5C]' : 'bg-[var(--c-border)] text-[var(--c-text-muted)]'}`}>{f.count}</span>
                 </button>
               ))}
             </div>
@@ -486,14 +486,14 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
               <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                 onClick={handleExportZip}
                 disabled={exporting || mods.length === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] text-[#FFFFFF] border border-[#2D2D2D] rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] text-[var(--c-text-primary)] border border-[var(--c-border)] rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
                 {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                 <span>{exporting ? 'Exporting...' : 'Download ZIP'}</span>
               </motion.button>
             </Tooltip>
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] text-[#FFFFFF] border border-[#2D2D2D] rounded-xl font-bold text-sm transition-all duration-200">
+              className="flex items-center gap-2 px-4 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] text-[var(--c-text-primary)] border border-[var(--c-border)] rounded-xl font-bold text-sm transition-all duration-200">
               <Upload size={16} />
               <span>Upload</span>
             </motion.button>
@@ -531,12 +531,12 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                   {clientOnlyCount > 0 && (
                     <>{clientOnlyCount} client-only mod{clientOnlyCount !== 1 ? 's' : ''} would crash the server</>
                   )}
-                  {clientOnlyCount > 0 && wrongVersionCount > 0 && <span className="text-[#A0A0A0]"> · </span>}
+                  {clientOnlyCount > 0 && wrongVersionCount > 0 && <span className="text-[var(--c-text-secondary)]"> · </span>}
                   {wrongVersionCount > 0 && (
                     <>{wrongVersionCount} mod{wrongVersionCount !== 1 ? 's are' : ' is'} on the wrong version/loader</>
                   )}
                 </p>
-                <p className="text-xs text-[#A0A0A0] mt-0.5">
+                <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
                   {clientOnlyCount > 0 && 'Client-only mods will be moved to the client stash.'}
                   {clientOnlyCount > 0 && wrongVersionCount > 0 && ' '}
                   {wrongVersionCount > 0 && 'Wrong-version mods will be replaced with a compatible build from Modrinth.'}
@@ -571,19 +571,19 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
 
           {/* Result toast (from a recently-completed clean / repair) */}
           {cleanResult && cleanResult.moved && (
-            <div className="mx-4 mt-2 px-3 py-2 text-xs text-[#A0A0A0] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+            <div className="mx-4 mt-2 px-3 py-2 text-xs text-[var(--c-text-secondary)] bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl">
               {cleanResult.moved.length === 0
                 ? 'No client-only mods to move — your mods folder is clean.'
                 : `Moved ${cleanResult.moved.length} client-only mod(s) into the client stash.`}
             </div>
           )}
           {repairResult && (
-            <div className="mx-4 mt-2 px-3 py-2 text-xs text-[#A0A0A0] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+            <div className="mx-4 mt-2 px-3 py-2 text-xs text-[var(--c-text-secondary)] bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl">
               {repairResult.repaired?.length > 0 && (
                 <p className="text-[#00AF5C] font-bold">Replaced {repairResult.repaired.length} mod(s) with compatible versions.</p>
               )}
               {repairResult.failed?.length > 0 && (
-                <p className="mt-1 text-[#FF5555]">
+                <p className="mt-1 text-[var(--c-danger)]">
                   {repairResult.failed.length} couldn't be repaired:{' '}
                   {repairResult.failed.slice(0, 3).map(f => f.filename).join(', ')}
                   {repairResult.failed.length > 3 && ` (+${repairResult.failed.length - 3})`}
@@ -596,29 +596,29 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
           )}
 
           {/* Search bar */}
-          <div className="px-6 py-3 border-b border-[#2D2D2D]">
+          <div className="px-6 py-3 border-b border-[var(--c-border)]">
             <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A0A0A0]" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-secondary)]" />
               <input type="text" placeholder="Search installed mods..." value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl text-sm text-[#FFFFFF] outline-none transition-all duration-300 placeholder-[#555555] focus:ring-4 focus:ring-[#00AF5C]/10"
+                className="w-full pl-10 pr-4 py-2 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl text-sm text-[var(--c-text-primary)] outline-none transition-all duration-300 placeholder-[var(--c-text-muted)] focus:ring-4 focus:ring-[#00AF5C]/10"
               />
             </div>
             {!multiSelect && mods.length > 0 && (
-              <p className="text-[10px] text-[#555555] mt-1.5 pl-1">Long-press a mod to select multiple</p>
+              <p className="text-[10px] text-[var(--c-text-muted)] mt-1.5 pl-1">Long-press a mod to select multiple</p>
             )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
             {loading ? (
-              <div className="flex items-center justify-center h-full text-[#A0A0A0] font-medium">
+              <div className="flex items-center justify-center h-full text-[var(--c-text-secondary)] font-medium">
                 <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
                   <Package size={20} className="mr-3" />
                 </motion.div>
                 Loading mods...
               </div>
             ) : filteredMods.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-[#555555] font-medium">
+              <div className="flex flex-col items-center justify-center h-full text-[var(--c-text-muted)] font-medium">
                 <Package size={48} className="mb-4 opacity-30" />
                 <p>No mods found.</p>
                 {searchQuery && <p className="text-sm mt-1">Try adjusting your search query.</p>}
@@ -642,19 +642,19 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                         ${multiSelect
                           ? isSelected
                             ? 'bg-[#00AF5C]/5 border-[#00AF5C]/40'
-                            : 'bg-[#1E1E1E] border-[#2D2D2D]'
-                          : 'bg-[#1E1E1E] border-[#2D2D2D] hover:border-[#555555]'}
+                            : 'bg-[var(--c-surface-2)] border-[var(--c-border)]'
+                          : 'bg-[var(--c-surface-2)] border-[var(--c-border)] hover:border-[var(--c-text-muted)]'}
                         ${!mod.enabled ? 'opacity-60' : ''}
                       `}
                     >
                       <div className="flex items-center gap-4 min-w-0 flex-1">
                         {/* Icon / checkbox */}
                         <div className="relative flex-shrink-0">
-                          <div className={`w-12 h-12 rounded-xl border border-[#2D2D2D] overflow-hidden bg-[#111111] flex items-center justify-center transition-all duration-300 ${!multiSelect ? 'group-hover:scale-110' : ''}`}>
+                          <div className={`w-12 h-12 rounded-xl border border-[var(--c-border)] overflow-hidden bg-[var(--c-base)] flex items-center justify-center transition-all duration-300 ${!multiSelect ? 'group-hover:scale-110' : ''}`}>
                             {mod.iconUrl
                               ? <img src={mod.iconUrl} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
                               : null}
-                            <div className={`w-full h-full items-center justify-center ${mod.iconUrl ? 'hidden' : 'flex'} ${mod.enabled ? 'text-[#00AF5C]' : 'text-[#555555]'}`}>
+                            <div className={`w-full h-full items-center justify-center ${mod.iconUrl ? 'hidden' : 'flex'} ${mod.enabled ? 'text-[#00AF5C]' : 'text-[var(--c-text-muted)]'}`}>
                               <Package size={20} />
                             </div>
                           </div>
@@ -667,7 +667,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                                 exit={{ opacity: 0, scale: 0.7 }}
                                 transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                                 className={`absolute inset-0 rounded-xl flex items-center justify-center border-2 transition-colors duration-200 ${
-                                  isSelected ? 'bg-[#00AF5C] border-[#00AF5C]' : 'bg-[#000000]/30 border-[#555555]'
+                                  isSelected ? 'bg-[#00AF5C] border-[#00AF5C]' : 'bg-[#000000]/30 border-[var(--c-text-muted)]'
                                 }`}
                               >
                                 {isSelected && <Check size={18} className="text-white" strokeWidth={3} />}
@@ -678,7 +678,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
 
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                            <h4 className="font-bold text-[#FFFFFF] truncate">{mod.displayName || mod.name}</h4>
+                            <h4 className="font-bold text-[var(--c-text-primary)] truncate">{mod.displayName || mod.name}</h4>
                             {mod.clientOnly && (
                               <Tooltip content="Client-only — will crash a dedicated server" className="flex-shrink-0">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
@@ -688,20 +688,20 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                             )}
                             {!mod.clientOnly && mod.wrongVersion && (
                               <Tooltip content="This mod's jar doesn't list this server's Minecraft version as supported" className="flex-shrink-0">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-danger)]/15 text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-md">
                                   <AlertTriangle size={10} /> Wrong version
                                 </span>
                               </Tooltip>
                             )}
                             {!mod.clientOnly && !mod.wrongVersion && mod.wrongLoader && (
                               <Tooltip content="This jar is built for a different mod loader than the server" className="flex-shrink-0">
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-danger)]/15 text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-md">
                                   <AlertTriangle size={10} /> Wrong loader
                                 </span>
                               </Tooltip>
                             )}
                           </div>
-                          <p className="text-xs text-[#A0A0A0] mt-1">{mod.size}</p>
+                          <p className="text-xs text-[var(--c-text-secondary)] mt-1">{mod.size}</p>
                         </div>
                       </div>
 
@@ -712,7 +712,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                             <button
                               onClick={(e) => { e.stopPropagation(); handleToggle(mod); }}
                               disabled={!!toggling[mod.name]}
-                              className={`w-12 h-7 rounded-full relative transition-all duration-300 ${mod.enabled ? 'bg-[#00AF5C] shadow-[0_0_12px_rgba(0,175,92,0.3)]' : 'bg-[#333333]'} ${toggling[mod.name] ? 'opacity-50' : 'hover:shadow-lg'}`}
+                              className={`w-12 h-7 rounded-full relative transition-all duration-300 ${mod.enabled ? 'bg-[#00AF5C] shadow-[0_0_12px_rgba(0,175,92,0.3)]' : 'bg-[var(--c-deep-3)]'} ${toggling[mod.name] ? 'opacity-50' : 'hover:shadow-lg'}`}
                             >
                               <motion.div
                                 className="absolute top-1 w-5 h-5 bg-white rounded-full shadow-md"
@@ -724,7 +724,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                           <Tooltip content="Delete Mod" align="end">
                             <button
                               onClick={(e) => { e.stopPropagation(); setDeleteTarget(mod.name); }}
-                              className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-xl transition-all duration-200 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-110"
+                              className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-xl transition-all duration-200 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-110"
                             >
                               <Trash2 size={18} />
                             </button>
@@ -746,20 +746,20 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 80, opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                className="absolute bottom-3 left-3 right-3 bg-[#1A1A1A] border border-[#2D2D2D] rounded-2xl px-4 py-3 flex items-center justify-between shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-20"
+                className="absolute bottom-3 left-3 right-3 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-2xl px-4 py-3 flex items-center justify-between shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-20"
               >
                 <div className="flex items-center gap-3">
                   <button
                     onClick={handleSelectAll}
-                    className="flex items-center gap-1.5 text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+                    className="flex items-center gap-1.5 text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors"
                   >
                     {selected.size === filteredMods.length
                       ? <><CheckSquare size={14} className="text-[#00AF5C]" /> Deselect all</>
                       : <><Square size={14} /> Select all</>
                     }
                   </button>
-                  <div className="w-px h-4 bg-[#2D2D2D]" />
-                  <span className="text-sm font-bold text-[#FFFFFF]">
+                  <div className="w-px h-4 bg-[var(--c-border)]" />
+                  <span className="text-sm font-bold text-[var(--c-text-primary)]">
                     {selected.size} selected
                   </span>
                 </div>
@@ -775,21 +775,21 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                   <button
                     onClick={handleBulkDisable}
                     disabled={!canDisableSelected}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#111111] hover:bg-[#2D2D2D] text-[#A0A0A0] border border-[#2D2D2D] rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--c-base)] hover:bg-[var(--c-border)] text-[var(--c-text-secondary)] border border-[var(--c-border)] rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <ToggleLeft size={14} /> Disable
                   </button>
                   <button
                     onClick={() => setBulkDeleteConfirm(true)}
                     disabled={selected.size === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 text-[#FF5555] border border-[#FF5555]/20 rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 text-[var(--c-danger)] border border-[var(--c-danger)]/20 rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <Trash2 size={14} /> Delete
                   </button>
-                  <div className="w-px h-4 bg-[#2D2D2D]" />
+                  <div className="w-px h-4 bg-[var(--c-border)]" />
                   <button
                     onClick={exitMultiSelect}
-                    className="px-3 py-1.5 text-xs font-bold text-[#555555] hover:text-[#A0A0A0] transition-colors"
+                    className="px-3 py-1.5 text-xs font-bold text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] transition-colors"
                   >
                     Cancel
                   </button>

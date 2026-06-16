@@ -496,6 +496,7 @@ const DEFAULT_SETTINGS = {
   showSnapshots: false,      // include snapshots in the vanilla version list
   onlyInstalled: false,      // (client-side filter, persisted here for convenience)
   elybySkins: true,          // show Ely.by skins for offline accounts (cosmetic, display-only)
+  theme: 'dark',             // UI colour theme — 'system' | 'light' | 'dark' | 'oled'
   lastLoader: '',            // last loader the user launched — restores the Play form on reopen
   lastVersion: '',           // last version the user launched
   lastInstanceId: '',        // last instance ID launched — narrower than lastLoader+lastVersion when multiple instances exist
@@ -1367,6 +1368,7 @@ function register(app) {
     if (typeof incoming.lastVersion === 'string') next.lastVersion = incoming.lastVersion.trim();
     if (typeof incoming.lastInstanceId === 'string') next.lastInstanceId = incoming.lastInstanceId.trim();
     if (typeof incoming.onboardingComplete === 'boolean') next.onboardingComplete = incoming.onboardingComplete;
+    if (['system', 'light', 'dark', 'oled'].includes(incoming.theme)) next.theme = incoming.theme;
 
     await writeSettings(next);
     res.json(next);

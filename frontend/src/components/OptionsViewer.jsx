@@ -74,17 +74,17 @@ function CustomDropdown({ value, options, onChange }) {
       <button
         ref={triggerRef}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 bg-[#111111] border border-[#2D2D2D] text-[#FFFFFF] text-sm px-4 py-1.5 rounded-xl hover:border-[#555555] focus:outline-none focus:border-[#00AF5C] transition-colors w-48 justify-between"
+        className="flex items-center gap-2 bg-[var(--c-base)] border border-[var(--c-border)] text-[var(--c-text-primary)] text-sm px-4 py-1.5 rounded-xl hover:border-[var(--c-text-muted)] focus:outline-none focus:border-[#00AF5C] transition-colors w-48 justify-between"
       >
         <span className="truncate">{displayLabel}</span>
-        <ChevronDown size={14} className={`text-[#555555] transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-[var(--c-text-muted)] transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && coords && createPortal(
         <div
           ref={menuRef}
           style={{ position: 'fixed', top: coords.top, right: coords.right, width: coords.width, zIndex: 9999 }}
-          className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
+          className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
         >
           {options.map(opt => {
             const isSelected = opt.value === value;
@@ -98,7 +98,7 @@ function CustomDropdown({ value, options, onChange }) {
                 className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors flex items-center justify-between ${
                   isSelected
                     ? 'bg-[#00AF5C] text-white'
-                    : 'text-[#FFFFFF] hover:bg-[#2D2D2D]'
+                    : 'text-[var(--c-text-primary)] hover:bg-[var(--c-border)]'
                 }`}
               >
                 <span>{opt.label}</span>
@@ -137,8 +137,8 @@ function SidebarBtn({ active, onClick, icon, label }) {
       onClick={onClick}
       className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${
         active 
-          ? 'bg-[#1E1E1E] text-[#FFFFFF] border border-[#2D2D2D]' 
-          : 'text-[#A0A0A0] hover:bg-[#1E1E1E] hover:text-[#FFFFFF] border border-transparent'
+          ? 'bg-[var(--c-surface-2)] text-[var(--c-text-primary)] border border-[var(--c-border)]' 
+          : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-surface-2)] hover:text-[var(--c-text-primary)] border border-transparent'
       }`}
     >
       {icon}
@@ -205,47 +205,47 @@ function GeneralSettings({ server, onError }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
-        <h3 className="text-lg font-bold text-[#FFFFFF] mb-1">Server name</h3>
-        <p className="text-sm text-[#A0A0A0] mb-4">Change the name of your server. This name is only visible on your dashboard.</p>
+      <div className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-[var(--c-text-primary)] mb-1">Server name</h3>
+        <p className="text-sm text-[var(--c-text-secondary)] mb-4">Change the name of your server. This name is only visible on your dashboard.</p>
         <input 
           type="text" 
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full bg-[#111111] border border-[#2D2D2D] rounded-xl px-4 py-3 text-[#FFFFFF] focus:outline-none focus:border-[#00AF5C] transition-colors"
+          className="w-full bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl px-4 py-3 text-[var(--c-text-primary)] focus:outline-none focus:border-[#00AF5C] transition-colors"
         />
       </div>
 
-      <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
-        <h3 className="text-lg font-bold text-[#FFFFFF] mb-1">Server icon</h3>
-        <p className="text-sm text-[#A0A0A0] mb-4">Change your server's icon. Changes will be visible on the Minecraft server list.</p>
+      <div className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-[var(--c-text-primary)] mb-1">Server icon</h3>
+        <p className="text-sm text-[var(--c-text-secondary)] mb-4">Change your server's icon. Changes will be visible on the Minecraft server list.</p>
         <div className="flex items-center gap-6">
-          <div className="w-20 h-20 bg-[#111111] border border-[#2D2D2D] rounded-xl overflow-hidden flex items-center justify-center">
+          <div className="w-20 h-20 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl overflow-hidden flex items-center justify-center">
             {iconPreview ? (
               <img src={iconPreview} alt="Server Icon" className="w-full h-full object-cover" onError={(e) => e.target.style.display='none'} />
             ) : (
-              <ImageIcon className="text-[#555555]" size={32} />
+              <ImageIcon className="text-[var(--c-text-muted)]" size={32} />
             )}
           </div>
           <div>
-            <label className="cursor-pointer bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] px-4 py-2.5 rounded-xl text-sm font-bold transition-all inline-flex items-center gap-2">
+            <label className="cursor-pointer bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] px-4 py-2.5 rounded-xl text-sm font-bold transition-all inline-flex items-center gap-2">
               <Upload size={16} />
               Upload Image
               <input type="file" accept="image/png" className="hidden" onChange={handleIconUpload} />
             </label>
-            <p className="text-xs text-[#555555] mt-2">Must be a 64x64 PNG image.</p>
+            <p className="text-xs text-[var(--c-text-muted)] mt-2">Must be a 64x64 PNG image.</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
-        <h3 className="text-lg font-bold text-[#FFFFFF] mb-1">Memory (RAM)</h3>
-        <p className="text-sm text-[#A0A0A0] mb-5">Adjust JVM heap size. Changes take effect on the next server start.</p>
+      <div className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-[var(--c-text-primary)] mb-1">Memory (RAM)</h3>
+        <p className="text-sm text-[var(--c-text-secondary)] mb-5">Adjust JVM heap size. Changes take effect on the next server start.</p>
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-bold text-[#FFFFFF] flex items-center gap-2">
-              <Cpu size={15} className="text-[#A0A0A0]" />
+            <label className="text-sm font-bold text-[var(--c-text-primary)] flex items-center gap-2">
+              <Cpu size={15} className="text-[var(--c-text-secondary)]" />
               Memory
             </label>
             <span className="text-sm font-bold text-[#00AF5C] bg-[#00AF5C]/10 px-3 py-1 rounded-lg tabular-nums">{ram} GB</span>
@@ -260,15 +260,15 @@ function GeneralSettings({ server, onError }) {
             style={{ '--fill': `${ramPercent}%` }}
             className="w-full ram-slider"
           />
-          <div className="flex justify-between text-xs text-[#555555]">
+          <div className="flex justify-between text-xs text-[var(--c-text-muted)]">
             <span>{RAM_MIN} GB</span><span>{ramMax} GB</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
-        <h3 className="text-lg font-bold text-[#FFFFFF] mb-1">Ely.by skins for players</h3>
-        <p className="text-sm text-[#A0A0A0] mb-4">
+      <div className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-[var(--c-text-primary)] mb-1">Ely.by skins for players</h3>
+        <p className="text-sm text-[var(--c-text-secondary)] mb-4">
           Lets offline players show the skin from their free Ely.by account to everyone on this
           server (no Ely.by login needed). Players just need a matching Ely.by username with a skin
           uploaded.
@@ -280,8 +280,8 @@ function GeneralSettings({ server, onError }) {
             <span className="custom-checkbox-visual" />
           </span>
           <span>
-            <span className="text-sm font-bold text-[#FFFFFF]">Enable Ely.by skins on this server</span>
-            <span className="block text-xs text-[#A0A0A0] mt-0.5 leading-snug">
+            <span className="text-sm font-bold text-[var(--c-text-primary)]">Enable Ely.by skins on this server</span>
+            <span className="block text-xs text-[var(--c-text-secondary)] mt-0.5 leading-snug">
               Applied on the next start. <span className="text-amber-400 font-bold">Set <code className="font-mono">online-mode=false</code> in Server properties</span> — with online mode on, this forces Ely.by authentication and premium players can't join.
             </span>
           </span>
@@ -300,13 +300,13 @@ function GeneralSettings({ server, onError }) {
       </div>
 
       {/* Danger Zone */}
-      <div className="bg-[#1E1E1E] border border-[#FF5555]/30 rounded-2xl p-6">
-        <h3 className="text-lg font-bold text-[#FF5555] mb-1">Danger zone</h3>
-        <p className="text-sm text-[#A0A0A0] mb-4">These actions are irreversible. Be careful.</p>
-        <div className="flex items-center justify-between p-4 bg-[#111111] rounded-xl border border-[#2D2D2D]">
+      <div className="bg-[var(--c-surface-2)] border border-[var(--c-danger)]/30 rounded-2xl p-6">
+        <h3 className="text-lg font-bold text-[var(--c-danger)] mb-1">Danger zone</h3>
+        <p className="text-sm text-[var(--c-text-secondary)] mb-4">These actions are irreversible. Be careful.</p>
+        <div className="flex items-center justify-between p-4 bg-[var(--c-base)] rounded-xl border border-[var(--c-border)]">
           <div>
-            <p className="font-bold text-[#FFFFFF] text-sm">Regenerate world</p>
-            <p className="text-xs text-[#A0A0A0] mt-0.5">Delete the current world and start fresh on a new seed. The server must be stopped.</p>
+            <p className="font-bold text-[var(--c-text-primary)] text-sm">Regenerate world</p>
+            <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">Delete the current world and start fresh on a new seed. The server must be stopped.</p>
           </div>
           <button
             onClick={() => {
@@ -314,7 +314,7 @@ function GeneralSettings({ server, onError }) {
               setRegenSeed('');
               setShowRegenModal(true);
             }}
-            className="flex-shrink-0 ml-4 flex items-center gap-2 px-4 py-2 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 text-[#FF5555] border border-[#FF5555]/30 rounded-xl text-sm font-bold transition-all"
+            className="flex-shrink-0 ml-4 flex items-center gap-2 px-4 py-2 bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-xl text-sm font-bold transition-all"
           >
             <RefreshCw size={15} />
             Regenerate
@@ -331,35 +331,35 @@ function GeneralSettings({ server, onError }) {
             onClick={() => !regenLoading && setShowRegenModal(false)}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl w-full max-w-md mx-4 shadow-2xl"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl w-full max-w-md mx-4 shadow-2xl"
               onClick={e => e.stopPropagation()}>
               <div className="p-8">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-[#FF5555]/10 flex items-center justify-center flex-shrink-0">
-                    <AlertTriangle size={20} className="text-[#FF5555]" />
+                  <div className="w-10 h-10 rounded-xl bg-[var(--c-danger)]/10 flex items-center justify-center flex-shrink-0">
+                    <AlertTriangle size={20} className="text-[var(--c-danger)]" />
                   </div>
-                  <h3 className="text-xl font-bold text-[#FFFFFF]">Regenerate world?</h3>
+                  <h3 className="text-xl font-bold text-[var(--c-text-primary)]">Regenerate world?</h3>
                 </div>
-                <p className="text-sm text-[#A0A0A0] leading-relaxed mb-6">
-                  This will permanently delete <span className="text-[#FFFFFF] font-bold">all world data</span> — terrain, builds, player inventories, and progress. This cannot be undone.
+                <p className="text-sm text-[var(--c-text-secondary)] leading-relaxed mb-6">
+                  This will permanently delete <span className="text-[var(--c-text-primary)] font-bold">all world data</span> — terrain, builds, player inventories, and progress. This cannot be undone.
                 </p>
 
                 <div className="mb-6">
-                  <label className="block text-sm font-bold text-[#FFFFFF] mb-2">New seed <span className="text-[#555555] font-medium">(leave blank for random)</span></label>
+                  <label className="block text-sm font-bold text-[var(--c-text-primary)] mb-2">New seed <span className="text-[var(--c-text-muted)] font-medium">(leave blank for random)</span></label>
                   <input
                     type="text"
                     value={regenSeed}
                     onChange={e => setRegenSeed(e.target.value)}
                     placeholder="e.g. 8675309 or leave blank"
-                    className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#FF5555] rounded-xl px-4 py-3 text-[#FFFFFF] text-sm outline-none transition-colors placeholder-[#555555] focus:ring-4 focus:ring-[#FF5555]/10"
+                    className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[var(--c-danger)] rounded-xl px-4 py-3 text-[var(--c-text-primary)] text-sm outline-none transition-colors placeholder-[var(--c-text-muted)] focus:ring-4 focus:ring-[var(--c-danger)]/10"
                   />
                 </div>
 
-                <div className="flex gap-3 pt-4 border-t border-[#2D2D2D]">
+                <div className="flex gap-3 pt-4 border-t border-[var(--c-border)]">
                   <button
                     onClick={() => setShowRegenModal(false)}
                     disabled={regenLoading}
-                    className="flex-1 px-4 py-2.5 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                    className="flex-1 px-4 py-2.5 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -382,7 +382,7 @@ function GeneralSettings({ server, onError }) {
                       setRegenLoading(false);
                     }}
                     disabled={regenLoading}
-                    className="flex-1 px-4 py-2.5 bg-[#FF5555] hover:bg-[#FF4444] text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-2.5 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     <RefreshCw size={15} className={regenLoading ? 'animate-spin' : ''} />
                     {regenLoading ? 'Regenerating...' : 'Delete & Regenerate'}
@@ -453,25 +453,25 @@ function PropertiesSettings({ server, onError }) {
     setSaving(false);
   };
 
-  if (loading) return <div className="text-[#A0A0A0] p-6">Loading properties...</div>;
+  if (loading) return <div className="text-[var(--c-text-secondary)] p-6">Loading properties...</div>;
 
   const entries = Object.entries(properties).filter(([k]) => k.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="relative h-full flex flex-col">
-      <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl overflow-hidden flex flex-col mb-16 flex-1 min-h-0">
-        <div className="p-6 border-b border-[#2D2D2D] flex-shrink-0">
-          <h3 className="text-lg font-bold text-[#FFFFFF] mb-1">Server properties</h3>
-          <p className="text-sm text-[#A0A0A0] mb-6">Edit the Minecraft server.properties file.</p>
+      <div className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl overflow-hidden flex flex-col mb-16 flex-1 min-h-0">
+        <div className="p-6 border-b border-[var(--c-border)] flex-shrink-0">
+          <h3 className="text-lg font-bold text-[var(--c-text-primary)] mb-1">Server properties</h3>
+          <p className="text-sm text-[var(--c-text-secondary)] mb-6">Edit the Minecraft server.properties file.</p>
           
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555555]" size={18} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" size={18} />
             <input 
               type="text" 
               placeholder="Search server properties..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-[#111111] border border-[#2D2D2D] rounded-xl pl-11 pr-4 py-3 text-[#FFFFFF] outline-none focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] text-sm"
+              className="w-full bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl pl-11 pr-4 py-3 text-[var(--c-text-primary)] outline-none focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] text-sm"
             />
           </div>
         </div>
@@ -483,8 +483,8 @@ function PropertiesSettings({ server, onError }) {
             const niceName = key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
             
             return (
-              <div key={key} className="flex items-center justify-between p-4 hover:bg-[#2D2D2D]/30 rounded-xl transition-colors group">
-                <span className="text-[#FFFFFF] text-sm font-medium">{niceName}</span>
+              <div key={key} className="flex items-center justify-between p-4 hover:bg-[var(--c-border)]/30 rounded-xl transition-colors group">
+                <span className="text-[var(--c-text-primary)] text-sm font-medium">{niceName}</span>
                 {enumOptions && !isBoolean ? (
                   <CustomDropdown
                     value={value}
@@ -494,7 +494,7 @@ function PropertiesSettings({ server, onError }) {
                 ) : isBoolean ? (
                   <button 
                     onClick={() => updateProperty(key, value === 'true' ? 'false' : 'true')}
-                    className={`w-11 h-6 rounded-full relative transition-colors ${value === 'true' ? 'bg-[#00AF5C]' : 'bg-[#555555]'}`}
+                    className={`w-11 h-6 rounded-full relative transition-colors ${value === 'true' ? 'bg-[#00AF5C]' : 'bg-[var(--c-text-muted)]'}`}
                   >
                     <div className={`absolute top-1 bottom-1 w-4 bg-white rounded-full transition-all ${value === 'true' ? 'left-6' : 'left-1'}`}></div>
                   </button>
@@ -503,14 +503,14 @@ function PropertiesSettings({ server, onError }) {
                     type="text" 
                     value={value}
                     onChange={(e) => updateProperty(key, e.target.value)}
-                    className="bg-[#111111] border border-[#2D2D2D] text-[#FFFFFF] text-sm px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#00AF5C] text-right w-48"
+                    className="bg-[var(--c-base)] border border-[var(--c-border)] text-[var(--c-text-primary)] text-sm px-3 py-1.5 rounded-lg focus:outline-none focus:border-[#00AF5C] text-right w-48"
                   />
                 )}
               </div>
             );
           })}
           {entries.length === 0 && (
-            <div className="p-6 text-center text-[#A0A0A0] text-sm">No properties found matching "{search}"</div>
+            <div className="p-6 text-center text-[var(--c-text-secondary)] text-sm">No properties found matching "{search}"</div>
           )}
         </div>
       </div>
@@ -521,7 +521,7 @@ function PropertiesSettings({ server, onError }) {
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setProperties(originalProperties)}
-              className="px-4 py-2 text-[#555555] hover:text-[#111111] text-sm font-bold transition-colors"
+              className="px-4 py-2 text-[var(--c-text-muted)] hover:text-[#111111] text-sm font-bold transition-colors"
             >
               Reset
             </button>

@@ -59,15 +59,15 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
         type="button"
         onClick={() => !disabledState && setOpen(v => !v)}
         disabled={disabledState}
-        className={`w-full flex items-center justify-between gap-2 bg-[#111111] border rounded-xl px-3 py-2.5 text-sm font-medium text-[#FFFFFF] outline-none transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`w-full flex items-center justify-between gap-2 bg-[var(--c-base)] border rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--c-text-primary)] outline-none transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
           open
             ? 'border-[#00AF5C] ring-4 ring-[#00AF5C]/10'
-            : 'border-[#2D2D2D] hover:border-[#555555]'
+            : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
         }`}
       >
         <span className="flex items-center gap-2 min-w-0">
           {loading
-            ? <Loader2 size={14} className="text-[#555555] animate-spin flex-shrink-0" />
+            ? <Loader2 size={14} className="text-[var(--c-text-muted)] animate-spin flex-shrink-0" />
             : valueInstalled
               ? <HardDriveDownload size={14} className="text-[#00AF5C] flex-shrink-0" />
               : <span className="w-3.5 h-3.5 flex-shrink-0" />}
@@ -78,7 +78,7 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
             </span>
           )}
         </span>
-        <ChevronDown size={16} className={`text-[#A0A0A0] transition-transform duration-200 flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`text-[var(--c-text-secondary)] transition-transform duration-200 flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       <AnimatePresence>
@@ -88,11 +88,11 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute left-0 right-0 mt-2 z-40 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden"
+            className="absolute left-0 right-0 mt-2 z-40 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden"
           >
-            <div className="px-2 pt-2 pb-1.5 border-b border-[#2D2D2D]">
+            <div className="px-2 pt-2 pb-1.5 border-b border-[var(--c-border)]">
               <div className="relative">
-                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#555555] pointer-events-none" />
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)] pointer-events-none" />
                 <input
                   ref={searchRef}
                   autoFocus
@@ -100,13 +100,13 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search versions…"
-                  className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[#FFFFFF] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium"
+                  className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[var(--c-text-primary)] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-medium"
                 />
               </div>
             </div>
             <div ref={listRef} className="max-h-60 overflow-y-auto custom-scrollbar py-1">
               {filteredOptions.length === 0 ? (
-                <div className="px-4 py-4 text-center text-xs text-[#555555]">
+                <div className="px-4 py-4 text-center text-xs text-[var(--c-text-muted)]">
                   {options.length === 0 ? 'No versions to show.' : 'No matches.'}
                 </div>
               ) : filteredOptions.map(v => {
@@ -121,8 +121,8 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
                       isSelected
                         ? 'bg-[#00AF5C]/15 text-[#00AF5C]'
                         : isInstalled
-                          ? 'bg-[#00AF5C]/[0.04] text-[#FFFFFF] hover:bg-[#00AF5C]/10'
-                          : 'text-[#A0A0A0] hover:bg-[#1E1E1E] hover:text-[#FFFFFF]'
+                          ? 'bg-[#00AF5C]/[0.04] text-[var(--c-text-primary)] hover:bg-[#00AF5C]/10'
+                          : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-surface-2)] hover:text-[var(--c-text-primary)]'
                     }`}
                   >
                     <button
@@ -147,12 +147,12 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => { onDelete(v); setConfirmDelete(null); }}
-                              className="text-[10px] font-bold text-[#FF5555] hover:text-[#FF4444] bg-[#FF5555]/10 hover:bg-[#FF5555]/20 px-2 py-1 rounded-lg transition-all">
+                              className="text-[10px] font-bold text-[var(--c-danger)] hover:text-[var(--c-danger-hover)] bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 px-2 py-1 rounded-lg transition-all">
                               Confirm
                             </button>
                             <button
                               onClick={() => setConfirmDelete(null)}
-                              className="text-[10px] font-bold text-[#A0A0A0] hover:text-[#FFFFFF] px-2 py-1 rounded-lg transition-all">
+                              className="text-[10px] font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] px-2 py-1 rounded-lg transition-all">
                               Cancel
                             </button>
                           </div>
@@ -160,7 +160,7 @@ export default function VersionSelect({ value, onChange, options, installedSet, 
                           <Tooltip content="Delete this installed version" align="end">
                             <button
                               onClick={() => setConfirmDelete(v)}
-                              className="p-1.5 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                              className="p-1.5 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
                               <Trash2 size={14} />
                             </button>
                           </Tooltip>

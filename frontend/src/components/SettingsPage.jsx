@@ -4,6 +4,7 @@ import {
   Loader2, Sparkles, ChevronUp, ChevronDown, Compass, SlidersHorizontal,
   Users, DownloadCloud, Info, Image, Check, HardDrive, FolderOpen,
   AlertTriangle, RotateCcw, RefreshCw, FolderCog,
+  Palette, Sun, Moon, Contrast,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSystemRam } from '../hooks/useSystemRam';
@@ -23,18 +24,18 @@ function NumberInput({ value, onChange, min, step = 1, disabled }) {
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
-        className="branded-number w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-3 pr-8 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums"
+        className="branded-number w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-3 pr-8 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all tabular-nums"
       />
       <div className="absolute right-1 top-1 bottom-1 flex flex-col gap-0.5 pointer-events-none">
         <button
           type="button" tabIndex={-1} onClick={() => bump(step)} disabled={disabled}
-          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[#555555] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[#555555]"
+          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[var(--c-text-muted)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[var(--c-text-muted)]"
         >
           <ChevronUp size={10} strokeWidth={3} />
         </button>
         <button
           type="button" tabIndex={-1} onClick={() => bump(-step)} disabled={disabled}
-          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[#555555] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[#555555]"
+          className="pointer-events-auto flex-1 px-1.5 flex items-center justify-center rounded-md text-[var(--c-text-muted)] hover:text-[#00AF5C] hover:bg-[#00AF5C]/10 transition-colors disabled:hover:bg-transparent disabled:hover:text-[var(--c-text-muted)]"
         >
           <ChevronDown size={10} strokeWidth={3} />
         </button>
@@ -46,7 +47,7 @@ function NumberInput({ value, onChange, min, step = 1, disabled }) {
 // Small labelled toggle row reused across the General section.
 function CheckRow({ checked, onChange, children }) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer text-sm text-[#A0A0A0] hover:text-[#FFFFFF]">
+    <label className="flex items-center gap-2 cursor-pointer text-sm text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
       <span className="custom-checkbox-wrapper">
         <input type="checkbox" className="custom-checkbox" checked={checked} onChange={onChange} />
         <span className="custom-checkbox-visual" />
@@ -66,16 +67,98 @@ const DEFAULTS = {
   showSnapshots: false,
   onlyInstalled: false,
   elybySkins: true,
+  theme: 'dark',
 };
 
 const SECTIONS = [
-  { key: 'general',  label: 'General',  icon: SlidersHorizontal },
-  { key: 'java',     label: 'Java',     icon: Coffee },
-  { key: 'storage',  label: 'Storage',  icon: HardDrive },
-  { key: 'accounts', label: 'Accounts', icon: Users },
-  { key: 'updates',  label: 'Updates',  icon: DownloadCloud },
-  { key: 'about',    label: 'About',    icon: Info },
+  { key: 'general',    label: 'General',    icon: SlidersHorizontal },
+  { key: 'appearance', label: 'Appearance', icon: Palette },
+  { key: 'java',       label: 'Java',       icon: Coffee },
+  { key: 'storage',    label: 'Storage',    icon: HardDrive },
+  { key: 'accounts',   label: 'Accounts',   icon: Users },
+  { key: 'updates',    label: 'Updates',    icon: DownloadCloud },
+  { key: 'about',      label: 'About',      icon: Info },
 ];
+
+// Settings → Appearance. Colour-theme picker. Each card renders a static
+// mini-mockup in that theme's OWN palette (literal hexes on purpose) so the
+// swatches read correctly no matter which theme is currently applied.
+const DARK_SWATCH  = { bg: '#111111', card: '#1E1E1E', line: '#2D2D2D' };
+const LIGHT_SWATCH = { bg: '#EBEBEB', card: '#FFFFFF', line: '#C4C4C8' };
+const OLED_SWATCH  = { bg: '#000000', card: '#141414', line: '#262626' };
+
+const THEME_OPTIONS = [
+  { key: 'system', label: 'Sync with system', icon: Monitor },               // no swatch => split preview
+  { key: 'light',  label: 'Light',            icon: Sun,      swatch: LIGHT_SWATCH },
+  { key: 'dark',   label: 'Dark',             icon: Moon,     swatch: DARK_SWATCH },
+  { key: 'oled',   label: 'OLED',             icon: Contrast, swatch: OLED_SWATCH },
+];
+
+function MiniMock({ swatch }) {
+  return (
+    <div className="h-full w-full flex items-center gap-2 px-2.5" style={{ background: swatch.bg }}>
+      <div className="w-6 h-6 rounded-md flex-shrink-0" style={{ background: swatch.card }} />
+      <div className="flex-1 space-y-1.5 min-w-0">
+        <div className="h-2 rounded-full" style={{ background: swatch.card, width: '100%' }} />
+        <div className="h-2 rounded-full" style={{ background: swatch.line, width: '66%' }} />
+      </div>
+    </div>
+  );
+}
+
+function ThemeCard({ option, active, onSelect }) {
+  const { label, icon: Icon, swatch } = option;
+  return (
+    <button
+      onClick={onSelect}
+      className={`group relative rounded-xl overflow-hidden border-2 text-left transition-all ${
+        active ? 'border-[#00AF5C]' : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
+      }`}
+    >
+      <div className="h-16">
+        {swatch ? (
+          <MiniMock swatch={swatch} />
+        ) : (
+          // "Sync with system": show dark + light side by side.
+          <div className="grid grid-cols-2 h-full">
+            <MiniMock swatch={DARK_SWATCH} />
+            <MiniMock swatch={LIGHT_SWATCH} />
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 px-3 py-2.5 border-t border-[var(--c-border)] bg-[var(--c-surface-2)]">
+        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+          active ? 'border-[#00AF5C]' : 'border-[var(--c-text-muted)]'
+        }`}>
+          {active && <span className="w-2 h-2 rounded-full bg-[#00AF5C]" />}
+        </span>
+        <span className={`text-xs font-bold truncate ${active ? 'text-[var(--c-text-primary)]' : 'text-[var(--c-text-secondary)]'}`}>
+          {label}
+        </span>
+        <Icon size={13} className="ml-auto flex-shrink-0 text-[var(--c-text-muted)]" />
+      </div>
+    </button>
+  );
+}
+
+function AppearanceSection({ draft, commit }) {
+  const current = draft.theme || 'dark';
+  return (
+    <Group icon={Palette} title="Color theme"
+      hint="Choose how MineDash looks. “Sync with system” follows your operating system's light/dark setting and updates automatically.">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {THEME_OPTIONS.map(opt => (
+          <ThemeCard
+            key={opt.key}
+            option={opt}
+            active={current === opt.key}
+            onSelect={() => commit({ ...draft, theme: opt.key })}
+          />
+        ))}
+      </div>
+    </Group>
+  );
+}
 
 // Settings → Storage. Lets the user move all MineDash data (server instances,
 // launcher game files, backups, managed Java runtimes) to another folder or
@@ -154,7 +237,7 @@ function StorageSection({ socket, onError }) {
   if (!loc) {
     return (
       <Group icon={HardDrive} title="Storage location">
-        <div className="flex items-center gap-2 text-xs text-[#555555] font-bold">
+        <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)] font-bold">
           <Loader2 size={12} className="animate-spin" /> Loading…
         </div>
       </Group>
@@ -169,7 +252,7 @@ function StorageSection({ socket, onError }) {
         hint="Where MineDash keeps everything it downloads — game files, server instances, backups and managed Java runtimes. Move it to another drive if C: is filling up.">
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-bold text-[#A0A0A0] block mb-1.5">Data folder</label>
+            <label className="text-xs font-bold text-[var(--c-text-secondary)] block mb-1.5">Data folder</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -178,17 +261,17 @@ function StorageSection({ socket, onError }) {
                 disabled={moving || !!pendingRestart}
                 placeholder={loc.default}
                 spellCheck={false}
-                className="flex-1 min-w-0 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono disabled:opacity-50"
+                className="flex-1 min-w-0 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono disabled:opacity-50"
               />
               {window.electronAPI?.selectFolder && (
                 <button onClick={browse} disabled={moving || !!pendingRestart}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#555555] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-xs font-bold transition-all disabled:opacity-50">
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl text-xs font-bold transition-all disabled:opacity-50">
                   <FolderOpen size={14} /> Browse
                 </button>
               )}
             </div>
             {loc.isCustom && (
-              <p className="text-[11px] text-[#555555] mt-1.5 font-medium">
+              <p className="text-[11px] text-[var(--c-text-muted)] mt-1.5 font-medium">
                 Default: <span className="font-mono">{loc.default}</span>
               </p>
             )}
@@ -211,7 +294,7 @@ function StorageSection({ socket, onError }) {
                 </button>
                 {loc.isCustom && (
                   <button onClick={() => startMove('')} disabled={busy}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#555555] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-xs font-bold transition-all disabled:opacity-40">
+                    className="flex items-center gap-2 px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl text-xs font-bold transition-all disabled:opacity-40">
                     <RotateCcw size={14} /> Move back to default
                   </button>
                 )}
@@ -220,17 +303,17 @@ function StorageSection({ socket, onError }) {
           )}
 
           {moving && (
-            <div className="px-3 py-3 bg-[#111111] border border-[#2D2D2D] rounded-xl">
-              <div className="flex items-center gap-2 text-xs font-bold text-[#FFFFFF]">
+            <div className="px-3 py-3 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl">
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--c-text-primary)]">
                 <Loader2 size={14} className="animate-spin text-[#00AF5C]" />
                 Moving data…
               </div>
               {progress && (
-                <p className="text-[11px] text-[#A0A0A0] mt-1.5 font-medium tabular-nums">
+                <p className="text-[11px] text-[var(--c-text-secondary)] mt-1.5 font-medium tabular-nums">
                   {progress.index + 1} / {progress.total} · <span className="font-mono">{progress.item}</span>
                 </p>
               )}
-              <p className="text-[11px] text-[#555555] mt-1.5 font-medium">
+              <p className="text-[11px] text-[var(--c-text-muted)] mt-1.5 font-medium">
                 Don't close MineDash while files are moving.
               </p>
             </div>
@@ -241,7 +324,7 @@ function StorageSection({ socket, onError }) {
               <div className="flex items-center gap-2 text-xs font-bold text-[#00AF5C]">
                 <Check size={14} /> Data moved
               </div>
-              <p className="text-[11px] text-[#A0A0A0] mt-1.5 font-medium leading-snug">
+              <p className="text-[11px] text-[var(--c-text-secondary)] mt-1.5 font-medium leading-snug">
                 New location: <span className="font-mono">{pendingRestart}</span>
               </p>
               {window.electronAPI?.relaunchApp ? (
@@ -265,12 +348,12 @@ function StorageSection({ socket, onError }) {
 // Card shell used by every settings group on the right pane.
 function Group({ icon: Icon, title, hint, children }) {
   return (
-    <div className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-5">
+    <div className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-5">
       <div className="flex items-center gap-2 mb-1">
         {Icon && <Icon size={16} className="text-[#00AF5C]" />}
-        <h3 className="text-sm font-bold text-[#FFFFFF]">{title}</h3>
+        <h3 className="text-sm font-bold text-[var(--c-text-primary)]">{title}</h3>
       </div>
-      {hint && <p className="text-xs text-[#A0A0A0] mb-4">{hint}</p>}
+      {hint && <p className="text-xs text-[var(--c-text-secondary)] mb-4">{hint}</p>}
       <div className={hint ? '' : 'mt-3'}>{children}</div>
     </div>
   );
@@ -314,7 +397,7 @@ function JavaSection({ draft, commit }) {
     <Group icon={Coffee} title="Java runtime"
       hint="The default Java used to launch the game. Each instance can override this from its own Java runtime settings.">
       {loading ? (
-        <div className="flex items-center gap-2 text-xs text-[#555555] font-bold">
+        <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)] font-bold">
           <Loader2 size={12} className="animate-spin" /> Checking installed runtimes…
         </div>
       ) : (
@@ -335,7 +418,7 @@ function JavaSection({ draft, commit }) {
               title={`Java ${m.major}`}
               subtitle={m.path}
               badge={
-                <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[#1A1A1A] text-[#A0A0A0] border border-[#2D2D2D] flex-shrink-0">
+                <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[var(--c-surface-1)] text-[var(--c-text-secondary)] border border-[var(--c-border)] flex-shrink-0">
                   Managed
                 </span>
               }
@@ -364,7 +447,7 @@ function JavaSection({ draft, commit }) {
               value={draft.javaPath}
               onChange={(e) => commit({ ...draft, javaPath: e.target.value })}
               placeholder="C:\\Program Files\\Java\\jdk-21\\bin\\java.exe"
-              className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono"
+              className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono"
             />
           )}
         </div>
@@ -430,10 +513,10 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                   className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-all text-left ${
                     active
                       ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/30'
-                      : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] border border-transparent'
+                      : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] border border-transparent'
                   }`}
                 >
-                  <Icon size={16} className={active ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+                  <Icon size={16} className={active ? 'text-[#00AF5C]' : 'text-[var(--c-text-muted)]'} />
                   {s.label}
                 </button>
               );
@@ -441,7 +524,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
             <AnimatePresence>
               {saving && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  className="flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-wider font-bold text-[#555555]">
+                  className="flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">
                   <Loader2 size={12} className="animate-spin" /> Saving
                 </motion.div>
               )}
@@ -462,7 +545,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                 <>
                   <Group icon={MemoryStick} title="Memory (RAM)" hint="How much RAM the launched game gets. Min == Max to avoid JVM heap-resize pauses.">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-[#A0A0A0]">Allocation</span>
+                      <span className="text-xs font-bold text-[var(--c-text-secondary)]">Allocation</span>
                       <span className="text-xs font-bold text-[#00AF5C] tabular-nums">{draft.ramGb} GB</span>
                     </div>
                     <input
@@ -472,7 +555,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                       className="ram-slider w-full"
                       style={{ '--fill': `${ramPercent}%` }}
                     />
-                    <div className="flex justify-between text-[10px] text-[#555555] mt-1 tabular-nums">
+                    <div className="flex justify-between text-[10px] text-[var(--c-text-muted)] mt-1 tabular-nums">
                       <span>1 GB</span><span>{Math.round(ramMax / 2)} GB</span><span>{ramMax} GB</span>
                     </div>
                   </Group>
@@ -481,7 +564,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                       <NumberInput min={320} value={draft.windowWidth}
                         onChange={(v) => commit({ ...draft, windowWidth: v })} disabled={draft.fullscreen} />
-                      <span className="text-[#555555] text-xs font-bold">×</span>
+                      <span className="text-[var(--c-text-muted)] text-xs font-bold">×</span>
                       <NumberInput min={240} value={draft.windowHeight}
                         onChange={(v) => commit({ ...draft, windowHeight: v })} disabled={draft.fullscreen} />
                     </div>
@@ -504,7 +587,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                             onClick={() => commit({ ...draft, afterLaunch: opt.key })}
                             className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
                               active ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30'
-                                : 'bg-[#111111] text-[#A0A0A0] border-[#2D2D2D] hover:border-[#555555]'
+                                : 'bg-[var(--c-base)] text-[var(--c-text-secondary)] border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
                             }`}>
                             {opt.label}
                           </button>
@@ -534,11 +617,15 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                   <Group icon={Compass} title="Onboarding">
                     <button
                       onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-onboarding'))}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                       <Compass size={14} className="text-[#00AF5C]" /> Replay onboarding tour
                     </button>
                   </Group>
                 </>
+              )}
+
+              {section === 'appearance' && (
+                <AppearanceSection draft={draft} commit={commit} />
               )}
 
               {section === 'java' && (
@@ -556,16 +643,16 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
               {section === 'updates' && (
                 <>
                   <Group icon={DownloadCloud} title="Updates" hint="MineDash checks for updates on launch and downloads them in the background. You'll get a prompt to relaunch when one is ready — an in-progress launch or server is never interrupted.">
-                    <div className="flex items-center gap-2 px-3 py-2.5 bg-[#111111] border border-[#2D2D2D] rounded-xl">
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl">
                       <Check size={14} className="text-[#00AF5C]" />
-                      <span className="text-sm font-bold text-[#FFFFFF]">MineDash {versionLabel || '(current)'}</span>
+                      <span className="text-sm font-bold text-[var(--c-text-primary)]">MineDash {versionLabel || '(current)'}</span>
                     </div>
                   </Group>
                   {window.electronAPI?.getAppVersion && (
                     <Group icon={Sparkles} title="Release notes">
                       <button
                         onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-changelog'))}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                         <Sparkles size={14} className="text-[#00AF5C]" /> What's new in this version
                       </button>
                     </Group>
@@ -580,11 +667,11 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                       <Settings size={22} className="text-[#00AF5C]" />
                     </div>
                     <div>
-                      <p className="text-lg font-black text-[#FFFFFF] leading-tight">MineDash</p>
-                      <p className="text-xs text-[#A0A0A0] tabular-nums">{versionLabel || 'local build'}</p>
+                      <p className="text-lg font-black text-[var(--c-text-primary)] leading-tight">MineDash</p>
+                      <p className="text-xs text-[var(--c-text-secondary)] tabular-nums">{versionLabel || 'local build'}</p>
                     </div>
                   </div>
-                  <p className="text-sm text-[#A0A0A0] leading-relaxed">
+                  <p className="text-sm text-[var(--c-text-secondary)] leading-relaxed">
                     A local Minecraft server manager and launcher. Run servers on your own PC, manage
                     mods, backups and networking, and launch the game — all from one app.
                   </p>

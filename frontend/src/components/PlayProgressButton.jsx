@@ -73,11 +73,11 @@ export default function PlayProgressButton({
         idle
           ? 'bg-[#00AF5C] hover:bg-[#00964F] border-transparent text-white shadow-[0_4px_20px_rgba(0,175,92,0.25)] disabled:opacity-40'
           : phase === 'error'
-            ? 'border-[#FF5555]/40'
+            ? 'border-[var(--c-danger)]/40'
             : cancelling
               ? 'border-amber-500/40'
               : showStop
-                ? 'border-[#FF5555]/40 cursor-pointer'
+                ? 'border-[var(--c-danger)]/40 cursor-pointer'
                 : 'border-[#00AF5C]/40'
       }`}
       style={!idle ? { background: trackColor } : undefined}
@@ -105,7 +105,7 @@ export default function PlayProgressButton({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="absolute inset-0 z-[5] bg-[#FF5555]/10 pointer-events-none"
+            className="absolute inset-0 z-[5] bg-[var(--c-danger)]/10 pointer-events-none"
           />
         )}
       </AnimatePresence>

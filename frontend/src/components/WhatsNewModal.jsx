@@ -109,11 +109,11 @@ export default function WhatsNewModal() {
             exit={{ scale: 0.92, opacity: 0, y: 12 }}
             transition={{ type: 'spring', duration: 0.45, bounce: 0.15 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-8 max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col"
+            className="relative bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-8 max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col"
           >
             <button
               onClick={dismiss}
-              className="absolute top-5 right-5 p-1.5 rounded-lg text-[#555555] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors"
+              className="absolute top-5 right-5 p-1.5 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors"
               aria-label="Close"
             >
               <X size={16} />
@@ -124,8 +124,8 @@ export default function WhatsNewModal() {
                 <Sparkles size={20} className="text-[#00AF5C]" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">What's new</p>
-                <h2 className="text-xl font-black text-[#FFFFFF] tracking-tight">MineDash v{version}</h2>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">What's new</p>
+                <h2 className="text-xl font-black text-[var(--c-text-primary)] tracking-tight">MineDash v{version}</h2>
               </div>
             </div>
 
@@ -133,7 +133,7 @@ export default function WhatsNewModal() {
               <MarkdownLite text={body} />
             </div>
 
-            <div className="flex justify-end pt-5 mt-5 border-t border-[#2D2D2D] flex-shrink-0">
+            <div className="flex justify-end pt-5 mt-5 border-t border-[var(--c-border)] flex-shrink-0">
               <motion.button
                 onClick={dismiss}
                 whileHover={{ scale: 1.03 }}
@@ -175,7 +175,7 @@ function MarkdownLite({ text }) {
   // Split into blocks separated by blank lines.
   const blocks = text.split(/\n\s*\n/);
   return (
-    <div className="space-y-3 text-sm text-[#A0A0A0] leading-relaxed">
+    <div className="space-y-3 text-sm text-[var(--c-text-secondary)] leading-relaxed">
       {blocks.map((block, i) => {
         const trimmed = block.trim();
         if (!trimmed) return null;
@@ -195,7 +195,7 @@ function MarkdownLite({ text }) {
           return (
             <ul key={i} className="space-y-2 list-disc pl-5 marker:text-[#00AF5C]">
               {lines.map((l, j) => (
-                <li key={j} className="text-[#A0A0A0]">
+                <li key={j} className="text-[var(--c-text-secondary)]">
                   {renderInline(l.replace(/^\s*-\s+/, ''))}
                 </li>
               ))}
@@ -205,7 +205,7 @@ function MarkdownLite({ text }) {
 
         // Default: paragraph (preserve line breaks inside as spaces).
         return (
-          <p key={i} className="text-[#A0A0A0]">
+          <p key={i} className="text-[var(--c-text-secondary)]">
             {renderInline(trimmed.replace(/\n/g, ' '))}
           </p>
         );
@@ -220,7 +220,7 @@ function renderInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((p, i) => {
     if (/^\*\*[^*]+\*\*$/.test(p)) {
-      return <strong key={i} className="font-bold text-[#FFFFFF]">{p.slice(2, -2)}</strong>;
+      return <strong key={i} className="font-bold text-[var(--c-text-primary)]">{p.slice(2, -2)}</strong>;
     }
     return <span key={i}>{p}</span>;
   });

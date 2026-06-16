@@ -31,7 +31,7 @@ export function VersionRow({
   const loaders = (version.loaders || []).filter(l => l !== 'minecraft');
   const typeColor = version.version_type === 'release' ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/20'
     : version.version_type === 'beta' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-    : 'bg-[#2D2D2D] text-[#A0A0A0] border-[#2D2D2D]';
+    : 'bg-[var(--c-border)] text-[var(--c-text-secondary)] border-[var(--c-border)]';
 
   return (
     // Tooltip renders bare children when content is falsy, so compatible rows
@@ -43,8 +43,8 @@ export function VersionRow({
     <div
       className={`w-full rounded-xl border transition-colors ${
         expanded
-          ? 'border-[#00AF5C]/30 bg-[#1E1E1E]'
-          : 'border-[#2D2D2D] bg-[#1A1A1A] hover:border-[#555555]'
+          ? 'border-[#00AF5C]/30 bg-[var(--c-surface-2)]'
+          : 'border-[var(--c-border)] bg-[var(--c-surface-1)] hover:border-[var(--c-text-muted)]'
       } ${isCompat ? '' : 'opacity-50'}`}
     >
       <div className="flex items-center gap-3 px-3 py-2">
@@ -54,18 +54,18 @@ export function VersionRow({
         >
           <ChevronDown
             size={14}
-            className={`text-[#555555] flex-shrink-0 transition-transform ${expanded ? 'rotate-0' : '-rotate-90'}`}
+            className={`text-[var(--c-text-muted)] flex-shrink-0 transition-transform ${expanded ? 'rotate-0' : '-rotate-90'}`}
           />
-          <span className="text-sm font-bold text-[#FFFFFF] truncate tabular-nums">{version.name || version.version_number}</span>
+          <span className="text-sm font-bold text-[var(--c-text-primary)] truncate tabular-nums">{version.name || version.version_number}</span>
           <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md border flex-shrink-0 ${typeColor}`}>
             {version.version_type || 'release'}
           </span>
         </button>
-        <div className="flex items-center gap-3 text-[11px] text-[#A0A0A0] tabular-nums flex-shrink-0">
+        <div className="flex items-center gap-3 text-[11px] text-[var(--c-text-secondary)] tabular-nums flex-shrink-0">
           {mcVers.length > 0 && (
             <Tooltip content={`MC: ${mcVers.join(', ')}`}>
               <span className="flex items-center gap-1">
-                <Gamepad2 size={11} className="text-[#555555]" />
+                <Gamepad2 size={11} className="text-[var(--c-text-muted)]" />
                 {mcVers.length === 1 ? mcVers[0] : `${mcVers[0]}+${mcVers.length - 1}`}
               </span>
             </Tooltip>
@@ -73,23 +73,23 @@ export function VersionRow({
           {loaders.length > 0 && (
             <Tooltip content={`Loaders: ${loaders.join(', ')}`}>
               <span className="flex items-center gap-1">
-                <Wrench size={11} className="text-[#555555]" />
+                <Wrench size={11} className="text-[var(--c-text-muted)]" />
                 {loaders.length === 1 ? (LOADER_LABELS[loaders[0]] || loaders[0]) : `${loaders.length} loaders`}
               </span>
             </Tooltip>
           )}
           {size > 0 && (
-            <span className="text-[#555555]">{fmtBytes(size)}</span>
+            <span className="text-[var(--c-text-muted)]">{fmtBytes(size)}</span>
           )}
           <Tooltip content={fmtDateAbs(version.date_published)}>
             <span className="flex items-center gap-1">
-              <Calendar size={11} className="text-[#555555]" />
+              <Calendar size={11} className="text-[var(--c-text-muted)]" />
               {fmtRelative(version.date_published)}
             </span>
           </Tooltip>
           {Number.isFinite(version.downloads) && (
             <span className="flex items-center gap-1">
-              <Download size={11} className="text-[#555555]" />
+              <Download size={11} className="text-[var(--c-text-muted)]" />
               {fmt(version.downloads)}
             </span>
           )}
@@ -114,9 +114,9 @@ export function VersionRow({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden border-t border-[#2D2D2D]"
+            className="overflow-hidden border-t border-[var(--c-border)]"
           >
-            <div className="px-3 py-2 text-xs text-[#A0A0A0] space-y-2">
+            <div className="px-3 py-2 text-xs text-[var(--c-text-secondary)] space-y-2">
               {version.changelog ? (
                 <div className="prose-md max-h-48 overflow-y-auto custom-scrollbar pr-1">
                   <Suspense fallback={null}>
@@ -124,16 +124,16 @@ export function VersionRow({
                   </Suspense>
                 </div>
               ) : (
-                <p className="text-[#555555] italic">No changelog provided.</p>
+                <p className="text-[var(--c-text-muted)] italic">No changelog provided.</p>
               )}
               {mcVers.length > 1 && (
-                <p className="text-[10px] text-[#555555]">
-                  <span className="font-bold text-[#A0A0A0]">MC versions:</span> {mcVers.join(', ')}
+                <p className="text-[10px] text-[var(--c-text-muted)]">
+                  <span className="font-bold text-[var(--c-text-secondary)]">MC versions:</span> {mcVers.join(', ')}
                 </p>
               )}
               {loaders.length > 1 && (
-                <p className="text-[10px] text-[#555555]">
-                  <span className="font-bold text-[#A0A0A0]">Loaders:</span> {loaders.map(l => LOADER_LABELS[l] || l).join(', ')}
+                <p className="text-[10px] text-[var(--c-text-muted)]">
+                  <span className="font-bold text-[var(--c-text-secondary)]">Loaders:</span> {loaders.map(l => LOADER_LABELS[l] || l).join(', ')}
                 </p>
               )}
             </div>

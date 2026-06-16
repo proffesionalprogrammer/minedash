@@ -281,10 +281,10 @@ function ConsoleViewer({ serverId, socket }) {
   };
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-[#2D2D2D] bg-[#1A1A1A]">
-        <Terminal size={16} className="text-[#A0A0A0]" />
-        <span className="text-sm font-bold text-[#FFFFFF]">Live Console</span>
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
+        <Terminal size={16} className="text-[var(--c-text-secondary)]" />
+        <span className="text-sm font-bold text-[var(--c-text-primary)]">Live Console</span>
 
         <ConsoleSearchBar
           levelFilters={levelFilters}
@@ -311,14 +311,14 @@ function ConsoleViewer({ serverId, socket }) {
 
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto p-4 font-mono text-sm text-[#CCCCCC] space-y-1 custom-scrollbar scroll-smooth"
+        className="flex-1 overflow-y-auto p-4 font-mono text-sm text-[var(--c-log-text)] space-y-1 custom-scrollbar scroll-smooth"
       >
         {logs.length === 0 ? (
-          <div className="text-[#555555] italic h-full flex items-center justify-center font-sans font-medium">
+          <div className="text-[var(--c-text-muted)] italic h-full flex items-center justify-center font-sans font-medium">
             No console output yet... Start the server to see logs!
           </div>
         ) : visibleLogs.length === 0 ? (
-          <div className="text-[#555555] italic h-full flex items-center justify-center font-sans font-medium">
+          <div className="text-[var(--c-text-muted)] italic h-full flex items-center justify-center font-sans font-medium">
             {searchInvalid ? 'Invalid regex' : 'No log lines match the current filter.'}
           </div>
         ) : (
@@ -338,7 +338,7 @@ function ConsoleViewer({ serverId, socket }) {
       </div>
 
       {/* Command input with recursive autocomplete */}
-      <div className="relative border-t border-[#2D2D2D] bg-[#1A1A1A]">
+      <div className="relative border-t border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <AnimatePresence>
           {showSuggestions && suggestions.length > 0 && (
             <motion.div
@@ -347,7 +347,7 @@ function ConsoleViewer({ serverId, socket }) {
               exit={{ opacity: 0, y: 4, scaleY: 0.95 }}
               transition={{ duration: 0.12, ease: 'easeOut' }}
               style={{ transformOrigin: 'bottom' }}
-              className="absolute bottom-full left-3 right-3 mb-1 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-[0_-8px_30px_rgba(0,0,0,0.5)] overflow-hidden z-50"
+              className="absolute bottom-full left-3 right-3 mb-1 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-[0_-8px_30px_rgba(0,0,0,0.5)] overflow-hidden z-50"
             >
               <div ref={suggestionsRef} className="max-h-52 overflow-y-auto custom-scrollbar">
                 {suggestions.map((s, idx) => (
@@ -357,16 +357,16 @@ function ConsoleViewer({ serverId, socket }) {
                     onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
                     className={`w-full text-left px-3 py-2 flex items-center gap-3 transition-all outline-none ${
                       idx === highlightedIdx
-                        ? 'bg-[#00AF5C]/10 text-[#FFFFFF]'
-                        : 'text-[#A0A0A0] hover:bg-[#2D2D2D] hover:text-[#FFFFFF]'
+                        ? 'bg-[#00AF5C]/10 text-[var(--c-text-primary)]'
+                        : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-border)] hover:text-[var(--c-text-primary)]'
                     }`}
                   >
                     <span className={`font-mono font-bold text-sm min-w-[120px] ${
-                      idx === highlightedIdx ? 'text-[#00AF5C]' : 'text-[#CCCCCC]'
+                      idx === highlightedIdx ? 'text-[#00AF5C]' : 'text-[var(--c-log-text)]'
                     }`}>
                       {s.isCommand ? '/' : '›  '}{s.label}
                     </span>
-                    <span className="text-xs text-[#555555] truncate">{s.desc}</span>
+                    <span className="text-xs text-[var(--c-text-muted)] truncate">{s.desc}</span>
                   </button>
                 ))}
               </div>
@@ -384,7 +384,7 @@ function ConsoleViewer({ serverId, socket }) {
             onFocus={() => { if (command.trim()) updateSuggestions(command); }}
             onBlur={() => { setTimeout(() => setShowSuggestions(false), 150); }}
             placeholder="Type a command (e.g. /time set day)..."
-            className="flex-1 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-4 py-2 text-sm text-[#FFFFFF] outline-none font-mono placeholder-[#555555] transition-all focus:ring-2 focus:ring-[#00AF5C]/10"
+            className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-4 py-2 text-sm text-[var(--c-text-primary)] outline-none font-mono placeholder-[var(--c-text-muted)] transition-all focus:ring-2 focus:ring-[#00AF5C]/10"
             disabled={sending}
             autoComplete="off"
           />

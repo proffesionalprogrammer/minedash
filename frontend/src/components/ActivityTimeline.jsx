@@ -7,10 +7,10 @@ const EVENT_TYPES = {
   leave:   { icon: UserMinus,    color: 'text-orange-400',   bg: 'bg-orange-400/10',   border: 'border-orange-400/20',   label: 'Left'    },
   chat:    { icon: MessageSquare,color: 'text-violet-400',   bg: 'bg-violet-400/10',   border: 'border-violet-400/20',   label: 'Chat'    },
   started: { icon: CheckCircle2, color: 'text-[#00AF5C]',    bg: 'bg-[#00AF5C]/10',    border: 'border-[#00AF5C]/20',    label: 'Started' },
-  stopped: { icon: XCircle,      color: 'text-[#FF5555]',    bg: 'bg-[#FF5555]/10',    border: 'border-[#FF5555]/20',    label: 'Stopped' },
+  stopped: { icon: XCircle,      color: 'text-[var(--c-danger)]',    bg: 'bg-[var(--c-danger)]/10',    border: 'border-[var(--c-danger)]/20',    label: 'Stopped' },
   restart: { icon: RotateCcw,    color: 'text-amber-400',    bg: 'bg-amber-400/10',    border: 'border-amber-400/20',    label: 'Restart' },
   command: { icon: Terminal,      color: 'text-sky-400',      bg: 'bg-sky-400/10',      border: 'border-sky-400/20',      label: 'Command' },
-  system:  { icon: Clock,        color: 'text-[#A0A0A0]',    bg: 'bg-[#A0A0A0]/10',    border: 'border-[#A0A0A0]/20',    label: 'System'  },
+  system:  { icon: Clock,        color: 'text-[var(--c-text-secondary)]',    bg: 'bg-[var(--c-text-secondary)]/10',    border: 'border-[var(--c-text-secondary)]/20',    label: 'System'  },
 };
 
 function ActivityTimeline({ events = [] }) {
@@ -20,12 +20,12 @@ function ActivityTimeline({ events = [] }) {
   const filteredEvents = filter === 'all' ? events : events.filter(e => e.type === filter);
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <div className="flex items-center gap-3">
-          <Clock size={18} className="text-[#A0A0A0]" />
-          <h3 className="font-bold text-[#FFFFFF]">Activity Timeline</h3>
-          <span className="text-xs font-bold bg-[#1E1E1E] text-[#A0A0A0] px-2.5 py-1 rounded-full border border-[#2D2D2D]">
+          <Clock size={18} className="text-[var(--c-text-secondary)]" />
+          <h3 className="font-bold text-[var(--c-text-primary)]">Activity Timeline</h3>
+          <span className="text-xs font-bold bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] px-2.5 py-1 rounded-full border border-[var(--c-border)]">
             {filteredEvents.length}
           </span>
         </div>
@@ -37,7 +37,7 @@ function ActivityTimeline({ events = [] }) {
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 capitalize ${
                 filter === f
                   ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                  : 'text-[#555555] hover:text-[#A0A0A0] border border-transparent hover:border-[#2D2D2D]'
+                  : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] border border-transparent hover:border-[var(--c-border)]'
               }`}
             >
               {f}
@@ -48,7 +48,7 @@ function ActivityTimeline({ events = [] }) {
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
         {filteredEvents.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#555555]">
+          <div className="flex flex-col items-center justify-center h-full text-[var(--c-text-muted)]">
             <Clock size={48} className="mb-4 opacity-30" />
             <p className="font-medium">No events yet</p>
             <p className="text-sm mt-1">Events will appear here as they happen</p>
@@ -56,7 +56,7 @@ function ActivityTimeline({ events = [] }) {
         ) : (
           <div className="relative">
             {/* Timeline line — sits behind icons, clipped so it doesn't extend past first/last icon center */}
-            <div className="absolute left-[23px] top-5 bottom-5 w-[2px] bg-[#2D2D2D] rounded-full" />
+            <div className="absolute left-[23px] top-5 bottom-5 w-[2px] bg-[var(--c-border)] rounded-full" />
 
             <div className="space-y-1">
               <AnimatePresence initial={false}>
@@ -73,15 +73,15 @@ function ActivityTimeline({ events = [] }) {
                       className="flex items-start gap-4 relative pl-1"
                     >
                       {/* Outer ring matches panel background — covers the line so it doesn't bleed into the icon */}
-                      <div className="w-10 h-10 rounded-xl bg-[#111111] flex items-center justify-center flex-shrink-0 z-10">
+                      <div className="w-10 h-10 rounded-xl bg-[var(--c-base)] flex items-center justify-center flex-shrink-0 z-10">
                         <div className={`w-8 h-8 rounded-xl ${config.bg} border ${config.border} flex items-center justify-center`}>
                           <Icon size={16} className={config.color} />
                         </div>
                       </div>
                       <div className="flex-1 py-2 min-w-0">
-                        <p className="text-sm text-[#FFFFFF] font-medium truncate">{event.message}</p>
+                        <p className="text-sm text-[var(--c-text-primary)] font-medium truncate">{event.message}</p>
                         {event.time && (
-                          <p className="text-xs text-[#555555] mt-0.5 tabular-nums">{event.time}</p>
+                          <p className="text-xs text-[var(--c-text-muted)] mt-0.5 tabular-nums">{event.time}</p>
                         )}
                       </div>
                       <span className={`text-xs font-bold px-2 py-1 rounded-lg flex-shrink-0 mt-2 ${config.bg} ${config.color} border ${config.border}`}>

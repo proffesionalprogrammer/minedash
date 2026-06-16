@@ -110,7 +110,7 @@ export default function JavaSetupModal({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-        className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-8 w-full max-w-lg shadow-2xl"
+        className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-8 w-full max-w-lg shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
@@ -120,20 +120,20 @@ export default function JavaSetupModal({
             </div>
             <div>
               <h2 className="text-xl font-bold text-white">Java {requiredMajor} Required</h2>
-              <p className="text-[#A0A0A0] text-sm mt-0.5">{versionLabel}</p>
+              <p className="text-[var(--c-text-secondary)] text-sm mt-0.5">{versionLabel}</p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={installing}
-            className="text-[#555555] hover:text-white transition-colors disabled:opacity-40"
+            className="text-[var(--c-text-muted)] hover:text-white transition-colors disabled:opacity-40"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Explanation */}
-        <p className="text-[#A0A0A0] text-sm leading-relaxed mb-1">
+        <p className="text-[var(--c-text-secondary)] text-sm leading-relaxed mb-1">
           Minecraft servers run on Java.{' '}
           {mcVersion ? (
             <>
@@ -159,15 +159,15 @@ export default function JavaSetupModal({
                 {installPhase === 'done'
                   ? <CheckCircle size={16} className="text-[#00AF5C]" />
                   : installPhase === 'error'
-                    ? <AlertTriangle size={16} className="text-[#FF5555]" />
+                    ? <AlertTriangle size={16} className="text-[var(--c-danger)]" />
                     : <Loader2 size={16} className="animate-spin text-[#00AF5C]" />}
                 {phaseLabel()}
               </p>
-              <span className="text-xs font-bold text-[#A0A0A0] tabular-nums">{installPercent}%</span>
+              <span className="text-xs font-bold text-[var(--c-text-secondary)] tabular-nums">{installPercent}%</span>
             </div>
-            <div className="h-2 bg-[#2D2D2D] rounded-full overflow-hidden">
+            <div className="h-2 bg-[var(--c-border)] rounded-full overflow-hidden">
               <motion.div
-                className={`h-full rounded-full ${installPhase === 'error' ? 'bg-[#FF5555]' : 'bg-[#00AF5C]'}`}
+                className={`h-full rounded-full ${installPhase === 'error' ? 'bg-[var(--c-danger)]' : 'bg-[#00AF5C]'}`}
                 initial={{ width: 0 }}
                 animate={{ width: `${installPercent}%` }}
                 transition={{ duration: 0.2 }}
@@ -176,7 +176,7 @@ export default function JavaSetupModal({
             {installPhase === 'error' && (
               <button
                 onClick={() => { setInstallPhase(null); setInstallSessionId(null); setInstallError(null); setInstallPercent(0); }}
-                className="mt-4 text-xs font-bold text-[#A0A0A0] hover:text-white transition-colors"
+                className="mt-4 text-xs font-bold text-[var(--c-text-secondary)] hover:text-white transition-colors"
               >
                 ← Back to install options
               </button>
@@ -195,7 +195,7 @@ export default function JavaSetupModal({
                   <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[#00AF5C]/15 border border-[#00AF5C]/30 text-[#00AF5C] text-xs font-bold flex items-center justify-center mt-0.5">
                     {n}
                   </span>
-                  <p className="text-[#A0A0A0] text-sm leading-relaxed">{text}</p>
+                  <p className="text-[var(--c-text-secondary)] text-sm leading-relaxed">{text}</p>
                 </div>
               ))}
             </div>
@@ -213,7 +213,7 @@ export default function JavaSetupModal({
               {recheckResult === 'still-missing' && (
                 <motion.div
                   initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-2 text-[#FF5555] text-sm font-bold mb-4"
+                  className="flex items-center gap-2 text-[var(--c-danger)] text-sm font-bold mb-4"
                 >
                   <AlertTriangle size={16} /> Java still not detected. Make sure the installer finished, then try again.
                 </motion.div>
@@ -225,7 +225,7 @@ export default function JavaSetupModal({
         {/* Primary actions — hidden during install */}
         {!installPhase && (
           <>
-            <div className="flex items-center gap-3 pt-4 border-t border-[#2D2D2D]">
+            <div className="flex items-center gap-3 pt-4 border-t border-[var(--c-border)]">
               <motion.button
                 whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                 onClick={installAutomatically}
@@ -239,7 +239,7 @@ export default function JavaSetupModal({
                 <motion.button
                   whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                   onClick={openDownload}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] text-white rounded-xl font-bold text-sm transition-colors"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-[var(--c-border)] hover:bg-[var(--c-border-soft)] text-white rounded-xl font-bold text-sm transition-colors"
                 >
                   <Download size={15} />
                   Manual
@@ -252,7 +252,7 @@ export default function JavaSetupModal({
                   whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                   onClick={recheck}
                   disabled={checking}
-                  className="flex items-center gap-2 px-3 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-colors"
+                  className="flex items-center gap-2 px-3 py-2.5 bg-[var(--c-border)] hover:bg-[var(--c-border-soft)] disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-colors"
                 >
                   <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
                 </motion.button>
@@ -263,7 +263,7 @@ export default function JavaSetupModal({
             <div className="mt-3 text-center">
               <button
                 onClick={onProceedAnyway}
-                className="text-[#555555] hover:text-[#A0A0A0] text-xs transition-colors"
+                className="text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] text-xs transition-colors"
               >
                 I know what I'm doing — continue anyway
               </button>

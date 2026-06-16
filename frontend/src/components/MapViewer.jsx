@@ -132,18 +132,18 @@ function MapViewer({ serverId, server, onError }) {
   const openInBrowser = () => { if (port) window.open(`http://localhost:${port}`, '_blank'); };
 
   const shell = (children) => (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <div className="flex items-center gap-3">
-          <MapIcon size={18} className="text-[#A0A0A0]" />
-          <h3 className="font-bold text-[#FFFFFF]">Live World Map</h3>
+          <MapIcon size={18} className="text-[var(--c-text-secondary)]" />
+          <h3 className="font-bold text-[var(--c-text-primary)]">Live World Map</h3>
         </div>
         {status?.enabled && isOnline && mapReady && (
           <div className="flex items-center gap-1">
             <Tooltip content="Reload map" align="end">
               <button
                 onClick={() => setReloadKey(k => k + 1)}
-                className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all"
+                className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-all"
               >
                 <RefreshCw size={16} />
               </button>
@@ -151,7 +151,7 @@ function MapViewer({ serverId, server, onError }) {
             <Tooltip content="Open in browser" align="end">
               <button
                 onClick={openInBrowser}
-                className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all"
+                className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-all"
               >
                 <ExternalLink size={16} />
               </button>
@@ -166,7 +166,7 @@ function MapViewer({ serverId, server, onError }) {
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return shell(
-      <div className="flex-1 flex items-center justify-center text-[#A0A0A0] gap-2">
+      <div className="flex-1 flex items-center justify-center text-[var(--c-text-secondary)] gap-2">
         <Loader2 size={18} className="animate-spin" /> Loading map…
       </div>
     );
@@ -176,11 +176,11 @@ function MapViewer({ serverId, server, onError }) {
   if (!status?.supported) {
     return shell(
       <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-3">
-        <div className="p-4 bg-[#2D2D2D]/40 rounded-2xl">
-          <Ban size={28} className="text-[#555555]" />
+        <div className="p-4 bg-[var(--c-border)]/40 rounded-2xl">
+          <Ban size={28} className="text-[var(--c-text-muted)]" />
         </div>
-        <h4 className="font-bold text-[#FFFFFF]">Not available on vanilla servers</h4>
-        <p className="text-sm text-[#A0A0A0] max-w-md">
+        <h4 className="font-bold text-[var(--c-text-primary)]">Not available on vanilla servers</h4>
+        <p className="text-sm text-[var(--c-text-secondary)] max-w-md">
           The live map runs on BlueMap, which needs a mod loader or plugin platform.
           Create a Paper, Fabric, Forge, or NeoForge server to use it.
         </p>
@@ -195,9 +195,9 @@ function MapViewer({ serverId, server, onError }) {
         <div className="p-4 bg-[#00AF5C]/10 rounded-2xl">
           <Globe size={30} className="text-[#00AF5C]" />
         </div>
-        <h4 className="text-lg font-bold text-[#FFFFFF]">Enable the Live World Map</h4>
-        <p className="text-sm text-[#A0A0A0] max-w-md">
-          MineDash will install <span className="text-[#FFFFFF] font-medium">BlueMap</span> and
+        <h4 className="text-lg font-bold text-[var(--c-text-primary)]">Enable the Live World Map</h4>
+        <p className="text-sm text-[var(--c-text-secondary)] max-w-md">
+          MineDash will install <span className="text-[var(--c-text-primary)] font-medium">BlueMap</span> and
           render an explorable 3D map of your world with live player markers — viewable right here
           and shareable with friends.
         </p>
@@ -212,8 +212,8 @@ function MapViewer({ serverId, server, onError }) {
             ? <><Loader2 size={18} className="animate-spin" /> Installing BlueMap…</>
             : <><Globe size={18} /> Enable Live Map</>}
         </motion.button>
-        <p className="text-xs text-[#555555] max-w-md flex items-start gap-1.5 mt-1">
-          <AlertTriangle size={13} className="text-[#555555] mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-[var(--c-text-muted)] max-w-md flex items-start gap-1.5 mt-1">
+          <AlertTriangle size={13} className="text-[var(--c-text-muted)] mt-0.5 flex-shrink-0" />
           On first render BlueMap downloads Minecraft textures from Mojang to build the 3D models.
           This may use noticeable CPU and disk while the map generates.
         </p>
@@ -225,13 +225,13 @@ function MapViewer({ serverId, server, onError }) {
   if (!isOnline) {
     return shell(
       <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-4">
-        <div className="p-4 bg-[#2D2D2D]/40 rounded-2xl">
-          <Play size={28} className="text-[#555555]" />
+        <div className="p-4 bg-[var(--c-border)]/40 rounded-2xl">
+          <Play size={28} className="text-[var(--c-text-muted)]" />
         </div>
-        <h4 className="font-bold text-[#FFFFFF]">Start the server to view the map</h4>
-        <p className="text-sm text-[#A0A0A0] max-w-md">
+        <h4 className="font-bold text-[var(--c-text-primary)]">Start the server to view the map</h4>
+        <p className="text-sm text-[var(--c-text-secondary)] max-w-md">
           The live map is enabled. Start the server and BlueMap will begin serving the map on
-          port <span className="font-mono text-[#FFFFFF]">{port}</span>.
+          port <span className="font-mono text-[var(--c-text-primary)]">{port}</span>.
         </p>
         <motion.button
           onClick={handleStartOrRestart}
@@ -252,16 +252,16 @@ function MapViewer({ serverId, server, onError }) {
     return shell(
       <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-3">
         <Loader2 size={26} className="text-[#00AF5C] animate-spin" />
-        <h4 className="font-bold text-[#FFFFFF]">Waiting for the map…</h4>
-        <p className="text-sm text-[#A0A0A0] max-w-md">
-          BlueMap is starting its webserver on port <span className="font-mono text-[#FFFFFF]">{port}</span>.
-          The map can look <span className="text-[#FFFFFF]">black for a minute</span> while it renders —
+        <h4 className="font-bold text-[var(--c-text-primary)]">Waiting for the map…</h4>
+        <p className="text-sm text-[var(--c-text-secondary)] max-w-md">
+          BlueMap is starting its webserver on port <span className="font-mono text-[var(--c-text-primary)]">{port}</span>.
+          The map can look <span className="text-[var(--c-text-primary)]">black for a minute</span> while it renders —
           it builds in the background and fills in as you explore the world. It'll refresh on its own.
         </p>
         <button
           onClick={handleStartOrRestart}
           disabled={busy}
-          className="mt-1 px-4 py-2 text-sm bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#555555] disabled:opacity-60 text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl font-bold transition-all flex items-center gap-2"
+          className="mt-1 px-4 py-2 text-sm bg-[var(--c-surface-2)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] disabled:opacity-60 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl font-bold transition-all flex items-center gap-2"
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
           Restart server
@@ -281,21 +281,21 @@ function MapViewer({ serverId, server, onError }) {
   return shell(
     <>
       {shares.length > 0 && (
-        <div className="flex items-center gap-2 px-6 py-2.5 border-b border-[#2D2D2D] bg-[#1A1A1A] overflow-x-auto">
-          <span className="text-[10px] uppercase tracking-wider font-bold text-[#555555] flex-shrink-0">
+        <div className="flex items-center gap-2 px-6 py-2.5 border-b border-[var(--c-border)] bg-[var(--c-surface-1)] overflow-x-auto">
+          <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] flex-shrink-0">
             Share map
           </span>
           {shares.map(s => (
             <button
               key={s.key}
               onClick={() => copyText(s.url, s.key)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-[#111111] border border-[#2D2D2D] hover:border-[#555555] rounded-xl transition-colors flex-shrink-0 group"
+              className="flex items-center gap-2 px-3 py-1.5 bg-[var(--c-base)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] rounded-xl transition-colors flex-shrink-0 group"
             >
               <span className="text-[10px] font-bold text-[#00AF5C] uppercase tracking-wide">{s.label}</span>
-              <span className="font-mono text-xs text-[#A0A0A0] group-hover:text-[#FFFFFF]">{s.url}</span>
+              <span className="font-mono text-xs text-[var(--c-text-secondary)] group-hover:text-[var(--c-text-primary)]">{s.url}</span>
               {copied === s.key
                 ? <Check size={13} className="text-[#00AF5C]" />
-                : <Copy size={13} className="text-[#555555] group-hover:text-[#A0A0A0]" />}
+                : <Copy size={13} className="text-[var(--c-text-muted)] group-hover:text-[var(--c-text-secondary)]" />}
             </button>
           ))}
         </div>
@@ -310,15 +310,15 @@ function MapViewer({ serverId, server, onError }) {
           >
             <div className="flex items-start gap-2.5 px-6 py-2.5">
               <Info size={15} className="text-[#00AF5C] mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-[#A0A0A0] flex-1">
-                New or freshly-enabled world? The map can be <span className="text-[#FFFFFF]">black for a minute</span> while
+              <p className="text-xs text-[var(--c-text-secondary)] flex-1">
+                New or freshly-enabled world? The map can be <span className="text-[var(--c-text-primary)]">black for a minute</span> while
                 BlueMap renders in the background — it fills in as you explore. Hit
-                <RefreshCw size={11} className="inline mx-1 -mt-0.5 text-[#A0A0A0]" />
+                <RefreshCw size={11} className="inline mx-1 -mt-0.5 text-[var(--c-text-secondary)]" />
                 reload above if it looks empty.
               </p>
               <button
                 onClick={dismissHint}
-                className="p-1 text-[#555555] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-lg transition-all flex-shrink-0"
+                className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-lg transition-all flex-shrink-0"
               >
                 <X size={14} />
               </button>
@@ -326,7 +326,7 @@ function MapViewer({ serverId, server, onError }) {
           </motion.div>
         )}
       </AnimatePresence>
-      <div className="flex-1 bg-[#111111] min-h-0">
+      <div className="flex-1 bg-[var(--c-base)] min-h-0">
         <iframe
           key={reloadKey}
           title="Live World Map"

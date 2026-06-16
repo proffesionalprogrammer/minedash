@@ -5,15 +5,15 @@ import { memo } from 'react';
 
 function colorClassForLog(log) {
   if (log.includes('[MineDash]') || log.includes('[Auto-Restart]') || log.includes('[Console]')) return 'text-[#00AF5C]';
-  if (log.includes('ERROR') || log.includes('Exception') || log.includes('FATAL') || log.includes('Traceback')) return 'text-[#FF5555]';
+  if (log.includes('ERROR') || log.includes('Exception') || log.includes('FATAL') || log.includes('Traceback')) return 'text-[var(--c-danger)]';
   if (log.includes('WARN')) return 'text-amber-400';
   if (/joined the game/.test(log)) return 'text-cyan-400';
   if (/left the game/.test(log)) return 'text-orange-400';
   if (/<[a-zA-Z0-9_]+>/.test(log)) return 'text-violet-400';
-  if (/Server process exited/.test(log)) return 'text-[#FF5555] font-bold';
+  if (/Server process exited/.test(log)) return 'text-[var(--c-danger)] font-bold';
   if (/Done \(/.test(log)) return 'text-[#00AF5C] font-bold';
-  if (log.includes('INFO')) return 'text-[#CCCCCC]';
-  return 'text-[#A0A0A0]';
+  if (log.includes('INFO')) return 'text-[var(--c-log-text)]';
+  return 'text-[var(--c-text-secondary)]';
 }
 
 // Split a line on the search regex and wrap every match in a highlight span.
@@ -29,7 +29,7 @@ function highlightMatches(line, regex) {
   while ((m = g.exec(line)) !== null) {
     if (m.index > last) out.push(line.slice(last, m.index));
     out.push(
-      <mark key={k++} className="bg-amber-400/40 text-[#FFFFFF] rounded-sm px-0.5">
+      <mark key={k++} className="bg-amber-400/40 text-[var(--c-text-primary)] rounded-sm px-0.5">
         {m[0]}
       </mark>
     );

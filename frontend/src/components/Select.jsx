@@ -35,14 +35,14 @@ export default function Select({ value, onChange, options, size = 'sm', classNam
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className={`flex items-center justify-between gap-2 bg-[#1E1E1E] hover:border-[#555555] focus:border-[#00AF5C] border border-[#2D2D2D] rounded-xl ${padding} ${textSize} font-bold text-[#A0A0A0] outline-none transition-all cursor-pointer ${open ? 'border-[#00AF5C] ring-4 ring-[#00AF5C]/10' : ''}`}
+        className={`flex items-center justify-between gap-2 bg-[var(--c-surface-2)] hover:border-[var(--c-text-muted)] focus:border-[#00AF5C] border border-[var(--c-border)] rounded-xl ${padding} ${textSize} font-bold text-[var(--c-text-secondary)] outline-none transition-all cursor-pointer ${open ? 'border-[#00AF5C] ring-4 ring-[#00AF5C]/10' : ''}`}
       >
         {/* Render the label of the matched option only. Falling back to the raw
             `value` would leak internal IDs (e.g. "fabric-1.20.1") into the UI
             during the one-frame gap between a parent prop change and the
             parent's state-settling effect. Empty is safer than wrong. */}
         <span className="truncate">{current?.label || ''}</span>
-        <ChevronDown size={14} className={`text-[#555555] transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-[var(--c-text-muted)] transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       <AnimatePresence>
         {open && (
@@ -51,7 +51,7 @@ export default function Select({ value, onChange, options, size = 'sm', classNam
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute right-0 mt-2 z-40 min-w-full bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
+            className="absolute right-0 mt-2 z-40 min-w-full bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden py-1"
           >
             {normalized.map(opt => {
               const selected = opt.value === value;
@@ -63,7 +63,7 @@ export default function Select({ value, onChange, options, size = 'sm', classNam
                   className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 ${textSize} font-medium text-left transition-colors whitespace-nowrap ${
                     selected
                       ? 'bg-[#00AF5C]/15 text-[#00AF5C]'
-                      : 'text-[#A0A0A0] hover:bg-[#1E1E1E] hover:text-[#FFFFFF]'
+                      : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-surface-2)] hover:text-[var(--c-text-primary)]'
                   }`}
                 >
                   <span>{opt.label}</span>

@@ -118,13 +118,13 @@ export default function OnboardingTour({ onClose, onComplete }) {
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.94, opacity: 0, y: 12 }}
           transition={{ type: 'spring', duration: 0.5, bounce: 0.18 }}
-          className="relative w-full max-w-2xl bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)] overflow-hidden focus:outline-none"
+          className="relative w-full max-w-2xl bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7)] overflow-hidden focus:outline-none"
         >
           {/* Top bar: brand mark + step badge + skip */}
           <div className="flex items-center justify-between px-6 pt-5 pb-3">
             <div className="flex items-center gap-2">
               <GrassBlockIcon />
-              <span className="text-sm font-bold tracking-wide text-[#FFFFFF]">MineDash</span>
+              <span className="text-sm font-bold tracking-wide text-[var(--c-text-primary)]">MineDash</span>
               <span className="ml-2 px-2 py-0.5 bg-[#00AF5C]/10 border border-[#00AF5C]/20 rounded-md text-[10px] font-bold uppercase tracking-wider text-[#00AF5C]">
                 Quick tour
               </span>
@@ -132,7 +132,7 @@ export default function OnboardingTour({ onClose, onComplete }) {
             <button
               type="button"
               onClick={skip}
-              className="flex items-center gap-1 text-xs font-bold text-[#555555] hover:text-[#FFFFFF] transition-colors px-2 py-1 rounded-md hover:bg-[#1E1E1E]"
+              className="flex items-center gap-1 text-xs font-bold text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] transition-colors px-2 py-1 rounded-md hover:bg-[var(--c-surface-2)]"
               aria-label="Skip tour"
             >
               Skip <X size={12} />
@@ -162,7 +162,7 @@ export default function OnboardingTour({ onClose, onComplete }) {
           </div>
 
           {/* Footer — progress dots + back/next */}
-          <div className="flex items-center justify-between gap-4 px-6 sm:px-10 py-4 border-t border-[#2D2D2D] bg-[#111111]">
+          <div className="flex items-center justify-between gap-4 px-6 sm:px-10 py-4 border-t border-[var(--c-border)] bg-[var(--c-base)]">
             <ProgressDots count={STEPS.length} activeIdx={idx} onJump={(i) => { setDirection(i > idx ? 1 : -1); setIdx(i); }} />
 
             <div className="flex items-center gap-2">
@@ -173,7 +173,7 @@ export default function OnboardingTour({ onClose, onComplete }) {
                 whileHover={isFirst ? {} : { scale: 1.03 }}
                 whileTap={isFirst ? {} : { scale: 0.96 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-                className="flex items-center gap-1 px-3 py-2 bg-transparent hover:bg-[#1E1E1E] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl text-sm font-bold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex items-center gap-1 px-3 py-2 bg-transparent hover:bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <ChevronLeft size={16} />
                 Back
@@ -227,13 +227,13 @@ function StepHeader({ step, idx, reduced }) {
         <Icon size={26} style={{ color: accent }} />
       </motion.div>
       <div className="min-w-0 pt-1">
-        <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-1">
+        <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] mb-1">
           Step {idx + 1} of {STEPS.length} · {step.eyebrow}
         </p>
-        <h2 className="text-2xl sm:text-3xl font-black text-[#FFFFFF] tracking-tight leading-tight">
+        <h2 className="text-2xl sm:text-3xl font-black text-[var(--c-text-primary)] tracking-tight leading-tight">
           {step.title}
         </h2>
-        <p className="mt-2 text-sm text-[#A0A0A0] leading-relaxed">{step.subtitle}</p>
+        <p className="mt-2 text-sm text-[var(--c-text-secondary)] leading-relaxed">{step.subtitle}</p>
       </div>
     </div>
   );
@@ -262,7 +262,7 @@ function ProgressDots({ count, activeIdx, onJump }) {
                 backgroundColor: active ? '#00AF5C' : past ? '#00AF5C66' : '#2D2D2D',
               }}
               transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              className="block h-2 rounded-full group-hover:bg-[#3D3D3D]"
+              className="block h-2 rounded-full group-hover:bg-[var(--c-border-soft)]"
               style={{ pointerEvents: 'none' }}
             />
           </button>
@@ -297,7 +297,7 @@ function GrassBlockIcon() {
 
 function PreviewCard({ children, className = '' }) {
   return (
-    <div className={`bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-4 ${className}`}>
+    <div className={`bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-4 ${className}`}>
       {children}
     </div>
   );
@@ -310,7 +310,7 @@ function ChoiceTile({ icon: Icon, title, body, accent = '#00AF5C', delay = 0 }) 
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
       whileHover={{ y: -3 }}
-      className="flex-1 bg-[#1E1E1E] border border-[#2D2D2D] hover:border-[#3D3D3D] rounded-2xl p-5 cursor-default transition-colors"
+      className="flex-1 bg-[var(--c-surface-2)] border border-[var(--c-border)] hover:border-[var(--c-border-soft)] rounded-2xl p-5 cursor-default transition-colors"
     >
       <div
         className="inline-flex p-2 rounded-xl mb-3"
@@ -318,8 +318,8 @@ function ChoiceTile({ icon: Icon, title, body, accent = '#00AF5C', delay = 0 }) 
       >
         <Icon size={18} style={{ color: accent }} />
       </div>
-      <p className="text-sm font-bold text-[#FFFFFF] mb-1">{title}</p>
-      <p className="text-xs text-[#A0A0A0] leading-relaxed">{body}</p>
+      <p className="text-sm font-bold text-[var(--c-text-primary)] mb-1">{title}</p>
+      <p className="text-xs text-[var(--c-text-secondary)] leading-relaxed">{body}</p>
     </motion.div>
   );
 }
@@ -339,7 +339,7 @@ function TabPreviewRow({ tabs }) {
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap ${
               active
                 ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/30'
-                : 'text-[#A0A0A0] border border-transparent'
+                : 'text-[var(--c-text-secondary)] border border-transparent'
             }`}
           >
             <Icon size={12} />
@@ -383,8 +383,8 @@ function buildSteps() {
             </svg>
           </motion.div>
           <div>
-            <p className="text-sm font-bold text-[#FFFFFF]">No external accounts to wire up.</p>
-            <p className="text-xs text-[#A0A0A0] mt-1 leading-relaxed">
+            <p className="text-sm font-bold text-[var(--c-text-primary)]">No external accounts to wire up.</p>
+            <p className="text-xs text-[var(--c-text-secondary)] mt-1 leading-relaxed">
               No web dashboard, no monthly fee. Everything runs locally — your servers, your mods, your worlds.
             </p>
           </div>
@@ -449,7 +449,7 @@ function buildSteps() {
       accent: '#00AF5C',
       body: (
         <PreviewCard>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-3">Loader</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] mb-3">Loader</p>
           <div className="flex flex-wrap gap-2 mb-4">
             {['Vanilla', 'Fabric', 'Forge', 'NeoForge'].map((l, i) => (
               <motion.div
@@ -460,7 +460,7 @@ function buildSteps() {
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
                   l === 'Fabric'
                     ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-                    : 'bg-[#111111] border-[#2D2D2D] text-[#A0A0A0]'
+                    : 'bg-[var(--c-base)] border-[var(--c-border)] text-[var(--c-text-secondary)]'
                 }`}
               >
                 {l}
@@ -469,7 +469,7 @@ function buildSteps() {
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Coffee size={14} className="text-[#00AF5C]" />
-            <span className="text-[#A0A0A0]">
+            <span className="text-[var(--c-text-secondary)]">
               1.20.1 needs Java <span className="font-bold text-white">17</span> — MineDash downloads it for you.
             </span>
           </div>
@@ -496,14 +496,14 @@ function buildSteps() {
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.08 + m.i * 0.07, duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-                className="flex items-center gap-3 p-2.5 rounded-xl bg-[#111111] border border-[#2D2D2D]"
+                className="flex items-center gap-3 p-2.5 rounded-xl bg-[var(--c-base)] border border-[var(--c-border)]"
               >
                 <div className="w-9 h-9 rounded-lg bg-[#00AF5C]/10 border border-[#00AF5C]/20 flex items-center justify-center flex-shrink-0">
                   <Package size={16} className="text-[#00AF5C]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-[#FFFFFF] truncate">{m.name}</p>
-                  <p className="text-[10px] text-[#555555]">{m.count}</p>
+                  <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{m.name}</p>
+                  <p className="text-[10px] text-[var(--c-text-muted)]">{m.count}</p>
                 </div>
                 <div className="px-2.5 py-1 rounded-lg bg-[#00AF5C]/10 border border-[#00AF5C]/30 text-[10px] font-bold text-[#00AF5C]">
                   Install
@@ -528,20 +528,20 @@ function buildSteps() {
               initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: 'spring', stiffness: 320, damping: 22, delay: 0.1 }}
-              className="w-16 h-16 rounded-2xl bg-[#111111] border border-[#2D2D2D] flex items-center justify-center flex-shrink-0"
+              className="w-16 h-16 rounded-2xl bg-[var(--c-base)] border border-[var(--c-border)] flex items-center justify-center flex-shrink-0"
             >
               <Server size={28} className="text-[#00AF5C]" />
             </motion.div>
             <div className="flex-1 min-w-0">
-              <p className="text-base font-bold text-[#FFFFFF]">My Survival World</p>
-              <div className="flex items-center gap-2 text-xs text-[#A0A0A0] mt-0.5">
+              <p className="text-base font-bold text-[var(--c-text-primary)]">My Survival World</p>
+              <div className="flex items-center gap-2 text-xs text-[var(--c-text-secondary)] mt-0.5">
                 <span className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#00AF5C] animate-pulse" />
                   Online
                 </span>
-                <span className="text-[#2D2D2D]">·</span>
+                <span className="text-[var(--c-border)]">·</span>
                 <span>Fabric 1.20.1</span>
-                <span className="text-[#2D2D2D]">·</span>
+                <span className="text-[var(--c-border)]">·</span>
                 <span className="tabular-nums">3 / 20 players</span>
               </div>
             </div>
@@ -567,7 +567,7 @@ function buildSteps() {
             { label: 'Network',  icon: Globe },
             { label: 'Options',  icon: Sliders },
           ]} />
-          <p className="mt-3 text-xs text-[#A0A0A0] leading-relaxed">
+          <p className="mt-3 text-xs text-[var(--c-text-secondary)] leading-relaxed">
             Each tab does what it says — type commands, kick players, install mods from Modrinth, schedule backups, copy join addresses, tweak server.properties.
           </p>
         </PreviewCard>
@@ -616,8 +616,8 @@ function buildSteps() {
             <Check size={26} className="text-[#00AF5C]" />
           </motion.div>
           <div className="text-center sm:text-left">
-            <p className="text-sm font-bold text-[#FFFFFF]">Have fun — and tell us when something feels off.</p>
-            <p className="text-xs text-[#A0A0A0] mt-1 leading-relaxed">
+            <p className="text-sm font-bold text-[var(--c-text-primary)]">Have fun — and tell us when something feels off.</p>
+            <p className="text-xs text-[var(--c-text-secondary)] mt-1 leading-relaxed">
               Bugs and ideas are tracked on GitHub. Updates ship straight to the app — no reinstall.
             </p>
           </div>

@@ -48,11 +48,11 @@ export default function CrashBanner({ crashBanner, serverId, onDismiss }) {
           transition={{ duration: 0.25, ease: 'easeOut' }}
           className="overflow-hidden"
         >
-          <div className="flex items-start gap-3 px-4 py-3 bg-[#FF5555]/8 border-b border-[#FF5555]/20">
-            <AlertTriangle size={18} className="text-[#FF5555] flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-3 px-4 py-3 bg-[var(--c-danger)]/8 border-b border-[var(--c-danger)]/20">
+            <AlertTriangle size={18} className="text-[var(--c-danger)] flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-[#FF5555]">Server Crash Detected</p>
-              <p className="text-xs text-[#A0A0A0] mt-0.5 leading-relaxed">
+              <p className="text-sm font-bold text-[var(--c-danger)]">Server Crash Detected</p>
+              <p className="text-xs text-[var(--c-text-secondary)] mt-0.5 leading-relaxed">
                 {culpritDisabled
                   ? `Disabled ${crashBanner.culpritShort || 'the mod'}. Click Start to retry the server.`
                   : crashBanner.message}
@@ -62,7 +62,7 @@ export default function CrashBanner({ crashBanner, serverId, onDismiss }) {
               <button
                 onClick={disableCulpritMods}
                 disabled={disabling}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 text-[#FF5555] rounded-lg text-xs font-bold transition-all flex-shrink-0 border border-[#FF5555]/20 disabled:opacity-60"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 text-[var(--c-danger)] rounded-lg text-xs font-bold transition-all flex-shrink-0 border border-[var(--c-danger)]/20 disabled:opacity-60"
               >
                 {disabling
                   ? <Loader2 size={12} className="animate-spin" />
@@ -81,14 +81,14 @@ export default function CrashBanner({ crashBanner, serverId, onDismiss }) {
                   // Let parent (MainPanel) know to switch to the relevant tab.
                   window.dispatchEvent(new CustomEvent('minedash-switch-tab', { detail: { tab: crashBanner.tab } }));
                 }}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 text-[#FF5555] rounded-lg text-xs font-bold transition-all flex-shrink-0 border border-[#FF5555]/20"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 text-[var(--c-danger)] rounded-lg text-xs font-bold transition-all flex-shrink-0 border border-[var(--c-danger)]/20"
               >
                 Fix it <ArrowRight size={12} />
               </button>
             )}
             <button
               onClick={onDismiss}
-              className="p-1 text-[#555555] hover:text-[#A0A0A0] transition-colors flex-shrink-0"
+              className="p-1 text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] transition-colors flex-shrink-0"
             >
               <X size={14} />
             </button>

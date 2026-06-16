@@ -410,7 +410,7 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
   const installsMap = modpackInstalls?.installs || {};
 
   return (
-    <div className="flex-1 flex h-full bg-[#111111] overflow-hidden">
+    <div className="flex-1 flex h-full bg-[var(--c-base)] overflow-hidden">
       {/* Filter rail — collapsible on smaller widths. Fixed width on desktop
           so the result column stays a stable size as the user toggles. */}
       <FilterRail
@@ -443,7 +443,7 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors duration-150 ${
                     active
                       ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                      : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                      : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
                   }`}
                 >
                   <Icon size={14} />
@@ -456,13 +456,13 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
           {/* Search + sort */}
           <div className="flex items-center gap-2 mb-3">
             <div className="relative flex-1 min-w-0">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
               <input
                 type="text"
                 value={query}
                 onChange={e => handleQuery(e.target.value)}
                 placeholder={`Search ${TYPES.find(t => t.key === type).label.toLowerCase()}…`}
-                className="w-full bg-[#1A1A1A] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium"
+                className="w-full bg-[var(--c-surface-1)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-medium"
               />
             </div>
             <Select
@@ -487,7 +487,7 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
               ))}
               <button
                 onClick={clearAllFilters}
-                className="text-[10px] font-bold text-[#A0A0A0] hover:text-[#FF5555] px-2 py-1 transition-colors"
+                className="text-[10px] font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] px-2 py-1 transition-colors"
               >
                 Clear all
               </button>
@@ -496,13 +496,13 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
 
           {/* Result count strip */}
           <div className="flex items-center justify-between px-1 mb-3">
-            <p className="text-xs text-[#555555] tabular-nums">
+            <p className="text-xs text-[var(--c-text-muted)] tabular-nums">
               {loading && results.length === 0
                 ? 'Searching…'
                 : `${totalHits.toLocaleString()} ${TYPES.find(t => t.key === type).label.toLowerCase()} found`}
             </p>
             {totalPages > 1 && (
-              <p className="text-xs text-[#555555] tabular-nums">
+              <p className="text-xs text-[var(--c-text-muted)] tabular-nums">
                 Page {page + 1} of {totalPages.toLocaleString()}
               </p>
             )}
@@ -513,14 +513,14 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
             {loading && results.length === 0 ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-                <span className="text-sm text-[#A0A0A0]">Searching Modrinth…</span>
+                <span className="text-sm text-[var(--c-text-secondary)]">Searching Modrinth…</span>
               </div>
             ) : results.length === 0 ? (
-              <div className="flex flex-col items-center py-16 text-[#555555]">
+              <div className="flex flex-col items-center py-16 text-[var(--c-text-muted)]">
                 <Search size={32} className="mb-3 opacity-30" />
                 <p className="text-sm">No results</p>
                 {(query || activeFilterCount > 0) && (
-                  <p className="text-xs mt-1 text-[#555555]">Try a different search or clear filters</p>
+                  <p className="text-xs mt-1 text-[var(--c-text-muted)]">Try a different search or clear filters</p>
                 )}
               </div>
             ) : (
@@ -546,22 +546,22 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
 
           {/* Pagination footer */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#2D2D2D]">
-              <span className="text-xs text-[#555555] tabular-nums">
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--c-border)]">
+              <span className="text-xs text-[var(--c-text-muted)] tabular-nums">
                 {totalHits.toLocaleString()} results · Page {page + 1} of {totalPages.toLocaleString()}
               </span>
               <div className="flex gap-2">
                 <button
                   onClick={() => handlePage(page - 1)}
                   disabled={page === 0 || loading}
-                  className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"
+                  className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"
                 >
                   <ChevronLeft size={16} />
                 </button>
                 <button
                   onClick={() => handlePage(page + 1)}
                   disabled={page >= totalPages - 1 || loading}
-                  className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"
+                  className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"
                 >
                   <ChevronRight size={16} />
                 </button>
@@ -609,11 +609,11 @@ function FilterRail({
 }) {
   const showLoaderSection = type === 'mod' || type === 'modpack';
   return (
-    <aside className="hidden md:flex flex-col w-60 lg:w-64 flex-shrink-0 h-full bg-[#111111] border-r border-[#2D2D2D] overflow-y-auto custom-scrollbar">
-      <div className="sticky top-0 z-10 bg-[#111111] px-4 py-3 flex items-center justify-between">
+    <aside className="hidden md:flex flex-col w-60 lg:w-64 flex-shrink-0 h-full bg-[var(--c-base)] border-r border-[var(--c-border)] overflow-y-auto custom-scrollbar">
+      <div className="sticky top-0 z-10 bg-[var(--c-base)] px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <SlidersHorizontal size={14} className="text-[#00AF5C]" />
-          <span className="text-xs font-bold uppercase tracking-wider text-[#FFFFFF]">Filters</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-[var(--c-text-primary)]">Filters</span>
           {activeCount > 0 && (
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20 tabular-nums">
               {activeCount}
@@ -623,7 +623,7 @@ function FilterRail({
         {activeCount > 0 && (
           <button
             onClick={onClearAll}
-            className="text-[10px] font-bold text-[#A0A0A0] hover:text-[#FF5555] transition-colors"
+            className="text-[10px] font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] transition-colors"
           >
             Clear
           </button>
@@ -634,17 +634,17 @@ function FilterRail({
         {/* Game version */}
         <FilterCard title="Game version">
           <div className="relative mb-2">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#555555]" />
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
             <input
               type="text"
               value={mcVersionFilter}
               onChange={e => onMcVersionFilterChange(e.target.value)}
               placeholder="e.g. 1.21"
-              className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-lg pl-7 pr-2 py-1.5 text-xs text-[#FFFFFF] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555]"
+              className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-lg pl-7 pr-2 py-1.5 text-xs text-[var(--c-text-primary)] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)]"
             />
           </div>
           <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1 space-y-0.5">
-            {mcVersions.length === 0 && <p className="text-[10px] text-[#555555] px-1 py-1">No matches</p>}
+            {mcVersions.length === 0 && <p className="text-[10px] text-[var(--c-text-muted)] px-1 py-1">No matches</p>}
             {mcVersions.slice(0, 60).map(v => {
               const on = selectedMcVersions.has(v);
               return (
@@ -682,7 +682,7 @@ function FilterRail({
                 const Icon = categoryIcon(c.name);
                 return (
                   <FilterRow key={c.name} selected={on} onClick={() => onToggleCategory(c.name)}>
-                    <Icon size={14} className={on ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+                    <Icon size={14} className={on ? 'text-[#00AF5C]' : 'text-[var(--c-text-muted)]'} />
                     <span className="flex-1 text-left capitalize">{c.name.replace(/-/g, ' ')}</span>
                   </FilterRow>
                 );
@@ -700,15 +700,15 @@ function FilterRail({
 function FilterCard({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-2xl overflow-hidden">
+    <div className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-2xl overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
         className="group w-full flex items-center justify-between px-3.5 py-2.5"
       >
-        <span className="text-xs font-bold text-[#FFFFFF]">{title}</span>
+        <span className="text-xs font-bold text-[var(--c-text-primary)]">{title}</span>
         <ChevronDown
           size={15}
-          className={`text-[#555555] group-hover:text-[#A0A0A0] transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
+          className={`text-[var(--c-text-muted)] group-hover:text-[var(--c-text-secondary)] transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
         />
       </button>
       <AnimatePresence initial={false}>
@@ -737,7 +737,7 @@ function FilterRow({ selected, onClick, children }) {
       className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors ${
         selected
           ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-          : 'text-[#A0A0A0] hover:bg-[#111111] hover:text-[#FFFFFF] border border-transparent'
+          : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-base)] hover:text-[var(--c-text-primary)] border border-transparent'
       }`}
     >
       {children}
@@ -752,7 +752,7 @@ function FilterChip({ label, onClear }) {
       {label}
       <button
         onClick={onClear}
-        className="hover:text-[#FF5555] transition-colors"
+        className="hover:text-[var(--c-danger)] transition-colors"
         aria-label={`Remove ${label} filter`}
       >
         <XIcon size={10} />
@@ -791,11 +791,11 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index * 0.02, 0.2), duration: 0.2 }}
       whileHover={{ y: -2 }}
-      className="bg-[#1A1A1A] border border-[#2D2D2D] hover:border-[#555555] rounded-2xl overflow-hidden transition-colors"
+      className="bg-[var(--c-surface-1)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] rounded-2xl overflow-hidden transition-colors"
     >
       <div className="flex items-stretch gap-4 p-4">
         {/* Icon */}
-        <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+        <div className="w-14 h-14 rounded-xl overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
           {hit.icon_url
             ? <img src={hit.icon_url} alt="" className="w-full h-full object-cover" />
             : <span className="text-[#00AF5C] font-black text-lg">{hit.title?.[0] || '?'}</span>}
@@ -816,19 +816,19 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
             <Tooltip content="View project details" align="start" className="min-w-0">
               <button
                 onClick={onOpenDetail}
-                className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
+                className="font-bold text-sm text-[var(--c-text-primary)] hover:text-[#00AF5C] truncate text-left transition-colors"
               >
                 {hit.title}
               </button>
             </Tooltip>
-            <span className="text-[10px] text-[#555555] flex-shrink-0">by {hit.author}</span>
+            <span className="text-[10px] text-[var(--c-text-muted)] flex-shrink-0">by {hit.author}</span>
           </div>
           {inProgress ? (
             <p className="text-xs text-[#00AF5C] line-clamp-1 font-bold">
               {installEntry.statusText || 'Installing…'}
             </p>
           ) : (
-            <p className="text-xs text-[#A0A0A0] line-clamp-1">{hit.description}</p>
+            <p className="text-xs text-[var(--c-text-secondary)] line-clamp-1">{hit.description}</p>
           )}
           {cats.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 mt-0.5">
@@ -847,23 +847,23 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
         {/* Right column — info bar + action buttons */}
         <div className="flex flex-col items-end justify-between flex-shrink-0 gap-2">
           {inProgress ? (
-            <div className="flex items-center gap-3 text-[11px] text-[#A0A0A0] tabular-nums">
+            <div className="flex items-center gap-3 text-[11px] text-[var(--c-text-secondary)] tabular-nums">
               {installEntry.total > 0
                 ? <span>File {installEntry.task.toLocaleString()} of {installEntry.total.toLocaleString()}</span>
                 : <span>Preparing…</span>}
             </div>
           ) : (
-            <div className="flex items-center gap-3 text-[11px] text-[#A0A0A0] tabular-nums">
+            <div className="flex items-center gap-3 text-[11px] text-[var(--c-text-secondary)] tabular-nums">
               <Tooltip content={`${(hit.downloads || 0).toLocaleString()} downloads`}>
                 <span className="flex items-center gap-1">
-                  <Download size={11} className="text-[#555555]" />
+                  <Download size={11} className="text-[var(--c-text-muted)]" />
                   {fmt(hit.downloads)}
                 </span>
               </Tooltip>
               {hit.date_modified && (
                 <Tooltip content={new Date(hit.date_modified).toLocaleString()}>
                   <span className="flex items-center gap-1">
-                    <Clock size={11} className="text-[#555555]" />
+                    <Clock size={11} className="text-[var(--c-text-muted)]" />
                     {fmtRelative(hit.date_modified)}
                   </span>
                 </Tooltip>
@@ -871,7 +871,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
               {mcVer && (
                 <Tooltip content={filteringVersion ? 'Minecraft version (matches your filter)' : 'Latest Minecraft version supported'}>
                   <span className="flex items-center gap-1">
-                    <Gamepad2 size={11} className={filteringVersion ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+                    <Gamepad2 size={11} className={filteringVersion ? 'text-[#00AF5C]' : 'text-[var(--c-text-muted)]'} />
                     {mcVer}
                   </span>
                 </Tooltip>
@@ -881,7 +881,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                   <span className="flex items-center" aria-label={ldrLabel}>
                     {FILTERABLE_LOADERS.includes(ldr)
                       ? <LoaderGlyph loader={ldr} size={14} />
-                      : <Wrench size={11} className="text-[#555555]" />}
+                      : <Wrench size={11} className="text-[var(--c-text-muted)]" />}
                   </span>
                 </Tooltip>
               )}
@@ -898,7 +898,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                   onClick={onInstallAsServer}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-1 px-2.5 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors"
                 >
                   <ServerIcon size={14} />
                 </motion.button>
@@ -912,7 +912,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                 <Tooltip content={`${installEntry.statusText || 'Installing…'}${installEntry.total ? ` (${installEntry.task} / ${installEntry.total} files)` : ''}`} align="end">
                 <div
                   className="relative overflow-hidden flex items-center gap-1.5 px-4 py-2 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
-                  style={{ background: '#1E1E1E' }}
+                  style={{ background: 'var(--c-surface-2)' }}
                 >
                   <motion.div
                     initial={false}
@@ -933,7 +933,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
                     disabled={cancelling}
                     whileHover={cancelling ? {} : { scale: 1.05 }}
                     whileTap={cancelling ? {} : { scale: 0.95 }}
-                    className="flex items-center justify-center p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#FF5555]/40 rounded-xl text-[#A0A0A0] hover:text-[#FF5555] transition-colors disabled:opacity-50"
+                    className="flex items-center justify-center p-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[var(--c-danger)]/40 rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] transition-colors disabled:opacity-50"
                   >
                     <XIcon size={14} />
                   </motion.button>
@@ -974,7 +974,7 @@ function BrowseRow({ hit, index, type, installEntry, installing, selectedVersion
         {inProgress && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="h-0.5 bg-[#2D2D2D]"
+            className="h-0.5 bg-[var(--c-border)]"
           >
             <motion.div
               initial={false}

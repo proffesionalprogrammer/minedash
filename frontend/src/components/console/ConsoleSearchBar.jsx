@@ -38,9 +38,9 @@ export default function ConsoleSearchBar({
       {/* Level chips */}
       <div className="hidden sm:flex items-center gap-1">
         {[
-          { key: 'INFO',  label: 'INFO',  color: 'text-[#CCCCCC]', activeBg: 'bg-[#CCCCCC]/10' },
+          { key: 'INFO',  label: 'INFO',  color: 'text-[var(--c-log-text)]', activeBg: 'bg-[var(--c-log-text)]/10' },
           { key: 'WARN',  label: 'WARN',  color: 'text-amber-400', activeBg: 'bg-amber-500/10' },
-          { key: 'ERROR', label: 'ERROR', color: 'text-[#FF5555]', activeBg: 'bg-[#FF5555]/10' },
+          { key: 'ERROR', label: 'ERROR', color: 'text-[var(--c-danger)]', activeBg: 'bg-[var(--c-danger)]/10' },
         ].map(chip => {
           const active = levelFilters.has(chip.key);
           const anyActive = levelFilters.size > 0;
@@ -53,7 +53,7 @@ export default function ConsoleSearchBar({
                   active
                     ? `${chip.activeBg} ${chip.color}`
                     : anyActive
-                      ? 'text-[#555555] hover:text-[#A0A0A0]'
+                      ? 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]'
                       : `${chip.color} opacity-60 hover:opacity-100`
                 }`}
               >
@@ -67,26 +67,26 @@ export default function ConsoleSearchBar({
       {/* Search input */}
       <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${
         searchInvalid
-          ? 'border-[#FF5555]/40 bg-[#FF5555]/5'
+          ? 'border-[var(--c-danger)]/40 bg-[var(--c-danger)]/5'
           : searchQuery
             ? 'border-[#00AF5C]/40 bg-[#00AF5C]/5'
-            : 'border-[#2D2D2D] bg-[#111111]'
+            : 'border-[var(--c-border)] bg-[var(--c-base)]'
       } transition-colors`}>
-        <Search size={13} className={searchQuery ? 'text-[#00AF5C]' : 'text-[#555555]'} />
+        <Search size={13} className={searchQuery ? 'text-[#00AF5C]' : 'text-[var(--c-text-muted)]'} />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => { setSearchQuery(e.target.value); setCurrentMatchIdx(0); }}
           onKeyDown={onSearchKeyDown}
           placeholder="Find in logs…"
-          className="bg-transparent outline-none text-xs font-mono text-[#FFFFFF] placeholder-[#555555] w-32 sm:w-40"
+          className="bg-transparent outline-none text-xs font-mono text-[var(--c-text-primary)] placeholder-[var(--c-text-muted)] w-32 sm:w-40"
         />
         <Tooltip content="Toggle regex" side="bottom">
           <button
             type="button"
             onClick={() => setUseRegex(v => !v)}
             className={`p-0.5 rounded transition-colors ${
-              useRegex ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[#555555] hover:text-[#A0A0A0]'
+              useRegex ? 'text-[#00AF5C] bg-[#00AF5C]/10' : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]'
             }`}
           >
             <Regex size={12} />
@@ -106,7 +106,7 @@ export default function ConsoleSearchBar({
                 initial={{ scale: 0.7, opacity: 0.4 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 600, damping: 30 }}
-                className="text-[10px] font-bold tabular-nums text-[#A0A0A0] whitespace-nowrap"
+                className="text-[10px] font-bold tabular-nums text-[var(--c-text-secondary)] whitespace-nowrap"
               >
                 {matchCount === 0 ? '0/0' : `${currentMatchIdx + 1}/${matchCount}`}
               </motion.span>
@@ -116,7 +116,7 @@ export default function ConsoleSearchBar({
                   onClick={() => onJump('prev')}
                   disabled={matchCount === 0}
                   whileTap={{ scale: 0.85 }}
-                  className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
+                  className="p-0.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] disabled:opacity-30"
                 >
                   <ChevronUp size={12} />
                 </motion.button>
@@ -127,7 +127,7 @@ export default function ConsoleSearchBar({
                   onClick={() => onJump('next')}
                   disabled={matchCount === 0}
                   whileTap={{ scale: 0.85 }}
-                  className="p-0.5 text-[#A0A0A0] hover:text-[#FFFFFF] disabled:opacity-30"
+                  className="p-0.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] disabled:opacity-30"
                 >
                   <ChevronDown size={12} />
                 </motion.button>
@@ -138,7 +138,7 @@ export default function ConsoleSearchBar({
                   onClick={onClear}
                   whileHover={{ rotate: 90 }}
                   whileTap={{ scale: 0.85 }}
-                  className="p-0.5 text-[#555555] hover:text-[#FFFFFF]"
+                  className="p-0.5 text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)]"
                 >
                   <X size={12} />
                 </motion.button>

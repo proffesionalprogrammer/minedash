@@ -153,17 +153,17 @@ function NetworkPanel({ serverId, socket }) {
   const lanAddresses = addresses.filter(a => !a.isRadmin && !a.isHamachi);
 
   return (
-    <div className="flex-1 bg-[#111111] rounded-2xl border border-[#2D2D2D] flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D] bg-[#1A1A1A]">
+    <div className="flex-1 bg-[var(--c-base)] rounded-2xl border border-[var(--c-border)] flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)] bg-[var(--c-surface-1)]">
         <div className="flex items-center gap-3">
-          <Wifi size={18} className="text-[#A0A0A0]" />
-          <h3 className="font-bold text-[#FFFFFF]">Connection Info</h3>
+          <Wifi size={18} className="text-[var(--c-text-secondary)]" />
+          <h3 className="font-bold text-[var(--c-text-primary)]">Connection Info</h3>
         </div>
         <Tooltip content="Refresh" align="end">
         <motion.button
           onClick={fetchNetworkInfo}
           whileTap={{ scale: 0.9 }}
-          className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all"
+          className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-all"
         >
           <motion.span
             className="block"
@@ -178,13 +178,13 @@ function NetworkPanel({ serverId, socket }) {
 
       <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-[#A0A0A0]">
+          <div className="flex items-center justify-center h-full text-[var(--c-text-secondary)]">
             Loading network info...
           </div>
         ) : (
           <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-6">
             {/* ── MineDash Connect — direct P2P tunnel (no Radmin needed) ──── */}
-            <motion.div variants={staggerItem} className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
+            <motion.div variants={staggerItem} className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-6">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <Zap size={16} className="text-[#00AF5C]" />
@@ -198,15 +198,15 @@ function NetworkPanel({ serverId, socket }) {
                 {hostState !== 'idle' && (
                   <button
                     onClick={stopHost}
-                    className="flex items-center gap-1 text-xs font-bold text-[#FF5555] hover:text-[#FF4444] transition-colors"
+                    className="flex items-center gap-1 text-xs font-bold text-[var(--c-danger)] hover:text-[var(--c-danger-hover)] transition-colors"
                   >
                     <X size={14} /> Stop
                   </button>
                 )}
               </div>
-              <p className="text-sm text-[#A0A0A0] mb-4">
+              <p className="text-sm text-[var(--c-text-secondary)] mb-4">
                 Let a friend connect straight through MineDash — no Radmin, no router setup. They just need MineDash too.
-                <span className="text-[#555555]"> Make sure this server is running first.</span>
+                <span className="text-[var(--c-text-muted)]"> Make sure this server is running first.</span>
               </p>
 
               {hostState === 'idle' && (
@@ -220,7 +220,7 @@ function NetworkPanel({ serverId, socket }) {
               )}
 
               {hostState === 'gathering' && (
-                <div className="flex items-center gap-2 text-sm text-[#A0A0A0]">
+                <div className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
                   <Loader2 size={16} className="animate-spin text-[#00AF5C]" /> Preparing your invite code…
                 </div>
               )}
@@ -228,7 +228,7 @@ function NetworkPanel({ serverId, socket }) {
               {(hostState === 'awaiting-reply' || hostState === 'connecting') && (
                 <div className="space-y-4">
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">
+                    <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">
                       1 · Send this invite code to your friend
                     </label>
                     <div className="flex items-stretch gap-2 mt-1.5">
@@ -236,7 +236,7 @@ function NetworkPanel({ serverId, socket }) {
                         readOnly
                         value={inviteCode}
                         onFocus={(e) => e.target.select()}
-                        className="flex-1 h-16 bg-[#111111] border border-[#2D2D2D] rounded-xl px-3 py-2 font-mono text-xs text-[#A0A0A0] resize-none custom-scrollbar outline-none"
+                        className="flex-1 h-16 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl px-3 py-2 font-mono text-xs text-[var(--c-text-secondary)] resize-none custom-scrollbar outline-none"
                       />
                       <button
                         onClick={() => copyText(inviteCode, 'invite')}
@@ -247,16 +247,16 @@ function NetworkPanel({ serverId, socket }) {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">
+                    <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">
                       2 · Paste their reply code here
                     </label>
                     <textarea
                       value={replyInput}
                       onChange={(e) => { setReplyInput(e.target.value); if (hostDetail) setHostDetail(''); }}
                       placeholder="Paste the reply code your friend sends back…"
-                      className="w-full h-16 mt-1.5 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2 font-mono text-xs text-[#FFFFFF] resize-none custom-scrollbar outline-none transition-all placeholder-[#555555]"
+                      className="w-full h-16 mt-1.5 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] focus:ring-4 focus:ring-[#00AF5C]/10 rounded-xl px-3 py-2 font-mono text-xs text-[var(--c-text-primary)] resize-none custom-scrollbar outline-none transition-all placeholder-[var(--c-text-muted)]"
                     />
-                    {hostDetail && <p className="text-xs text-[#FF5555] font-medium mt-1.5">{hostDetail}</p>}
+                    {hostDetail && <p className="text-xs text-[var(--c-danger)] font-medium mt-1.5">{hostDetail}</p>}
                     <motion.button
                       onClick={submitReply}
                       disabled={!replyInput.trim() || hostState === 'connecting'}
@@ -277,18 +277,18 @@ function NetworkPanel({ serverId, socket }) {
                     <Check size={16} className="text-[#00AF5C]" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-[#FFFFFF]">Friend connected</p>
-                    <p className="text-xs text-[#A0A0A0]">The tunnel stays open while MineDash runs. Hit Stop to end it.</p>
+                    <p className="text-sm font-bold text-[var(--c-text-primary)]">Friend connected</p>
+                    <p className="text-xs text-[var(--c-text-secondary)]">The tunnel stays open while MineDash runs. Hit Stop to end it.</p>
                   </div>
                 </div>
               )}
 
               {hostState === 'failed' && (
                 <div className="space-y-3">
-                  <div className="bg-[#FF5555]/5 border border-[#FF5555]/20 rounded-xl p-4 text-sm text-[#FF5555] font-medium">
+                  <div className="bg-[var(--c-danger)]/5 border border-[var(--c-danger)]/20 rounded-xl p-4 text-sm text-[var(--c-danger)] font-medium">
                     {hostDetail || 'Could not connect directly.'}
                   </div>
-                  <p className="text-xs text-[#A0A0A0]">
+                  <p className="text-xs text-[var(--c-text-secondary)]">
                     Direct connections fail on strict networks (e.g. mobile / CGNAT). Hit Stop and use the Radmin VPN option below instead.
                   </p>
                 </div>
@@ -305,7 +305,7 @@ function NetworkPanel({ serverId, socket }) {
                   </span>
                 </div>
                 <div className="flex items-center gap-4 mt-3">
-                  <div className="flex-1 bg-[#111111] border border-[#2D2D2D] rounded-xl px-5 py-3.5 font-mono text-xl text-[#FFFFFF] font-bold tracking-wide">
+                  <div className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] rounded-xl px-5 py-3.5 font-mono text-xl text-[var(--c-text-primary)] font-bold tracking-wide">
                     {vpnAddress.ip}:{serverPort}
                   </div>
                   <button
@@ -315,17 +315,17 @@ function NetworkPanel({ serverId, socket }) {
                     {copied === 'vpn' ? <><Check size={18} />Copied!</> : <><Copy size={18} />Copy</>}
                   </button>
                 </div>
-                <p className="text-xs text-[#A0A0A0] mt-3">
-                  <span className="text-[#555555]">Adapter:</span> {vpnAddress.name}
+                <p className="text-xs text-[var(--c-text-secondary)] mt-3">
+                  <span className="text-[var(--c-text-muted)]">Adapter:</span> {vpnAddress.name}
                 </p>
               </motion.div>
             ) : (
-              <motion.div variants={staggerItem} className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-5">
+              <motion.div variants={staggerItem} className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-5">
                 <div className="flex items-center gap-3 mb-2">
-                  <WifiOff size={18} className="text-[#555555]" />
-                  <span className="text-sm font-bold text-[#A0A0A0]">No VPN Detected</span>
+                  <WifiOff size={18} className="text-[var(--c-text-muted)]" />
+                  <span className="text-sm font-bold text-[var(--c-text-secondary)]">No VPN Detected</span>
                 </div>
-                <p className="text-sm text-[#555555]">
+                <p className="text-sm text-[var(--c-text-muted)]">
                   Radmin VPN or Hamachi is not running. Install Radmin VPN on both machines to play together.
                 </p>
               </motion.div>
@@ -334,7 +334,7 @@ function NetworkPanel({ serverId, socket }) {
             {/* ── LAN Addresses ─────────────────────────────────────── */}
             {lanAddresses.length > 0 && (
               <motion.div variants={staggerItem}>
-                <h4 className="text-xs font-bold text-[#A0A0A0] uppercase tracking-wider mb-3 px-1">
+                <h4 className="text-xs font-bold text-[var(--c-text-secondary)] uppercase tracking-wider mb-3 px-1">
                   Local Network Addresses
                 </h4>
                 <motion.div className="space-y-2" variants={staggerContainer} initial="initial" animate="animate">
@@ -343,23 +343,23 @@ function NetworkPanel({ serverId, socket }) {
                       key={i}
                       variants={staggerItem}
                       whileHover={{ x: 2 }}
-                      className="flex items-center justify-between p-4 bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-colors group"
+                      className="flex items-center justify-between p-4 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl hover:border-[var(--c-text-muted)] transition-colors group"
                     >
                       <div className="flex items-center gap-4">
-                        <div className="p-2.5 bg-[#111111] rounded-xl border border-[#2D2D2D]">
-                          <Monitor size={18} className="text-[#A0A0A0]" />
+                        <div className="p-2.5 bg-[var(--c-base)] rounded-xl border border-[var(--c-border)]">
+                          <Monitor size={18} className="text-[var(--c-text-secondary)]" />
                         </div>
                         <div>
-                          <span className="font-mono font-bold text-[#FFFFFF]">
+                          <span className="font-mono font-bold text-[var(--c-text-primary)]">
                             {addr.ip}:{serverPort}
                           </span>
-                          <p className="text-xs text-[#555555] mt-0.5">{addr.name}</p>
+                          <p className="text-xs text-[var(--c-text-muted)] mt-0.5">{addr.name}</p>
                         </div>
                       </div>
                       <Tooltip content="Copy address" align="end">
                         <button
                           onClick={() => copyText(`${addr.ip}:${serverPort}`, `lan-${i}`)}
-                          className="p-2.5 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                          className="p-2.5 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-all opacity-0 group-hover:opacity-100"
                         >
                           {copied === `lan-${i}` ? (
                             <Check size={16} className="text-[#00AF5C]" />
@@ -375,15 +375,15 @@ function NetworkPanel({ serverId, socket }) {
             )}
 
             {/* ── How to Connect ─────────────────────────────────────── */}
-            <motion.div variants={staggerItem} className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl p-6">
-              <h4 className="text-sm font-bold text-[#FFFFFF] mb-3 flex items-center gap-2">
-                <Gamepad2 size={16} className="text-[#A0A0A0]" />
+            <motion.div variants={staggerItem} className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl p-6">
+              <h4 className="text-sm font-bold text-[var(--c-text-primary)] mb-3 flex items-center gap-2">
+                <Gamepad2 size={16} className="text-[var(--c-text-secondary)]" />
                 How to Connect
               </h4>
-              <ol className="space-y-2 text-sm text-[#A0A0A0]">
+              <ol className="space-y-2 text-sm text-[var(--c-text-secondary)]">
                 <li className="flex items-start gap-2">
                   <span className="text-[#00AF5C] font-bold flex-shrink-0">1.</span>
-                  Install <span className="text-[#FFFFFF] font-medium">Radmin VPN</span> on both machines (free) and join the same network
+                  Install <span className="text-[var(--c-text-primary)] font-medium">Radmin VPN</span> on both machines (free) and join the same network
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#00AF5C] font-bold flex-shrink-0">2.</span>
@@ -391,7 +391,7 @@ function NetworkPanel({ serverId, socket }) {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#00AF5C] font-bold flex-shrink-0">3.</span>
-                  In Minecraft, go to <span className="text-[#FFFFFF] font-medium">Multiplayer → Add Server</span>
+                  In Minecraft, go to <span className="text-[var(--c-text-primary)] font-medium">Multiplayer → Add Server</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#00AF5C] font-bold flex-shrink-0">4.</span>

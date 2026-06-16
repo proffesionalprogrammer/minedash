@@ -22,16 +22,16 @@ export default function ConnectIndicator({ localPort, onDisconnect }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-      className="fixed bottom-6 left-6 z-40 flex items-center gap-3 px-4 py-3 bg-[#1A1A1A] border border-[#00AF5C]/30 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+      className="fixed bottom-6 left-6 z-40 flex items-center gap-3 px-4 py-3 bg-[var(--c-surface-1)] border border-[#00AF5C]/30 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
     >
       <div className="p-1.5 bg-[#00AF5C]/10 rounded-lg flex-shrink-0">
         <Zap size={16} className="text-[#00AF5C]" />
       </div>
       <div className="leading-tight">
-        <p className="text-xs font-bold text-[#FFFFFF]">Connected to friend</p>
+        <p className="text-xs font-bold text-[var(--c-text-primary)]">Connected to friend</p>
         <button
           onClick={copy}
-          className="flex items-center gap-1.5 font-mono text-xs text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors"
+          className="flex items-center gap-1.5 font-mono text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors"
           title="Copy address"
         >
           {address}
@@ -40,7 +40,7 @@ export default function ConnectIndicator({ localPort, onDisconnect }) {
       </div>
       <button
         onClick={onDisconnect}
-        className="ml-1 px-2.5 py-1.5 bg-[#FF5555]/10 hover:bg-[#FF5555]/20 border border-[#FF5555]/20 text-[#FF5555] rounded-lg text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0"
+        className="ml-1 px-2.5 py-1.5 bg-[var(--c-danger)]/10 hover:bg-[var(--c-danger)]/20 border border-[var(--c-danger)]/20 text-[var(--c-danger)] rounded-lg text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0"
       >
         <X size={12} /> Disconnect
       </button>

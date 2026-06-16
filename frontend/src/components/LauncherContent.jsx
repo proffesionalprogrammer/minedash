@@ -510,7 +510,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
   // When rendered inside the modal we drop the outer card chrome — the modal
   // already provides framing, padding, and header.
   const Wrapper = inModal ? 'div' : 'div';
-  const wrapperClass = inModal ? '' : 'bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-6';
+  const wrapperClass = inModal ? '' : 'bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-6';
 
   return (
     <Wrapper
@@ -534,7 +534,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
           >
             <Upload size={36} className="text-[#00AF5C] mb-2" />
             <p className="text-sm font-bold text-white">Drop to upload</p>
-            <p className="text-xs text-[#A0A0A0] mt-1">
+            <p className="text-xs text-[var(--c-text-secondary)] mt-1">
               {type === 'mod' ? '.jar files' : '.zip files'} into this {TYPES.find(t => t.key === type)?.label.toLowerCase() || 'folder'} profile
             </p>
           </motion.div>
@@ -544,8 +544,8 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-[#00AF5C]/10 rounded-xl"><Download size={18} className="text-[#00AF5C]" /></div>
           <div>
-            <h2 className="text-lg font-bold text-[#FFFFFF]">Content</h2>
-            <p className="text-xs text-[#A0A0A0]">Browse Modrinth and install into this profile.</p>
+            <h2 className="text-lg font-bold text-[var(--c-text-primary)]">Content</h2>
+            <p className="text-xs text-[var(--c-text-secondary)]">Browse Modrinth and install into this profile.</p>
           </div>
         </div>
       )}
@@ -561,7 +561,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors duration-150 ${
                 active
                   ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                  : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+                  : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
               }`}>
               <Icon size={14} />
               {label}
@@ -573,14 +573,14 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
       {/* Sub-tabs: Browse Modrinth vs. show what's already installed in the profile.
           Mirrors the server-side ModsViewer pattern so users have a consistent mental
           model for "what's on disk" vs. "what's online". */}
-      <div className="flex items-center gap-1.5 mb-3 border-b border-[#2D2D2D] pb-3">
+      <div className="flex items-center gap-1.5 mb-3 border-b border-[var(--c-border)] pb-3">
         <motion.button
           onClick={() => setView('browse')}
           whileTap={{ scale: 0.97 }}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors duration-150 ${
             view === 'browse'
               ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-              : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+              : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
           }`}>
           <Globe size={14} /> Browse
         </motion.button>
@@ -589,20 +589,20 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
           whileTap={{ scale: 0.97 }}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors duration-150 ${
             view === 'installed'
-              ? 'bg-[#1E1E1E] text-[#FFFFFF] border border-[#2D2D2D]'
-              : 'text-[#A0A0A0] hover:text-[#FFFFFF] border border-transparent hover:bg-[#1E1E1E]'
+              ? 'bg-[var(--c-surface-2)] text-[var(--c-text-primary)] border border-[var(--c-border)]'
+              : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
           }`}>
           <FolderOpen size={14} /> Installed
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${view === 'installed' ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[#2D2D2D] text-[#555555]'}`}>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${view === 'installed' ? 'bg-[#00AF5C]/10 text-[#00AF5C]' : 'bg-[var(--c-border)] text-[var(--c-text-muted)]'}`}>
             {installedList.length}
           </span>
         </motion.button>
       </div>
 
       {showDatapackHint && view === 'browse' && (
-        <div className="flex items-start gap-2 px-3 py-2 mb-3 bg-[#00AF5C]/10 border border-[#00AF5C]/20 rounded-xl text-xs text-[#A0A0A0]">
+        <div className="flex items-start gap-2 px-3 py-2 mb-3 bg-[#00AF5C]/10 border border-[#00AF5C]/20 rounded-xl text-xs text-[var(--c-text-secondary)]">
           <AlertCircle size={14} className="flex-shrink-0 mt-0.5 text-[#00AF5C]" />
-          <span>Data packs are installed into the profile's <span className="font-mono text-[#FFFFFF]">datapacks/</span> folder. Drop them into a world's <span className="font-mono text-[#FFFFFF]">datapacks/</span> directory in-game to activate.</span>
+          <span>Data packs are installed into the profile's <span className="font-mono text-[var(--c-text-primary)]">datapacks/</span> folder. Drop them into a world's <span className="font-mono text-[var(--c-text-primary)]">datapacks/</span> directory in-game to activate.</span>
         </div>
       )}
 
@@ -632,7 +632,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                 <p className="text-sm font-bold text-white">
                   {wrongVersionCount} mod{wrongVersionCount !== 1 ? 's are' : ' is'} on the wrong version or loader
                 </p>
-                <p className="text-xs text-[#A0A0A0] mt-0.5">
+                <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
                   These will crash Minecraft. Replace with a compatible Modrinth build.
                 </p>
               </div>
@@ -648,12 +648,12 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
             </motion.div>
           )}
           {repairResult && (
-            <div className="mb-3 px-3 py-2 text-xs text-[#A0A0A0] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+            <div className="mb-3 px-3 py-2 text-xs text-[var(--c-text-secondary)] bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl">
               {repairResult.repaired?.length > 0 && (
                 <p className="text-[#00AF5C] font-bold">Replaced {repairResult.repaired.length} mod(s) with compatible versions.</p>
               )}
               {repairResult.failed?.length > 0 && (
-                <p className="mt-1 text-[#FF5555]">
+                <p className="mt-1 text-[var(--c-danger)]">
                   {repairResult.failed.length} couldn't be repaired:{' '}
                   {repairResult.failed.slice(0, 3).map(f => f.filename).join(', ')}
                   {repairResult.failed.length > 3 && ` (+${repairResult.failed.length - 3})`}
@@ -665,7 +665,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
             </div>
           )}
           {type === 'mod' && checkingUpdates && updateCount === 0 && (
-            <div className="mb-3 px-3 py-2 flex items-center gap-2 text-xs text-[#555555] bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl">
+            <div className="mb-3 px-3 py-2 flex items-center gap-2 text-xs text-[var(--c-text-muted)] bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl">
               <Loader2 size={12} className="animate-spin text-[#00AF5C]" />
               Checking Modrinth for mod updates…
             </div>
@@ -682,7 +682,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                 <p className="text-sm font-bold text-white">
                   {updateCount} mod update{updateCount !== 1 ? 's' : ''} available
                 </p>
-                <p className="text-xs text-[#A0A0A0] mt-0.5">
+                <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
                   Newer Modrinth releases were published since you installed.
                 </p>
               </div>
@@ -713,14 +713,14 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
           the server-side Mods tab so the launcher and server feel consistent. */}
       <div className="flex items-center gap-2 mb-3">
         <div className="relative flex-1 min-w-0">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
           <input
             type="text"
             value={query}
             onChange={e => handleQuery(e.target.value)}
             placeholder={`Search ${TYPES.find(t => t.key === type).label.toLowerCase()}…`}
             disabled={!supportsLoader}
-            className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium disabled:opacity-40"
+            className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-medium disabled:opacity-40"
           />
         </div>
         <Select
@@ -741,7 +741,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
               whileTap={{ scale: 0.97 }}
               onClick={handleUploadClick}
               disabled={uploading || !version}
-              className="flex items-center gap-1.5 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              className="flex items-center gap-1.5 px-3 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
               {uploading ? 'Uploading…' : 'Upload'}
             </motion.button>
@@ -754,10 +754,10 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 size={20} className="text-[#00AF5C] animate-spin mr-2" />
-            <span className="text-sm text-[#A0A0A0]">Searching…</span>
+            <span className="text-sm text-[var(--c-text-secondary)]">Searching…</span>
           </div>
         ) : results.length === 0 ? (
-          <div className="flex flex-col items-center py-12 text-[#555555]">
+          <div className="flex flex-col items-center py-12 text-[var(--c-text-muted)]">
             <Search size={32} className="mb-3 opacity-30" />
             <p className="text-sm">No results</p>
           </div>
@@ -780,9 +780,9 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                 <motion.div key={p.project_id}
                   initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(idx * 0.02, 0.2), duration: 0.2 }}
-                  className="bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-colors overflow-hidden">
+                  className="bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl hover:border-[var(--c-text-muted)] transition-colors overflow-hidden">
                   <div className="flex items-center gap-3 p-3">
-                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
                       {p.icon_url
                         ? <img src={p.icon_url} alt="" className="w-full h-full object-cover" />
                         : <span className="text-[#00AF5C] font-black">{p.title?.[0] || '?'}</span>}
@@ -799,19 +799,19 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                               versionContext: version,
                               defaultInstanceId: instanceId || null,
                             })}
-                            className="font-bold text-sm text-[#FFFFFF] hover:text-[#00AF5C] truncate text-left transition-colors"
+                            className="font-bold text-sm text-[var(--c-text-primary)] hover:text-[#00AF5C] truncate text-left transition-colors"
                           >
                             {p.title}
                           </button>
                         </Tooltip>
-                        <span className="text-[10px] text-[#555555] flex-shrink-0">by {p.author}</span>
+                        <span className="text-[10px] text-[var(--c-text-muted)] flex-shrink-0">by {p.author}</span>
                       </div>
                       {isModpackInstalling ? (
                         <>
                           <p className="text-xs text-[#00AF5C] line-clamp-1 font-bold">
                             {mp.statusText || 'Installing…'}
                           </p>
-                          <div className="flex items-center gap-3 text-[10px] text-[#555555] mt-1 tabular-nums">
+                          <div className="flex items-center gap-3 text-[10px] text-[var(--c-text-muted)] mt-1 tabular-nums">
                             {mp.total > 0
                               ? <span>File {mp.task.toLocaleString()} of {mp.total.toLocaleString()}</span>
                               : <span>Preparing…</span>}
@@ -819,8 +819,8 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                         </>
                       ) : (
                         <>
-                          <p className="text-xs text-[#A0A0A0] line-clamp-1">{p.description}</p>
-                          <div className="flex items-center gap-3 text-[10px] text-[#555555] mt-1">
+                          <p className="text-xs text-[var(--c-text-secondary)] line-clamp-1">{p.description}</p>
+                          <div className="flex items-center gap-3 text-[10px] text-[var(--c-text-muted)] mt-1">
                             <span className="flex items-center gap-1"><Download size={10} />{fmt(p.downloads)}</span>
                             <span className="flex items-center gap-1"><Heart size={10} />{fmt(p.follows)}</span>
                           </div>
@@ -835,7 +835,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                           </div>
                           <button
                             onClick={() => handleChangeVersionOpen(p)}
-                            className="flex items-center gap-1 text-[10px] font-bold text-[#555555] hover:text-[#00AF5C] transition-colors pr-1">
+                            className="flex items-center gap-1 text-[10px] font-bold text-[var(--c-text-muted)] hover:text-[#00AF5C] transition-colors pr-1">
                             {loadingVersionPicker[p.project_id]
                               ? <Loader2 size={10} className="animate-spin" />
                               : <RefreshCw size={10} className={versionPickerOpen[p.project_id] ? 'text-[#00AF5C]' : ''} />}
@@ -851,7 +851,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                               <Tooltip content={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`} align="end">
                               <div
                                 className="relative overflow-hidden flex items-center gap-1.5 px-3 py-1.5 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
-                                style={{ background: '#1E1E1E' }}
+                                style={{ background: 'var(--c-surface-2)' }}
                               >
                                 <motion.div
                                   initial={false}
@@ -890,9 +890,9 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                        className="overflow-hidden border-t border-[#2D2D2D]">
+                        className="overflow-hidden border-t border-[var(--c-border)]">
                         <div className="px-3 py-2 max-h-72 overflow-y-auto custom-scrollbar">
-                          <p className="text-[10px] uppercase tracking-wider font-bold text-[#555555] mb-1.5">Select version to install</p>
+                          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] mb-1.5">Select version to install</p>
                           <div className="space-y-1.5">
                             {projectVersionsList[p.project_id].map(ver => (
                               <VersionRow
@@ -920,11 +920,11 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#2D2D2D]">
-          <span className="text-xs text-[#555555]">{totalHits.toLocaleString()} results • Page {page+1} of {totalPages}</span>
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--c-border)]">
+          <span className="text-xs text-[var(--c-text-muted)]">{totalHits.toLocaleString()} results • Page {page+1} of {totalPages}</span>
           <div className="flex gap-2">
-            <button onClick={() => handlePageChange(page-1)} disabled={page===0} className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"><ChevronLeft size={16}/></button>
-            <button onClick={() => handlePageChange(page+1)} disabled={page>=totalPages-1} className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"><ChevronRight size={16}/></button>
+            <button onClick={() => handlePageChange(page-1)} disabled={page===0} className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"><ChevronLeft size={16}/></button>
+            <button onClick={() => handlePageChange(page+1)} disabled={page>=totalPages-1} className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"><ChevronRight size={16}/></button>
           </div>
         </div>
       )}
@@ -1037,10 +1037,10 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
 
   if (!items || items.length === 0) {
     return (
-      <div className="flex flex-col items-center py-16 text-[#555555]">
+      <div className="flex flex-col items-center py-16 text-[var(--c-text-muted)]">
         <FolderOpen size={32} className="mb-3 opacity-30" />
         <p className="text-sm">No {typeLabel} installed yet</p>
-        <p className="text-xs mt-1 text-[#555555]">Switch to <span className="font-bold text-[#A0A0A0]">Browse</span> to add some.</p>
+        <p className="text-xs mt-1 text-[var(--c-text-muted)]">Switch to <span className="font-bold text-[var(--c-text-secondary)]">Browse</span> to add some.</p>
       </div>
     );
   }
@@ -1056,11 +1056,11 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
             className="flex items-center gap-2 mb-3 px-3 py-2 bg-[#00AF5C]/10 border border-[#00AF5C]/20 rounded-xl">
             <button
               onClick={exitSelectMode}
-              className="p-1.5 rounded-lg text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors"
+              className="p-1.5 rounded-lg text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors"
               aria-label="Exit selection">
               <X size={14} />
             </button>
-            <span className="text-xs font-bold text-[#FFFFFF] tabular-nums">
+            <span className="text-xs font-bold text-[var(--c-text-primary)] tabular-nums">
               {selected.size} selected
             </span>
             <div className="flex-1" />
@@ -1076,7 +1076,7 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
               disabled={selected.size === 0}
               whileHover={{ scale: selected.size === 0 ? 1 : 1.03 }}
               whileTap={{ scale: selected.size === 0 ? 1 : 0.97 }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FF5555] hover:bg-[#FF4444] text-white transition-colors disabled:opacity-40">
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white transition-colors disabled:opacity-40">
               <Trash2 size={14} />
               Delete
             </motion.button>
@@ -1087,27 +1087,27 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.12 }}
             className="relative mb-3">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555555]" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
             <input
               type="text"
               value={filter}
               onChange={e => onFilterChange(e.target.value)}
               placeholder={`Filter installed ${typeLabel}…`}
-              className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium"
+              className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-medium"
             />
           </motion.div>
         )}
       </AnimatePresence>
 
       {!selectMode && (
-        <p className="text-[10px] text-[#555555] mb-2 px-1">
+        <p className="text-[10px] text-[var(--c-text-muted)] mb-2 px-1">
           Tip: press and hold an item to select multiple.
         </p>
       )}
 
       <div className="max-h-[420px] overflow-y-auto custom-scrollbar -mr-2 pr-2">
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center py-12 text-[#555555]">
+          <div className="flex flex-col items-center py-12 text-[var(--c-text-muted)]">
             <Search size={32} className="mb-3 opacity-30" />
             <p className="text-sm">No installed {typeLabel} match "{filter}"</p>
           </div>
@@ -1126,36 +1126,36 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                 onTouchEnd={cancelPress}
                 onTouchMove={cancelPress}
                 onClick={() => handleRowClick(f.filename)}
-                className={`group flex items-center gap-3 px-3 py-2 bg-[#1E1E1E] border rounded-xl transition-colors select-none ${
+                className={`group flex items-center gap-3 px-3 py-2 bg-[var(--c-surface-2)] border rounded-xl transition-colors select-none ${
                   isSelected
                     ? 'border-[#00AF5C] bg-[#00AF5C]/10'
-                    : 'border-[#2D2D2D] hover:border-[#555555]'
+                    : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
                 } ${selectMode ? 'cursor-pointer' : ''}`}>
                 {selectMode && (
                   <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
-                    isSelected ? 'bg-[#00AF5C] text-white' : 'bg-[#111111] border border-[#2D2D2D]'
+                    isSelected ? 'bg-[#00AF5C] text-white' : 'bg-[var(--c-base)] border border-[var(--c-border)]'
                   }`}>
                     {isSelected && <Check size={12} />}
                   </div>
                 )}
-                <div className="w-9 h-9 rounded-lg overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-lg overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
                   {f.iconUrl
                     ? <img src={f.iconUrl} alt="" className="w-full h-full object-cover" draggable={false} />
                     : <Package size={16} className="text-[#00AF5C]" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <p className="text-sm font-bold text-[#FFFFFF] truncate">{f.title || f.filename}</p>
+                    <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{f.title || f.filename}</p>
                     {f.wrongVersion && (
                       <Tooltip content="This mod's jar doesn't list this profile's Minecraft version as supported" className="flex-shrink-0">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-danger)]/15 text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-md">
                           <AlertTriangle size={10} /> Wrong version
                         </span>
                       </Tooltip>
                     )}
                     {!f.wrongVersion && f.wrongLoader && (
                       <Tooltip content="This jar is built for a different mod loader than the profile" className="flex-shrink-0">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#FF5555]/15 text-[#FF5555] border border-[#FF5555]/30 rounded-md">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-danger)]/15 text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-md">
                           <AlertTriangle size={10} /> Wrong loader
                         </span>
                       </Tooltip>
@@ -1169,12 +1169,12 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                     )}
                   </div>
                   {f.title && f.title !== f.filename && (
-                    <p className="text-[10px] text-[#555555] truncate font-mono">{f.filename}</p>
+                    <p className="text-[10px] text-[var(--c-text-muted)] truncate font-mono">{f.filename}</p>
                   )}
                 </div>
                 {!selectMode && (
                   <button onClick={(e) => { e.stopPropagation(); onDelete(f.filename); }}
-                    className="p-2 text-[#A0A0A0] hover:text-[#FF5555] hover:bg-[#FF5555]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0"
+                    className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0"
                     aria-label="Remove">
                     <Trash2 size={14} />
                   </button>
@@ -1198,21 +1198,21 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
               onClick={e => e.stopPropagation()}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-6 max-w-md w-full">
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-6 max-w-md w-full">
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-[#FF5555]/10 rounded-xl">
-                  <Trash2 size={18} className="text-[#FF5555]" />
+                <div className="p-2 bg-[var(--c-danger)]/10 rounded-xl">
+                  <Trash2 size={18} className="text-[var(--c-danger)]" />
                 </div>
-                <h3 className="text-lg font-bold text-[#FFFFFF]">Delete {selected.size} {typeLabel}?</h3>
+                <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Delete {selected.size} {typeLabel}?</h3>
               </div>
-              <p className="text-sm text-[#A0A0A0] mb-5">
+              <p className="text-sm text-[var(--c-text-secondary)] mb-5">
                 The selected files will be removed from this profile. This can't be undone.
               </p>
-              <div className="flex items-center justify-end gap-2 border-t border-[#2D2D2D] pt-4">
+              <div className="flex items-center justify-end gap-2 border-t border-[var(--c-border)] pt-4">
                 <button
                   onClick={() => setConfirmBulkDelete(false)}
                   disabled={bulkDeleting}
-                  className="px-4 py-2 rounded-xl text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors disabled:opacity-40">
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors disabled:opacity-40">
                   Cancel
                 </button>
                 <motion.button
@@ -1220,7 +1220,7 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                   disabled={bulkDeleting}
                   whileHover={{ scale: bulkDeleting ? 1 : 1.03 }}
                   whileTap={{ scale: bulkDeleting ? 1 : 0.97 }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-[#FF5555] hover:bg-[#FF4444] text-white transition-colors disabled:opacity-60">
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white transition-colors disabled:opacity-60">
                   {bulkDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                   {bulkDeleting ? 'Deleting…' : 'Delete'}
                 </motion.button>

@@ -70,7 +70,7 @@ export default function JavaRuntimeModal({ inst, onClose, onSaved, onError }) {
     </span>
   );
   const downloadBadge = (
-    <span className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[#1A1A1A] text-[#A0A0A0] border border-[#2D2D2D] flex-shrink-0">
+    <span className="flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md bg-[var(--c-surface-1)] text-[var(--c-text-secondary)] border border-[var(--c-border)] flex-shrink-0">
       <Download size={9} /> Downloads on launch
     </span>
   );
@@ -87,22 +87,22 @@ export default function JavaRuntimeModal({ inst, onClose, onSaved, onError }) {
         initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
         onClick={e => e.stopPropagation()}
-        className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-6 max-w-lg w-full"
+        className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-6 max-w-lg w-full"
       >
         <div className="flex items-center gap-3 mb-1">
           <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
             <Coffee size={18} className="text-[#00AF5C]" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-lg font-bold text-[#FFFFFF]">Java runtime</h3>
-            <p className="text-xs text-[#A0A0A0] truncate">{inst.displayName} · Minecraft {inst.version}</p>
+            <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Java runtime</h3>
+            <p className="text-xs text-[var(--c-text-secondary)] truncate">{inst.displayName} · Minecraft {inst.version}</p>
           </div>
         </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-10">
             <Loader2 size={18} className="text-[#00AF5C] animate-spin mr-2" />
-            <span className="text-sm text-[#A0A0A0]">Checking installed runtimes…</span>
+            <span className="text-sm text-[var(--c-text-secondary)]">Checking installed runtimes…</span>
           </div>
         ) : (
           <div className="mt-4 space-y-1.5 max-h-[50vh] overflow-y-auto custom-scrollbar -mr-2 pr-2">
@@ -156,17 +156,17 @@ export default function JavaRuntimeModal({ inst, onClose, onSaved, onError }) {
                 value={customPath}
                 onChange={e => setCustomPath(e.target.value)}
                 placeholder="C:\\Program Files\\Java\\jdk-21\\bin\\java.exe"
-                className="w-full bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-mono"
+                className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono"
               />
             )}
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-[#2D2D2D] pt-4 mt-4">
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--c-border)] pt-4 mt-4">
           <button
             onClick={onClose}
             disabled={saving}
-            className="px-4 py-2 rounded-xl text-sm font-bold text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E] transition-colors disabled:opacity-40"
+            className="px-4 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors disabled:opacity-40"
           >
             Cancel
           </button>

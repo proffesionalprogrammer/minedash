@@ -291,22 +291,22 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4"
             >
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2.5 bg-amber-500/10 rounded-xl">
                   <AlertTriangle size={20} className="text-amber-500" />
                 </div>
-                <h3 className="text-xl font-bold text-[#FFFFFF]">Restart with players online?</h3>
+                <h3 className="text-xl font-bold text-[var(--c-text-primary)]">Restart with players online?</h3>
               </div>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 <span className="text-white font-bold">{serverStats.players?.length} player{serverStats.players?.length === 1 ? '' : 's'}</span> connected right now: <span className="text-white">{serverStats.players?.map(p => typeof p === 'string' ? p : p.name).join(', ')}</span>.
                 Restarting will kick everyone for ~30–60 seconds.
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
                 <button
                   onClick={() => setShowRestartModal(false)}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] active:scale-95"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] active:scale-95"
                 >
                   Cancel
                 </button>
@@ -338,23 +338,23 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
               animate={{ scale: 1, opacity: 1 }} 
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] p-6 rounded-3xl w-full max-w-md shadow-2xl"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl"
             >
-              <h3 className="text-xl font-bold text-[#FFFFFF] mb-2">Delete Server</h3>
-              <p className="text-[#A0A0A0] text-sm mb-6 leading-relaxed">
+              <h3 className="text-xl font-bold text-[var(--c-text-primary)] mb-2">Delete Server</h3>
+              <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
                 Are you sure you want to permanently delete <span className="text-white font-bold">{server.name}</span>? 
                 This will destroy all files, mods, and worlds. This action cannot be undone.
               </p>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#2D2D2D]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
                 <button 
                   onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 bg-[#111111] hover:bg-[#2D2D2D] border border-[#2D2D2D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] active:scale-95"
+                  className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] active:scale-95"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleDeleteServer}
-                  className="px-4 py-2 bg-[#FF5555] hover:bg-[#FF4444] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] active:scale-95 hover:shadow-[0_4px_20px_rgba(255,85,85,0.3)]"
+                  className="px-4 py-2 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2 hover:scale-[1.02] active:scale-95 hover:shadow-[0_4px_20px_rgba(255,85,85,0.3)]"
                 >
                   <Trash2 size={16} /> Delete Permanently
                 </button>
@@ -383,7 +383,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
             <motion.div
               whileHover={{ scale: 1.05 }}
               transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-              className="w-24 h-24 bg-[#111111] rounded-2xl overflow-hidden border border-[#2D2D2D] flex-shrink-0 shadow-lg flex items-center justify-center"
+              className="w-24 h-24 bg-[var(--c-base)] rounded-2xl overflow-hidden border border-[var(--c-border)] flex-shrink-0 shadow-lg flex items-center justify-center"
             >
               <img
                 src={`http://localhost:3001/api/servers/${server.id}/icon.png?t=${iconKey}`}
@@ -394,27 +394,27 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                   e.target.nextSibling.style.display = 'block';
                 }}
               />
-              <Server className="text-[#555555] hidden" size={40} />
+              <Server className="text-[var(--c-text-muted)] hidden" size={40} />
             </motion.div>
             
             <div className="flex flex-col gap-2">
-              <h1 className="text-4xl font-black text-[#FFFFFF] tracking-tight">{server.name}</h1>
+              <h1 className="text-4xl font-black text-[var(--c-text-primary)] tracking-tight">{server.name}</h1>
               
-              <div className="flex items-center gap-4 text-sm font-medium text-[#A0A0A0]">
+              <div className="flex items-center gap-4 text-sm font-medium text-[var(--c-text-secondary)]">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[#555555]"><Gamepad2 size={16}/></span>
+                  <span className="text-[var(--c-text-muted)]"><Gamepad2 size={16}/></span>
                   Minecraft {server.version}
                 </div>
-                <div className="w-px h-3 bg-[#2D2D2D]"></div>
+                <div className="w-px h-3 bg-[var(--c-border)]"></div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[#555555]"><Settings size={16}/></span>
+                  <span className="text-[var(--c-text-muted)]"><Settings size={16}/></span>
                   <span className="capitalize">{server.type} {server.version}</span>
                 </div>
                 {isOnline && (
                   <>
-                    <div className="w-px h-3 bg-[#2D2D2D]"></div>
-                    <div className="flex items-center gap-1.5 text-[#FFFFFF]">
-                      <span className="text-[#555555]"><Clock size={16}/></span>
+                    <div className="w-px h-3 bg-[var(--c-border)]"></div>
+                    <div className="flex items-center gap-1.5 text-[var(--c-text-primary)]">
+                      <span className="text-[var(--c-text-muted)]"><Clock size={16}/></span>
                       {serverStats.uptime}
                     </div>
                   </>
@@ -427,16 +427,16 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={handleCopyAddress}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${addressCopied ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]' : 'bg-[#1A1A1A] border-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] hover:border-[#555555]'}`}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${addressCopied ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]' : 'bg-[var(--c-surface-1)] border-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:border-[var(--c-text-muted)]'}`}
                   >
-                    <span className="text-[#555555]">Radmin VPN:</span>
+                    <span className="text-[var(--c-text-muted)]">Radmin VPN:</span>
                     <span className="tabular-nums">{primaryAddress}</span>
                     {addressCopied ? <Check size={12} /> : <Copy size={12} className="opacity-60" />}
                   </motion.button>
                 </Tooltip>
               ) : (
                 <Tooltip content="Install and start Radmin VPN to share a joinable address." side="bottom" align="start" className="mt-1 self-start">
-                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border bg-[#1A1A1A] border-[#2D2D2D] text-[#555555]">
+                  <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border bg-[var(--c-surface-1)] border-[var(--c-border)] text-[var(--c-text-muted)]">
                     Radmin VPN: not detected
                   </span>
                 </Tooltip>
@@ -465,7 +465,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                   joinSession.phase === 'launched'
                     ? 'border-[#00AF5C]/40 text-white'
                     : joinSession.phase === 'error'
-                      ? 'border-[#FF5555]/40 text-white'
+                      ? 'border-[var(--c-danger)]/40 text-white'
                       : joinSession.phase === 'running'
                         ? 'border-[#00AF5C]/40 text-white'
                         : 'bg-[#00AF5C]/10 hover:bg-[#00AF5C]/20 border-[#00AF5C]/20 text-[#00AF5C]'
@@ -507,7 +507,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                   whileTap={{ scale: 0.95 }}
                   onClick={handleStop}
                   disabled={loading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-transparent hover:bg-[#2D2D2D] border border-transparent text-[#FFFFFF] rounded-xl font-bold transition-all duration-200 disabled:opacity-50"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-transparent hover:bg-[var(--c-border)] border border-transparent text-[var(--c-text-primary)] rounded-xl font-bold transition-all duration-200 disabled:opacity-50"
                 >
                   <Square size={16} />
                   <span>Stop</span>
@@ -541,7 +541,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setShowSettings(!showSettings)} 
-                className="p-2.5 bg-transparent hover:bg-[#2D2D2D] text-[#A0A0A0] hover:text-[#FFFFFF] rounded-xl transition-all duration-200"
+                className="p-2.5 bg-transparent hover:bg-[var(--c-border)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl transition-all duration-200"
               >
                 <MoreVertical size={20} />
               </motion.button>
@@ -554,7 +554,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -4, scale: 0.95 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute right-0 mt-2 w-48 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
+                      className="absolute right-0 mt-2 w-48 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
                     >
                       <button 
                         onClick={() => {
@@ -562,7 +562,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                           setShowDeleteModal(true);
                         }} 
                         disabled={loading}
-                        className="w-full text-left px-4 py-3 text-sm font-bold text-[#FF5555] hover:bg-[#FF5555]/10 flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
+                        className="w-full text-left px-4 py-3 text-sm font-bold text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
                       >
                         <Trash2 size={16} /> Delete Server
                       </button>
@@ -620,7 +620,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
         className="flex-1 flex flex-col min-h-[350px]"
       >
         {/* Animated Tabs */}
-        <div className="flex items-center gap-1 mb-4 border-b border-[#2D2D2D] pb-px relative">
+        <div className="flex items-center gap-1 mb-4 border-b border-[var(--c-border)] pb-px relative">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -628,7 +628,7 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
               className={`px-4 py-3 font-bold text-sm transition-all duration-200 relative rounded-t-xl ${
                 activeTab === tab.key 
                   ? 'text-[#00AF5C]' 
-                  : 'text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#1E1E1E]'
+                  : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)]'
               }`}
             >
               {tab.label}

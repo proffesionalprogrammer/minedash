@@ -58,20 +58,20 @@ export default function UpdateToast() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 20, scale: 0.95 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-2.5 bg-[#1A1A1A] border border-[#2D2D2D] rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-2.5 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
         >
           <div className="p-1.5 bg-[#00AF5C]/10 rounded-lg">
             <Download size={14} className="text-[#00AF5C]" />
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-[#555555]">Downloading update</span>
-            <span className="text-xs font-bold text-[#FFFFFF] tabular-nums">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Downloading update</span>
+            <span className="text-xs font-bold text-[var(--c-text-primary)] tabular-nums">
               {version ? `v${version}` : ''} · {percent}%
             </span>
           </div>
           <button
             onClick={() => setDismissed(true)}
-            className="ml-2 text-[#555555] hover:text-[#A0A0A0] transition-colors"
+            className="ml-2 text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] transition-colors"
             aria-label="Dismiss"
           >
             <X size={14} />
@@ -86,16 +86,16 @@ export default function UpdateToast() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 20, scale: 0.95 }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-[#1A1A1A] border border-[#00AF5C]/40 rounded-2xl shadow-[0_8px_30px_rgba(0,175,92,0.25)]"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-[var(--c-surface-1)] border border-[#00AF5C]/40 rounded-2xl shadow-[0_8px_30px_rgba(0,175,92,0.25)]"
         >
           <div className="p-2 bg-[#00AF5C]/10 rounded-xl flex-shrink-0">
             <RotateCw size={16} className="text-[#00AF5C]" />
           </div>
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-[#FFFFFF]">
+            <span className="text-xs font-bold text-[var(--c-text-primary)]">
               Update ready{version ? ` · v${version}` : ''}
             </span>
-            <span className="text-[10px] text-[#A0A0A0]">Click to relaunch with the new version.</span>
+            <span className="text-[10px] text-[var(--c-text-secondary)]">Click to relaunch with the new version.</span>
           </div>
           <motion.button
             onClick={relaunch}
@@ -107,7 +107,7 @@ export default function UpdateToast() {
           </motion.button>
           <button
             onClick={() => setDismissed(true)}
-            className="text-[#555555] hover:text-[#A0A0A0] transition-colors"
+            className="text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] transition-colors"
             aria-label="Dismiss"
           >
             <X size={14} />

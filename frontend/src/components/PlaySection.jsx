@@ -265,14 +265,14 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#111111] px-6 md:px-12 py-8 overflow-y-auto custom-scrollbar">
+    <div className="flex-1 flex flex-col h-full bg-[var(--c-base)] px-6 md:px-12 py-8 overflow-y-auto custom-scrollbar">
       <div className="max-w-3xl mx-auto w-full space-y-6">
 
-        <div className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl p-6">
+        <div className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-[#00AF5C]/10 rounded-xl"><Box size={18} className="text-[#00AF5C]" /></div>
-              <h2 className="text-lg font-bold text-[#FFFFFF]">Profile</h2>
+              <h2 className="text-lg font-bold text-[var(--c-text-primary)]">Profile</h2>
             </div>
             <Tooltip content={version ? 'Browse and install mods, resource packs, shaders…' : 'Pick a version first'}>
             <motion.button
@@ -280,14 +280,14 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
               disabled={!version}
               whileHover={version ? { scale: 1.03 } : {}}
               whileTap={version ? { scale: 0.97 } : {}}
-              className="flex items-center gap-2 px-3 py-1.5 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              className="flex items-center gap-2 px-3 py-1.5 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
               <Download size={14} />
               Content
             </motion.button>
             </Tooltip>
           </div>
 
-          <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555] block mb-2">Loader</label>
+          <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] block mb-2">Loader</label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
             {LOADERS.map(({ key, label, icon: Icon }) => {
               const active = loader === key;
@@ -300,7 +300,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                   className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-2xl border transition-colors duration-200 ${
                     active
                       ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30 text-[#00AF5C]'
-                      : 'bg-[#1E1E1E] border-[#2D2D2D] text-[#A0A0A0] hover:border-[#555555]'
+                      : 'bg-[var(--c-surface-2)] border-[var(--c-border)] text-[var(--c-text-secondary)] hover:border-[var(--c-text-muted)]'
                   }`}>
                   <Icon size={18} />
                   <span className="text-xs font-bold">{label}</span>
@@ -309,7 +309,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
             })}
           </div>
 
-          <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555] block mb-2">Version</label>
+          <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] block mb-2">Version</label>
           <VersionSelect
             value={version}
             onChange={setVersion}
@@ -320,7 +320,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
           />
 
           {/* Instance picker — multiple isolated profiles per loader+version. */}
-          <label className="text-[10px] uppercase tracking-wider font-bold text-[#555555] block mt-5 mb-2">Instance</label>
+          <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] block mt-5 mb-2">Instance</label>
           <div className="flex items-stretch gap-2">
             {visibleInstances.length > 0 && (
               <Select
@@ -337,7 +337,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                 whileTap={{ scale: 0.97 }}
                 onClick={() => { setShowNewInstance(true); setNewInstanceName(''); }}
                 disabled={!version}
-                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 <Plus size={14} /> New
               </motion.button>
             </Tooltip>
@@ -350,7 +350,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                     onClick={() => {
                       fetch(`http://localhost:3001/api/launcher/instances/${encodeURIComponent(currentInstance.id)}/open-folder`, { method: 'POST' }).catch(() => {});
                     }}
-                    className="flex-shrink-0 p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                    className="flex-shrink-0 p-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                     <FolderOpen size={14} />
                   </motion.button>
                 </Tooltip>
@@ -359,7 +359,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => { setRenamingId(currentInstance.id); setRenameDraft(currentInstance.displayName); }}
-                    className="flex-shrink-0 p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                    className="flex-shrink-0 p-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                     <Pencil size={14} />
                   </motion.button>
                 </Tooltip>
@@ -368,7 +368,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => handleDeleteInstance(currentInstance.id)}
-                    className="flex-shrink-0 p-2 bg-[#1E1E1E] hover:bg-[#FF5555]/10 border border-[#2D2D2D] hover:border-[#FF5555]/40 rounded-xl text-[#A0A0A0] hover:text-[#FF5555] transition-colors">
+                    className="flex-shrink-0 p-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-danger)]/10 border border-[var(--c-border)] hover:border-[var(--c-danger)]/40 rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] transition-colors">
                     <Trash2 size={14} />
                   </motion.button>
                 </Tooltip>
@@ -392,7 +392,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                     onChange={e => setNewInstanceName(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleCreateInstance(); if (e.key === 'Escape') setShowNewInstance(false); }}
                     placeholder={`Name your ${loader} ${version} instance…`}
-                    className="flex-1 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[#555555] font-medium"
+                    className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-medium"
                   />
                   <motion.button
                     whileTap={{ scale: 0.97 }}
@@ -404,7 +404,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                   <motion.button
                     whileTap={{ scale: 0.97 }}
                     onClick={() => setShowNewInstance(false)}
-                    className="p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                    className="p-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                     <X size={14} />
                   </motion.button>
                 </div>
@@ -424,7 +424,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                     value={renameDraft}
                     onChange={e => setRenameDraft(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleRenameInstance(); if (e.key === 'Escape') setRenamingId(null); }}
-                    className="flex-1 bg-[#111111] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[#FFFFFF] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all font-medium"
+                    className="flex-1 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all font-medium"
                   />
                   <motion.button
                     whileTap={{ scale: 0.97 }}
@@ -436,7 +436,7 @@ export default function PlaySection({ servers, socket, initialServerId, accounts
                   <motion.button
                     whileTap={{ scale: 0.97 }}
                     onClick={() => setRenamingId(null)}
-                    className="p-2 bg-[#1E1E1E] hover:bg-[#2D2D2D] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-colors">
+                    className="p-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                     <X size={14} />
                   </motion.button>
                 </div>

@@ -23,7 +23,7 @@ export default function SkinHead({
   if (!username) {
     return (
       <div
-        className={`bg-[#2D2D2D] flex-shrink-0 ${rounded} ${className}`}
+        className={`bg-[var(--c-border)] flex-shrink-0 ${rounded} ${className}`}
         style={{ width: size, height: size }}
       />
     );

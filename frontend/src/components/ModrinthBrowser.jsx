@@ -30,7 +30,7 @@ function fmtBytes(b) {
 const TYPE_COLORS = {
   release: 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/20',
   beta: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  alpha: 'bg-[#FF5555]/10 text-[#FF5555] border-[#FF5555]/20',
+  alpha: 'bg-[var(--c-danger)]/10 text-[var(--c-danger)] border-[var(--c-danger)]/20',
 };
 
 export default function ModrinthBrowser({ serverId, serverVersion, serverType, onInstalled, projectType = 'mod', modpackInstalls, onOpenDetail }) {
@@ -375,45 +375,45 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
             onClick={()=>setVersionModal(null)}>
             <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}}
               transition={{type:'spring',duration:0.4,bounce:0.15}}
-              className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl w-full max-w-2xl shadow-2xl mx-4 max-h-[80vh] flex flex-col overflow-hidden"
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl w-full max-w-2xl shadow-2xl mx-4 max-h-[80vh] flex flex-col overflow-hidden"
               onClick={e=>e.stopPropagation()}>
-              <div className="flex items-center justify-between px-6 py-4 border-b border-[#2D2D2D]">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--c-border)]">
                 <div className="flex items-center gap-3 min-w-0">
                   {versionModal.icon_url && <img src={versionModal.icon_url} alt="" className="w-10 h-10 rounded-xl object-cover flex-shrink-0"/>}
                   <div className="min-w-0">
-                    <h3 className="text-lg font-bold text-[#FFFFFF] truncate">{versionModal.title}</h3>
-                    <p className="text-xs text-[#555555]">Select a version to install</p>
+                    <h3 className="text-lg font-bold text-[var(--c-text-primary)] truncate">{versionModal.title}</h3>
+                    <p className="text-xs text-[var(--c-text-muted)]">Select a version to install</p>
                   </div>
                 </div>
-                <button onClick={()=>setVersionModal(null)} className="p-2 text-[#A0A0A0] hover:text-[#FFFFFF] hover:bg-[#2D2D2D] rounded-xl transition-all"><X size={20}/></button>
+                <button onClick={()=>setVersionModal(null)} className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] rounded-xl transition-all"><X size={20}/></button>
               </div>
-              <div className="flex items-center gap-2 px-6 py-3 border-b border-[#2D2D2D]">
+              <div className="flex items-center gap-2 px-6 py-3 border-b border-[var(--c-border)]">
                 {['all','release','beta','alpha'].map(t=>(
                   <button key={t} onClick={()=>setVersionFilter(t)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg capitalize transition-all ${versionFilter===t?'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20':'text-[#555555] hover:text-[#A0A0A0] border border-transparent hover:border-[#2D2D2D]'}`}>
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg capitalize transition-all ${versionFilter===t?'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20':'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] border border-transparent hover:border-[var(--c-border)]'}`}>
                     {t}
                   </button>
                 ))}
-                {serverVersion && <span className="ml-auto text-[10px] text-[#555555]">Your server: {serverVersion}</span>}
+                {serverVersion && <span className="ml-auto text-[10px] text-[var(--c-text-muted)]">Your server: {serverVersion}</span>}
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
                 {versionsLoading ? (
-                  <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-[#00AF5C] mr-3"/><span className="text-[#A0A0A0] text-sm">Loading...</span></div>
+                  <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-[#00AF5C] mr-3"/><span className="text-[var(--c-text-secondary)] text-sm">Loading...</span></div>
                 ) : filteredVs.length===0 ? (
-                  <div className="flex flex-col items-center py-12 text-[#555555]"><Tag size={32} className="mb-3 opacity-30"/><p className="text-sm">No versions found</p></div>
+                  <div className="flex flex-col items-center py-12 text-[var(--c-text-muted)]"><Tag size={32} className="mb-3 opacity-30"/><p className="text-sm">No versions found</p></div>
                 ) : filteredVs.map(v => {
                   const tc = TYPE_COLORS[v.version_type]||TYPE_COLORS.release;
                   const f = v.files.find(x=>x.primary)||v.files[0];
                   const compat = serverVersion && v.game_versions.includes(serverVersion);
                   return (
-                    <div key={v.id} className={`flex items-center gap-4 p-3 rounded-xl border transition-all hover:border-[#555555] ${compat?'bg-[#1E1E1E] border-[#2D2D2D]':'bg-[#1E1E1E]/50 border-[#2D2D2D]/50'}`}>
+                    <div key={v.id} className={`flex items-center gap-4 p-3 rounded-xl border transition-all hover:border-[var(--c-text-muted)] ${compat?'bg-[var(--c-surface-2)] border-[var(--c-border)]':'bg-[var(--c-surface-2)]/50 border-[var(--c-border)]/50'}`}>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-bold text-sm text-[#FFFFFF]">{v.version_number}</span>
+                          <span className="font-bold text-sm text-[var(--c-text-primary)]">{v.version_number}</span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tc} uppercase`}>{v.version_type}</span>
                           {compat && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Compatible</span>}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-[#555555]">
+                        <div className="flex items-center gap-3 text-xs text-[var(--c-text-muted)]">
                           <span>MC {v.game_versions.slice(0,3).join(', ')}{v.game_versions.length>3?` +${v.game_versions.length-3}`:''}</span>
                           {f && <span>{fmtBytes(f.size)}</span>}
                           <span>{fmt(v.downloads)} downloads</span>
@@ -443,21 +443,21 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
               onClick={()=>setClientOnlyConfirm(null)}>
               <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}}
                 transition={{type:'spring',duration:0.4,bounce:0.15}}
-                className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-3xl w-full max-w-md shadow-2xl mx-4 p-6"
+                className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl w-full max-w-md shadow-2xl mx-4 p-6"
                 onClick={e=>e.stopPropagation()}>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="bg-amber-500/10 p-2 rounded-xl"><AlertCircle size={20} className="text-amber-400"/></div>
-                  <h3 className="text-lg font-bold text-[#FFFFFF]">Client-only mod</h3>
+                  <h3 className="text-lg font-bold text-[var(--c-text-primary)]">Client-only mod</h3>
                 </div>
-                <p className="text-sm text-[#A0A0A0] mb-2 font-medium">
-                  <span className="text-[#FFFFFF] font-bold">{clientOnlyConfirm.title}</span> is marked client-only by its author.
+                <p className="text-sm text-[var(--c-text-secondary)] mb-2 font-medium">
+                  <span className="text-[var(--c-text-primary)] font-bold">{clientOnlyConfirm.title}</span> is marked client-only by its author.
                 </p>
-                <p className="text-sm text-[#A0A0A0] mb-6 font-medium">
+                <p className="text-sm text-[var(--c-text-secondary)] mb-6 font-medium">
                   Installing it on a dedicated server will likely crash the whole server on startup the moment the mod tries to load a client-only class. Install anyway?
                 </p>
-                <div className="flex gap-2 border-t border-[#2D2D2D] pt-4">
+                <div className="flex gap-2 border-t border-[var(--c-border)] pt-4">
                   <button onClick={()=>setClientOnlyConfirm(null)}
-                    className="flex-1 px-4 py-2.5 bg-[#2D2D2D] hover:bg-[#3D3D3D] text-[#FFFFFF] rounded-xl text-sm font-bold transition-all">
+                    className="flex-1 px-4 py-2.5 bg-[var(--c-border)] hover:bg-[var(--c-border-soft)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all">
                     Cancel
                   </button>
                   <button onClick={confirmClientOnly}
@@ -474,9 +474,9 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       {/* Search */}
       <div className="flex items-center gap-3 mb-3">
         <div className="relative flex-1">
-          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555555]"/>
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]"/>
           <input type="text" placeholder={searchPlaceholder} value={query} onChange={e=>handleQueryChange(e.target.value)}
-            className="w-full pl-12 pr-4 py-2.5 bg-[#1E1E1E] border border-[#2D2D2D] focus:border-[#00AF5C] rounded-xl text-sm text-[#FFFFFF] outline-none transition-all placeholder-[#555555] focus:ring-4 focus:ring-[#00AF5C]/10 font-medium"/>
+            className="w-full pl-12 pr-4 py-2.5 bg-[var(--c-surface-2)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl text-sm text-[var(--c-text-primary)] outline-none transition-all placeholder-[var(--c-text-muted)] focus:ring-4 focus:ring-[#00AF5C]/10 font-medium"/>
         </div>
         <Select
           value={sortIndex}
@@ -489,7 +489,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
           ]}
           className="flex-shrink-0"
         />
-        {serverVersion && <span className="text-xs font-bold bg-[#1E1E1E] text-[#A0A0A0] px-3 py-2 rounded-xl border border-[#2D2D2D] whitespace-nowrap flex-shrink-0 capitalize">{serverType} {serverVersion}</span>}
+        {serverVersion && <span className="text-xs font-bold bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] px-3 py-2 rounded-xl border border-[var(--c-border)] whitespace-nowrap flex-shrink-0 capitalize">{serverType} {serverVersion}</span>}
       </div>
 
       {/* Categories (only for mods) */}
@@ -497,7 +497,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
         <div className="flex flex-wrap gap-1.5 mb-3">
           {CATEGORIES.map(cat=>(
             <button key={cat} onClick={()=>handleCategoryChange(cat)}
-              className={`px-2.5 py-1 text-xs font-bold rounded-lg capitalize transition-all ${category===cat?'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20':'text-[#555555] hover:text-[#A0A0A0] border border-[#2D2D2D] hover:border-[#555555] bg-[#1E1E1E]'}`}>
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg capitalize transition-all ${category===cat?'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20':'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] bg-[var(--c-surface-2)]'}`}>
               {cat.replace('-',' ')}
             </button>
           ))}
@@ -508,18 +508,18 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       <div className="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2">
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 size={24} className="text-[#00AF5C] animate-spin"/><span className="ml-3 text-[#A0A0A0] font-medium">Searching...</span>
+            <Loader2 size={24} className="text-[#00AF5C] animate-spin"/><span className="ml-3 text-[var(--c-text-secondary)] font-medium">Searching...</span>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center py-20 text-[#FF5555]"><AlertCircle size={32} className="mb-3"/><p className="font-bold">Search failed</p><p className="text-sm text-[#A0A0A0] mt-1">{error}</p></div>
+          <div className="flex flex-col items-center py-20 text-[var(--c-danger)]"><AlertCircle size={32} className="mb-3"/><p className="font-bold">Search failed</p><p className="text-sm text-[var(--c-text-secondary)] mt-1">{error}</p></div>
         ) : results.length===0 ? (
-          <div className="flex flex-col items-center py-20 text-[#555555]"><Search size={48} className="mb-4 opacity-30"/><p className="font-bold">No {typeLabel} found</p></div>
+          <div className="flex flex-col items-center py-20 text-[var(--c-text-muted)]"><Search size={48} className="mb-4 opacity-30"/><p className="font-bold">No {typeLabel} found</p></div>
         ) : (
           <div className="space-y-2">
             {results.map((mod,idx)=>(
               <motion.div key={mod.project_id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} transition={{delay:idx*0.03,duration:0.25}}
-                className="flex gap-4 p-4 bg-[#1E1E1E] border border-[#2D2D2D] rounded-2xl hover:border-[#555555] transition-all group">
-                <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#111111] border border-[#2D2D2D] flex-shrink-0 flex items-center justify-center">
+                className="flex gap-4 p-4 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl hover:border-[var(--c-text-muted)] transition-all group">
+                <div className="w-12 h-12 rounded-xl overflow-hidden bg-[var(--c-base)] border border-[var(--c-border)] flex-shrink-0 flex items-center justify-center">
                   {mod.icon_url ? <img src={mod.icon_url} alt="" className="w-full h-full object-cover"/> :
                     <div className="w-full h-full bg-gradient-to-br from-[#00AF5C]/20 to-[#00AF5C]/5 flex items-center justify-center text-[#00AF5C] text-lg font-black">{mod.title?.[0]||'?'}</div>}
                 </div>
@@ -536,15 +536,15 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
                           serverContext: { serverId, serverVersion, serverType },
                           onServerInstall: () => { handleInstall(mod); },
                         })}
-                        className="font-bold text-[#FFFFFF] hover:text-[#00AF5C] text-sm truncate text-left transition-colors"
+                        className="font-bold text-[var(--c-text-primary)] hover:text-[#00AF5C] text-sm truncate text-left transition-colors"
                       >
                         {mod.title}
                       </button>
                     </Tooltip>
-                    <span className="text-xs text-[#555555] flex-shrink-0">by {mod.author}</span>
+                    <span className="text-xs text-[var(--c-text-muted)] flex-shrink-0">by {mod.author}</span>
                   </div>
-                  <p className="text-xs text-[#A0A0A0] line-clamp-1 mb-1.5">{mod.description}</p>
-                  <div className="flex items-center gap-3 text-xs text-[#555555]">
+                  <p className="text-xs text-[var(--c-text-secondary)] line-clamp-1 mb-1.5">{mod.description}</p>
+                  <div className="flex items-center gap-3 text-xs text-[var(--c-text-muted)]">
                     <span className="flex items-center gap-1"><Download size={11}/>{fmt(mod.downloads)}</span>
                     <span className="flex items-center gap-1"><Heart size={11}/>{fmt(mod.follows)}</span>
                     <span>{fmtDate(mod.date_modified)}</span>
@@ -554,7 +554,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
                   {installed[mod.project_id] ? (
                     <div className="flex flex-col items-end gap-1">
                       <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00AF5C]/10 text-[#00AF5C] rounded-xl text-xs font-bold border border-[#00AF5C]/20"><Check size={14}/>Installed</div>
-                      {!isModpack && <button onClick={()=>openVersions(mod)} className="text-[10px] text-[#555555] hover:text-[#00AF5C] transition-colors font-medium">Change version</button>}
+                      {!isModpack && <button onClick={()=>openVersions(mod)} className="text-[10px] text-[var(--c-text-muted)] hover:text-[#00AF5C] transition-colors font-medium">Change version</button>}
                     </div>
                   ) : (() => {
                     // Modpacks emit per-file progress over a socket session.
@@ -570,7 +570,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
                         <Tooltip content={`${mp.statusText || 'Installing…'}${mp.total ? ` (${mp.task} / ${mp.total} files)` : ''}`} align="end">
                         <div
                           className="relative overflow-hidden flex items-center gap-1.5 px-3 py-1.5 border border-[#00AF5C]/40 rounded-xl text-xs font-bold text-white min-w-[120px] justify-center"
-                          style={{ background: '#1E1E1E' }}
+                          style={{ background: 'var(--c-surface-2)' }}
                         >
                           <motion.div
                             initial={false}
@@ -602,11 +602,11 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       </div>
 
       {totalPages>1 && (
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#2D2D2D]">
-          <span className="text-xs text-[#555555]">{totalHits.toLocaleString()} results • Page {page+1} of {totalPages}</span>
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--c-border)]">
+          <span className="text-xs text-[var(--c-text-muted)]">{totalHits.toLocaleString()} results • Page {page+1} of {totalPages}</span>
           <div className="flex gap-2">
-            <button onClick={()=>handlePageChange(page-1)} disabled={page===0} className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"><ChevronLeft size={16}/></button>
-            <button onClick={()=>handlePageChange(page+1)} disabled={page>=totalPages-1} className="p-2 bg-[#1E1E1E] border border-[#2D2D2D] rounded-xl text-[#A0A0A0] hover:text-[#FFFFFF] transition-all disabled:opacity-30"><ChevronRight size={16}/></button>
+            <button onClick={()=>handlePageChange(page-1)} disabled={page===0} className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"><ChevronLeft size={16}/></button>
+            <button onClick={()=>handlePageChange(page+1)} disabled={page>=totalPages-1} className="p-2 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-all disabled:opacity-30"><ChevronRight size={16}/></button>
           </div>
         </div>
       )}
@@ -614,7 +614,7 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       <AnimatePresence>
         {toast && (
           <motion.div initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} exit={{opacity:0,y:10}}
-            className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] border ${toast.isError?'bg-[#1E1E1E] border-[#FF5555]/30 text-[#FF5555]':'bg-[#1E1E1E] border-[#00AF5C]/30 text-[#FFFFFF]'}`}>
+            className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] border ${toast.isError?'bg-[var(--c-surface-2)] border-[var(--c-danger)]/30 text-[var(--c-danger)]':'bg-[var(--c-surface-2)] border-[#00AF5C]/30 text-[var(--c-text-primary)]'}`}>
             {toast.isError?<AlertCircle size={16}/>:<div className="w-2 h-2 rounded-full bg-[#00AF5C] animate-pulse"/>}
             <span className="text-sm font-medium">{toast.msg}</span>
           </motion.div>
