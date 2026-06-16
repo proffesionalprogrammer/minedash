@@ -13,7 +13,7 @@ import WhatsNewModal from './components/WhatsNewModal';
 import Tooltip from './components/Tooltip';
 import ConnectIndicator from './components/ConnectIndicator';
 import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 
 // Heavy views and modals are code-split — only the Play view (the default
 // landing screen) is in the main bundle. Each of these loads its chunk the
@@ -61,6 +61,48 @@ const TABS = {
 // active one is filtered out at render time and the rest keep their position.
 const TAB_ORDER = ['play', 'browse', 'instances', 'servers'];
 
+// Shared spring for the header's layout animation. The active title/subtitle
+// block changes width between views; this drives both its resize and the slide
+// of the divider + pill row so everything moves together rather than snapping.
+const NAV_SPRING = { type: 'spring', stiffness: 380, damping: 32 };
+
+// Slot-machine header title: when the view changes, each letter rolls downward
+// into place with a left-to-right stagger — old letters spin out the bottom,
+// new ones drop in from the top, like reels settling one by one. `popLayout`
+// pulls the outgoing word out of flow so the incoming word defines the width
+// immediately (the title block's `layout` spring animates that width change),
+// and the overflow-hidden clip hides everything outside the single text line.
+function RollingTitle({ text, viewKey }) {
+  // Vertical-only clip: hides letters above/below the line as they roll, but
+  // leaves the horizontal axis unbounded. `overflow-hidden` clips both axes,
+  // which sliced the right-hand letters off the wider outgoing word when
+  // shrinking to a shorter title (e.g. Instances → Browse) — the clip-path band
+  // lets the outgoing word roll fully out of view instead of being cut.
+  return (
+    <span
+      className="relative inline-block whitespace-nowrap align-bottom leading-tight"
+      style={{ clipPath: 'inset(-0.05em -100vw 0 -100vw)' }}
+    >
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span key={viewKey} className="inline-block">
+          {Array.from(text).map((ch, i) => (
+            <motion.span
+              key={i}
+              initial={{ y: '-115%' }}
+              animate={{ y: '0%' }}
+              exit={{ y: '115%' }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30, delay: i * 0.035 }}
+              className="inline-block"
+            >
+              {ch === ' ' ? ' ' : ch}
+            </motion.span>
+          ))}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
+
 function AppHeader({ view, onChange, accountMenuProps }) {
   const active = TABS[view];
   const ActiveIcon = active.icon;
@@ -68,29 +110,56 @@ function AppHeader({ view, onChange, accountMenuProps }) {
 
   return (
     <header className="flex items-center justify-between gap-4 px-6 md:px-10 py-4 bg-[var(--c-base)] border-b border-[var(--c-border)] flex-shrink-0 relative z-30">
+      <LayoutGroup>
       <div className="flex items-center gap-4 min-w-0">
+        {/* The active view's title/subtitle vary in width (e.g. Browse's copy is
+            wider than Launcher's), so this block reflows when you switch tabs.
+            `layout` animates that width change as a smooth spring; the direct
+            children use `layout="position"` so their text/icon glide into place
+            without getting stretched by the parent's resize. The divider and
+            pill row below share the same spring, so the whole row slides
+            together instead of the pills snapping sideways. */}
         <motion.div
-          key={view}
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.25 }}
+          layout
+          transition={NAV_SPRING}
           className="flex items-center gap-3 min-w-0"
         >
-          <div className="p-2.5 bg-[#00AF5C]/10 rounded-2xl flex-shrink-0">
-            <ActiveIcon size={22} className="text-[#00AF5C]" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-2xl font-black text-[var(--c-text-primary)] tracking-tight leading-tight">{active.label}</h1>
-            <p className="text-xs text-[var(--c-text-secondary)] truncate">{active.subtitle}</p>
-          </div>
+          <motion.div layout="position" className="p-2.5 bg-[#00AF5C]/10 rounded-2xl flex-shrink-0">
+            <motion.span
+              key={view}
+              initial={{ opacity: 0, scale: 0.7 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              className="inline-flex"
+            >
+              <ActiveIcon size={22} className="text-[#00AF5C]" />
+            </motion.span>
+          </motion.div>
+          <motion.div layout="position" className="min-w-0">
+            <h1 className="text-2xl font-black text-[var(--c-text-primary)] tracking-tight leading-tight">
+              <RollingTitle text={active.label} viewKey={view} />
+            </h1>
+            <div className="overflow-hidden">
+              <motion.p
+                key={view}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: 0.08 }}
+                className="text-xs text-[var(--c-text-secondary)] truncate"
+              >
+                {active.subtitle}
+              </motion.p>
+            </div>
+          </motion.div>
         </motion.div>
 
-        <div className="hidden sm:block w-px h-10 bg-[var(--c-border)]" />
+        <motion.div layout="position" transition={NAV_SPRING} className="hidden sm:block w-px h-10 bg-[var(--c-border)]" />
 
         {/* All tabs render in TAB_ORDER and keep their position — the active one
             is just highlighted in place rather than promoted out of the row, so
-            nothing reshuffles when you switch views. */}
-        <div className="flex items-center gap-2">
+            nothing reshuffles when you switch views. `layout="position"` lets the
+            whole row glide when the title block to its left changes width. */}
+        <motion.div layout="position" transition={NAV_SPRING} className="flex items-center gap-2">
           {TAB_ORDER.map(key => {
             const t = TABS[key];
             const Icon = t.icon;
@@ -128,8 +197,9 @@ function AppHeader({ view, onChange, accountMenuProps }) {
               </motion.button>
             );
           })}
-        </div>
+        </motion.div>
       </div>
+      </LayoutGroup>
 
       <div className="flex items-center gap-2 flex-shrink-0">
         <Tooltip content="Settings" side="bottom" align="end">
