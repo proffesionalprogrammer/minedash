@@ -1,11 +1,15 @@
-import React, { useId } from 'react';
+import React from 'react';
+import LoaderGlyph from './LoaderGlyph';
 
-// Official-style mark for each mod loader, brand-coloured so they read the same
-// across Light/Dark/OLED themes (these are theme-invariant brand accents, like
-// the loader colours called out in the branding kit). Each accepts `size` so it
-// drops straight into the existing `<Icon size={18} />` call sites.
+// Loader marks for the launcher Play tab + Create Server picker.
+//
+// Fabric/Forge/NeoForge reuse the official Modrinth loader logos from the
+// shared LoaderGlyph (same marks + platform tints as the Browse filter rail),
+// so the loader visual language is identical everywhere. Vanilla has no
+// official loader logo (LoaderGlyph returns null for it), so we keep a
+// pixel-art grass block in the same palette style as TitleBar's mark.
 
-// Minecraft — pixel-art grass block (same palette style as TitleBar's mark).
+// Minecraft — pixel-art grass block.
 export function VanillaIcon({ size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 8 8" shapeRendering="crispEdges" aria-hidden="true">
@@ -25,41 +29,7 @@ export function VanillaIcon({ size = 18 }) {
   );
 }
 
-// Fabric — folded tan cloth swatch.
-export function FabricIcon({ size = 18 }) {
-  const clip = useId();
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <defs>
-        <clipPath id={clip}>
-          <rect x="3" y="3" width="18" height="18" rx="4.5" />
-        </clipPath>
-      </defs>
-      <g clipPath={`url(#${clip})`}>
-        <rect x="3" y="3" width="18" height="18" fill="#B5894B" />
-        <path d="M3 3 H21 V13 L12 17.5 L3 13 Z" fill="#CBA263" />
-        <path d="M3 3 H21 V8 L12 11.5 L3 8 Z" fill="#E3C485" />
-      </g>
-    </svg>
-  );
-}
-
-// Forge — classic anvil, gunmetal steel-blue.
-export function ForgeIcon({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4 7 H21 L23 8.5 L20 10 H13.5 V13 H17 L18 16 H6 L7 13 H10.5 V10 H4 Z" fill="#3E5374" />
-      <path d="M4 7 H21 L20.4 8 H4.5 Z" fill="#5C76A0" />
-    </svg>
-  );
-}
-
-// NeoForge — same anvil family, signature NeoForge orange.
-export function NeoForgeIcon({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4 7 H21 L23 8.5 L20 10 H13.5 V13 H17 L18 16 H6 L7 13 H10.5 V10 H4 Z" fill="#EC6A2C" />
-      <path d="M4 7 H21 L20.4 8 H4.5 Z" fill="#FB9152" />
-    </svg>
-  );
-}
+// Official Modrinth loader logos via the shared glyph.
+export function FabricIcon({ size = 18 })   { return <LoaderGlyph loader="fabric" size={size} />; }
+export function ForgeIcon({ size = 18 })    { return <LoaderGlyph loader="forge" size={size} />; }
+export function NeoForgeIcon({ size = 18 }) { return <LoaderGlyph loader="neoforge" size={size} />; }
