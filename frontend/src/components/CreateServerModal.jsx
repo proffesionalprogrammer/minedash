@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Server as ServerIcon, Cpu, Zap, Box, ChevronDown, Search, Loader2, Check, Pickaxe, Hammer, Layers, Wrench } from 'lucide-react';
+import { X, Server as ServerIcon, Cpu, Zap, Box, ChevronDown, Search, Loader2, Check } from 'lucide-react';
+import { VanillaIcon, FabricIcon, ForgeIcon, NeoForgeIcon } from './LoaderIcons';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
@@ -83,11 +84,11 @@ function PaperIcon({ size = 16, className = '' }) {
 }
 
 const SERVER_TYPES = [
-  { value: 'vanilla', label: 'Vanilla', icon: Pickaxe, desc: 'Pure Minecraft experience' },
+  { value: 'vanilla', label: 'Vanilla', icon: VanillaIcon, desc: 'Pure Minecraft experience' },
   { value: 'paper', label: 'Paper', icon: PaperIcon, desc: 'High-performance + plugins' },
-  { value: 'forge', label: 'Forge', icon: Hammer, desc: 'Classic mod loader' },
-  { value: 'fabric', label: 'Fabric', icon: Layers, desc: 'Lightweight & modern' },
-  { value: 'neoforge', label: 'NeoForge', icon: Wrench, desc: 'Next-gen Forge fork' },
+  { value: 'forge', label: 'Forge', icon: ForgeIcon, desc: 'Classic mod loader' },
+  { value: 'fabric', label: 'Fabric', icon: FabricIcon, desc: 'Lightweight & modern' },
+  { value: 'neoforge', label: 'NeoForge', icon: NeoForgeIcon, desc: 'Next-gen Forge fork' },
 ];
 
 // ─── Custom Dropdown ───────────────────────────────────────────
