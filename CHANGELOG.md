@@ -2,6 +2,27 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.27 — 2026-06-17
+
+### Added
+
+- **Light, Dark, and OLED themes.** MineDash can now match your taste — pick **Light**, **Dark**, **OLED** (true black, easy on the eyes and on a laptop battery), or **Sync with system** under **Settings → Appearance**. The whole app re-colours instantly.
+- **A real home for each launcher instance.** Click **Manage** on any instance to open a dedicated panel: rename it, give it its own amount of RAM, jump to its Java / worlds / folder, export it, or read its **logs and crash reports** right inside MineDash. You can also long-press an instance (or hit **Select**) to tick several at once and delete them in one go.
+
+### Changed
+
+- **No more "Java N Required" pop-up.** Creating a server never stops you to install Java anymore — MineDash quietly downloads the exact Java your Minecraft version needs the first time you start the server, and shows the progress in the console.
+- **Official loader logos in the launcher too.** The **Play** tab and the **Create Server** picker now show the real Fabric / Forge / NeoForge marks (matching the Browse page) instead of generic icons.
+- **Server stats tidied into Overview.** The CPU / RAM / Storage / Players cards now live in the server's **Overview** tab instead of sitting above every tab — so the tabs no longer jump when you switch between them, and the other tabs get more room. CPU reads 0% until the server is actually online.
+- **Smoother launcher animations.** The launcher's title and tabs now glide into place when you switch views (with a little slot-machine roll on the title), and **Browse** eases up to the top of the list on a new search instead of snapping.
+
+### Fixed
+
+- **The "use ElyBy skins" switch stays put.** It used to flip back off the moment you saved your settings.
+- **Mod page tabs sit still.** The underline under the tabs on a mod's detail page no longer jumps around or freezes when the page first opens.
+
+---
+
 ## v1.1.26 — 2026-06-16
 
 ### Security
