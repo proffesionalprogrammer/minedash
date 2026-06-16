@@ -897,15 +897,30 @@ function register(app) {
 
   app.patch('/api/launcher/instances/:id', async (req, res) => {
     const { id } = req.params;
-    const { displayName, java } = req.body || {};
-    if (typeof displayName !== 'string' && typeof java !== 'string') {
-      return res.status(400).json({ error: 'Nothing to update — pass displayName and/or java' });
+    const body = req.body || {};
+    const { displayName, java } = body;
+    const hasRam = Object.prototype.hasOwnProperty.call(body, 'ram');
+    if (typeof displayName !== 'string' && typeof java !== 'string' && !hasRam) {
+      return res.status(400).json({ error: 'Nothing to update — pass displayName, java and/or ram' });
     }
     let name = null;
     if (typeof displayName === 'string') {
       name = displayName.trim();
       if (!name) return res.status(400).json({ error: 'displayName cannot be empty' });
       if (name.length > 60) return res.status(400).json({ error: 'displayName too long' });
+    }
+    // Per-instance heap override. A number (GB) pins this instance's -Xmx/-Xms;
+    // null (or 0) clears it so the instance inherits the global ramGb setting.
+    let ramChoice; // undefined = no change
+    if (hasRam) {
+      const { ram } = body;
+      if (ram === null || ram === 0) {
+        ramChoice = null;
+      } else if (typeof ram === 'number' && ram >= 1 && ram <= 64) {
+        ramChoice = Math.round(ram);
+      } else {
+        return res.status(400).json({ error: 'ram must be a number between 1 and 64 (GB), or null to inherit the global default' });
+      }
     }
     // Java choice: '' (inherit global setting), 'auto', 'jdk-<major>' (managed
     // pool — downloaded on demand at launch), or an absolute java(.exe) path.
@@ -926,6 +941,10 @@ function register(app) {
     if (javaChoice !== null) {
       if (javaChoice === '') delete inst.java;
       else inst.java = javaChoice;
+    }
+    if (ramChoice !== undefined) {
+      if (ramChoice === null) delete inst.ram;
+      else inst.ram = ramChoice;
     }
     await writeProfileRegistry(reg);
     res.json(inst);
@@ -1080,6 +1099,87 @@ function register(app) {
         : `xdg-open "${dir}"`;
     exec(cmd);
     res.json({ ok: true, path: dir });
+  });
+
+  // ── Logs & crash reports ─────────────────────────────────────────
+  // Surface the game's own logs/ and crash-reports/ for an instance so the
+  // user can diagnose a failed launch or crash from inside MineDash instead of
+  // digging through AppData. List endpoint returns metadata only (cheap); the
+  // file endpoint streams a single file's text, tail-capped so a multi-MB
+  // latest.log never balloons the response.
+  const LOG_TAIL_BYTES = 512 * 1024; // ~last 512 KB is plenty for diagnosis
+
+  app.get('/api/launcher/instances/:id/logs', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const root = instanceDir(inst.id);
+    const collect = async (sub, kind, exts) => {
+      const dir = path.join(root, sub);
+      let names = [];
+      try { names = await fs.readdir(dir); } catch { return []; }
+      const out = [];
+      for (const name of names) {
+        if (!exts.some(e => name.toLowerCase().endsWith(e))) continue;
+        const p = safeChildPath(dir, name);
+        if (!p) continue;
+        try {
+          const st = await fs.stat(p);
+          if (!st.isFile()) continue;
+          out.push({ name, kind, sizeBytes: st.size, mtime: st.mtimeMs });
+        } catch {}
+      }
+      return out;
+    };
+    const logs = await collect('logs', 'log', ['.log', '.log.gz', '.txt']);
+    const crashes = await collect('crash-reports', 'crash', ['.txt', '.log']);
+    // latest.log first, then newest logs, then crash reports (newest first).
+    logs.sort((a, b) => {
+      if (a.name === 'latest.log') return -1;
+      if (b.name === 'latest.log') return 1;
+      return b.mtime - a.mtime;
+    });
+    crashes.sort((a, b) => b.mtime - a.mtime);
+    res.json({ files: [...logs, ...crashes] });
+  });
+
+  app.get('/api/launcher/instances/:id/logs/file', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const kind = req.query.kind === 'crash' ? 'crash-reports' : 'logs';
+    const p = safeChildPath(path.join(instanceDir(inst.id), kind), String(req.query.name || ''));
+    if (!p) return res.status(400).json({ error: 'Invalid log name' });
+    // .gz logs (Minecraft rotates older ones) aren't human-readable as text —
+    // we only serve plain .log/.txt; the list still shows .gz so the user knows
+    // they exist on disk.
+    if (p.toLowerCase().endsWith('.gz')) {
+      return res.status(415).json({ error: 'This log is gzip-compressed. Open the folder to read it.' });
+    }
+    let st;
+    try {
+      st = await fs.stat(p);
+      if (!st.isFile()) return res.status(404).json({ error: 'Log not found' });
+    } catch {
+      return res.status(404).json({ error: 'Log not found' });
+    }
+    const start = Math.max(0, st.size - LOG_TAIL_BYTES);
+    const truncated = start > 0;
+    // Stream just the tail so a multi-MB latest.log never lands wholesale in
+    // memory. Collect into a buffer (the tail is bounded at LOG_TAIL_BYTES).
+    const chunks = [];
+    const stream = fs.createReadStream(p, { start });
+    stream.on('data', (c) => chunks.push(c));
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).json({ error: 'Could not read log' });
+    });
+    stream.on('end', () => {
+      if (res.headersSent) return;
+      res.json({
+        name: path.basename(p),
+        sizeBytes: st.size,
+        truncated,
+        content: Buffer.concat(chunks).toString('utf8'),
+      });
+    });
   });
 
   // ── Worlds (client-side saves) ───────────────────────────────────
@@ -2952,7 +3052,12 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   const launcher = new Client();
   activeLaunches.set(launchId, launcher);
 
-  const ramStr = String(settings?.ramGb || 4) + 'G';
+  // Per-instance heap override wins over the global ramGb setting; fall back
+  // to the global default when this instance has no explicit allocation.
+  const ramGb = (instance && typeof instance.ram === 'number' && instance.ram >= 1)
+    ? instance.ram
+    : (settings?.ramGb || 4);
+  const ramStr = String(ramGb) + 'G';
   const opts = {
     authorization,
     root: profileRoot,

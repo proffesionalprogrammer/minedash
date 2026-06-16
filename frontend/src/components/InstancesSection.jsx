@@ -1,17 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Play, Search, FolderOpen, Pencil, Trash2, Boxes, Loader2, Check, X,
-  Box, Layers, Hammer, FlaskConical, MoreVertical, Download, Square,
-  Coffee, Globe, FileDown,
+  Play, Search, Trash2, Boxes, Loader2, Check, X,
+  Box, Layers, Hammer, FlaskConical, Download, Square,
+  Settings2, ListChecks,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import SkinHead from './SkinHead';
-import JavaRuntimeModal from './JavaRuntimeModal';
-import InstanceWorldsModal from './InstanceWorldsModal';
+import InstanceDetailModal from './InstanceDetailModal';
+import ModalPortal from './ModalPortal';
 import Tooltip from './Tooltip';
 import LoaderGlyph from './LoaderGlyph';
+import { TITLEBAR_OFFSET } from '../lib/titlebar';
 import duskCover from '../assets/dusk.jpg';
 
 // Loader → icon for cards that don't have a modpack icon. Same lucide set as
@@ -63,10 +63,15 @@ export default function InstancesSection({
   const [loading, setLoading]     = useState(true);
   const [query, setQuery]         = useState('');
   const [sort, setSort]           = useState('recent');
-  const [renamingId, setRenamingId]   = useState(null);
-  const [renameDraft, setRenameDraft] = useState('');
-  const [pendingDelete, setPendingDelete] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  // The instance whose centered detail/management panel is open (null = none).
+  const [detailInst, setDetailInst] = useState(null);
+  // Multi-select: entered via long-press on a card or the "Select" toolbar
+  // button. `selectedIds` holds the chosen instance ids while active.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Modpack update availability — keyed by instance id. Populated lazily
   // once per instance on first render. Holds `{ availableVersionId,
   // availableVersionNumber }` only when the latest Modrinth version differs
@@ -261,75 +266,79 @@ export default function InstancesSection({
     return list;
   }, [instances, query, sort, installingInstanceIds]);
 
-  const handleRename = async (id) => {
-    const name = renameDraft.trim();
-    if (!name) return;
-    setBusyId(id);
-    try {
-      const r = await fetch(`http://localhost:3001/api/launcher/instances/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: name }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Failed to rename');
-      setInstances(prev => prev.map(i => i.id === id ? { ...i, displayName: d.displayName || name } : i));
-      setRenamingId(null);
-      setRenameDraft('');
-    } catch (err) {
-      onError?.(err.message);
-    }
-    setBusyId(null);
+  // Detail-panel callbacks. The panel owns rename/RAM/Java/worlds/folder/export/
+  // delete now — the parent just keeps its `instances` list (and the open
+  // panel's copy) in sync with what the panel saved or removed.
+  const applyInstanceUpdate = (updated) => {
+    if (!updated || !updated.id) return;
+    setInstances(prev => prev.map(i => i.id === updated.id ? { ...i, ...updated } : i));
+    setDetailInst(prev => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+  };
+  const removeInstance = (id) => {
+    setInstances(prev => prev.filter(i => i.id !== id));
+    setDetailInst(prev => (prev && prev.id === id ? null : prev));
+    setSelectedIds(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev); next.delete(id); return next;
+    });
   };
 
-  const handleDelete = async (id) => {
-    setBusyId(id);
-    try {
-      const r = await fetch(`http://localhost:3001/api/launcher/instances/${id}`, { method: 'DELETE' });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Failed to delete');
-      setInstances(prev => prev.filter(i => i.id !== id));
-      setPendingDelete(null);
-    } catch (err) {
-      onError?.(err.message);
+  // ── Multi-select ──────────────────────────────────────────────────
+  const enterSelect = (id) => {
+    setSelectMode(true);
+    setSelectedIds(new Set(id ? [id] : []));
+  };
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  };
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectAllVisible = () => setSelectedIds(new Set(visibleInstances.map(i => i.id)));
+
+  // Esc exits selection mode (when no modal is sitting on top).
+  useEffect(() => {
+    if (!selectMode) return;
+    const onKey = (e) => { if (e.key === 'Escape' && !detailInst) exitSelect(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectMode, detailInst]);
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    const failed = [];
+    for (const id of ids) {
+      try {
+        const r = await fetch(`http://localhost:3001/api/launcher/instances/${id}`, { method: 'DELETE' });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.error || 'Failed to delete');
+        }
+        setInstances(prev => prev.filter(i => i.id !== id));
+      } catch (err) {
+        const inst = instances.find(i => i.id === id);
+        failed.push(inst?.displayName || id);
+        onError?.(`Couldn't delete ${inst?.displayName || 'an instance'}: ${err.message}`);
+      }
     }
-    setBusyId(null);
+    setBulkBusy(false);
+    if (failed.length === 0) exitSelect();
+    else { setConfirmBulkDelete(false); setSelectedIds(new Set(instances.filter(i => failed.includes(i.displayName)).map(i => i.id))); }
   };
 
-  const handleOpenFolder = async (id) => {
-    try {
-      await fetch(`http://localhost:3001/api/launcher/instances/${id}/open-folder`, { method: 'POST' });
-    } catch (err) {
-      onError?.(err.message);
-    }
-  };
-
-  // Per-instance Java picker + worlds/screenshots manager (modals).
-  const [javaInst, setJavaInst] = useState(null);
-  const [worldsInst, setWorldsInst] = useState(null);
-
-  // Export as .mrpack — preflight (?check=1) catches the one hard failure
-  // (loader version unresolvable until first launch) so we can show a real
-  // error toast instead of a broken download.
-  const handleExport = async (inst) => {
-    try {
-      const url = `http://localhost:3001/api/launcher/instances/${encodeURIComponent(inst.id)}/export`;
-      const r = await fetch(`${url}?check=1`);
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Export failed');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (err) {
-      onError?.(err.message);
-    }
-  };
+  const selectedCount = selectedIds.size;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--c-base)] px-6 md:px-10 py-6 overflow-hidden">
+    <div className="relative flex-1 flex flex-col h-full bg-[var(--c-base)] px-6 md:px-10 py-6 overflow-hidden">
       <div className="max-w-6xl mx-auto w-full flex flex-col flex-1 min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 mb-5">
@@ -346,6 +355,25 @@ export default function InstancesSection({
               </p>
             </div>
           </div>
+          {!loading && visibleInstances.length > 0 && (
+            selectMode ? (
+              <button
+                onClick={exitSelect}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-1)] hover:bg-[var(--c-surface-2)] border border-[var(--c-border)] transition-colors"
+              >
+                <X size={15} /> Cancel
+              </button>
+            ) : (
+              <Tooltip content="Select multiple — or long-press a card" side="bottom" align="end">
+                <button
+                  onClick={() => enterSelect(null)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-1)] hover:bg-[var(--c-surface-2)] border border-[var(--c-border)] transition-colors"
+                >
+                  <ListChecks size={15} /> Select
+                </button>
+              </Tooltip>
+            )
+          )}
         </div>
 
         {/* Search + sort */}
@@ -389,9 +417,6 @@ export default function InstancesSection({
                   index={idx}
                   activeAccount={activeAccount}
                   busy={busyId === inst.id}
-                  renaming={renamingId === inst.id}
-                  renameDraft={renameDraft}
-                  pendingDelete={pendingDelete === inst.id}
                   packUpdate={packUpdates[inst.id] || null}
                   onUpdatePack={() => handleUpdatePack(inst)}
                   launching={launchingId === inst.id}
@@ -401,17 +426,11 @@ export default function InstancesSection({
                   playDisabled={launchPhase !== 'idle' && launchingId !== inst.id}
                   onCancelLaunch={cancelLaunch}
                   onPlay={() => handlePlay(inst)}
-                  onOpenFolder={() => handleOpenFolder(inst.id)}
-                  onJavaPick={() => setJavaInst(inst)}
-                  onWorlds={() => setWorldsInst(inst)}
-                  onExport={() => handleExport(inst)}
-                  onStartRename={() => { setRenamingId(inst.id); setRenameDraft(inst.displayName || ''); }}
-                  onRenameDraft={setRenameDraft}
-                  onSubmitRename={() => handleRename(inst.id)}
-                  onCancelRename={() => { setRenamingId(null); setRenameDraft(''); }}
-                  onAskDelete={() => setPendingDelete(inst.id)}
-                  onConfirmDelete={() => handleDelete(inst.id)}
-                  onCancelDelete={() => setPendingDelete(null)}
+                  onManage={() => setDetailInst(inst)}
+                  selectMode={selectMode}
+                  selected={selectedIds.has(inst.id)}
+                  onToggleSelect={() => toggleSelect(inst.id)}
+                  onLongPress={() => enterSelect(inst.id)}
                 />
               ))}
             </div>
@@ -419,23 +438,108 @@ export default function InstancesSection({
         </div>
       </div>
 
-      {/* Per-instance modals */}
+      {/* Floating multi-select action bar */}
       <AnimatePresence>
-        {javaInst && (
-          <JavaRuntimeModal
-            key="java-modal"
-            inst={javaInst}
-            onClose={() => setJavaInst(null)}
-            onError={onError}
-            onSaved={(updated) => setInstances(prev => prev.map(i => i.id === updated.id ? { ...i, ...updated } : i))}
-          />
+        {selectMode && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-2xl shadow-2xl shadow-black/50 px-3 py-2.5"
+          >
+            <span className="text-sm font-bold text-[var(--c-text-primary)] tabular-nums px-2">
+              {selectedCount} selected
+            </span>
+            <span className="w-px h-6 bg-[var(--c-border)]" />
+            <button
+              onClick={selectAllVisible}
+              className="px-3 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors"
+            >
+              Select all
+            </button>
+            <motion.button
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={selectedCount === 0}
+              whileTap={selectedCount === 0 ? {} : { scale: 0.97 }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 size={15} /> Delete
+            </motion.button>
+            <button
+              onClick={exitSelect}
+              className="p-2 rounded-xl text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors"
+              aria-label="Exit selection"
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
         )}
-        {worldsInst && (
-          <InstanceWorldsModal
-            key="worlds-modal"
-            inst={worldsInst}
-            onClose={() => setWorldsInst(null)}
+      </AnimatePresence>
+
+      {/* Bulk-delete confirm */}
+      <AnimatePresence>
+        {confirmBulkDelete && (
+          <ModalPortal>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-center bg-[#000000]/80 backdrop-blur-sm p-4"
+            style={{ top: TITLEBAR_OFFSET }}
+            onClick={() => !bulkBusy && setConfirmBulkDelete(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl p-6 max-w-md w-full"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-[var(--c-danger)]/10 rounded-xl">
+                  <Trash2 size={18} className="text-[var(--c-danger)]" />
+                </div>
+                <h3 className="text-lg font-bold text-[var(--c-text-primary)]">
+                  Delete {selectedCount} instance{selectedCount === 1 ? '' : 's'}?
+                </h3>
+              </div>
+              <p className="text-sm text-[var(--c-text-secondary)]">
+                Each instance's on-disk profile (mods, worlds, configs) will be permanently removed. Running instances are skipped.
+              </p>
+              <div className="flex items-center justify-end gap-2 border-t border-[var(--c-border)] pt-4 mt-5">
+                <button
+                  onClick={() => setConfirmBulkDelete(false)}
+                  disabled={bulkBusy}
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <motion.button
+                  onClick={handleBulkDelete}
+                  disabled={bulkBusy}
+                  whileTap={{ scale: 0.97 }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white transition-colors disabled:opacity-60"
+                >
+                  {bulkBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  Delete {selectedCount}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+          </ModalPortal>
+        )}
+      </AnimatePresence>
+
+      {/* Per-instance detail / management panel */}
+      <AnimatePresence>
+        {detailInst && (
+          <InstanceDetailModal
+            key="detail-modal"
+            inst={detailInst}
+            onClose={() => setDetailInst(null)}
             onError={onError}
+            onSaved={applyInstanceUpdate}
+            onDeleted={removeInstance}
+            onPlay={() => { handlePlay(detailInst); setDetailInst(null); }}
+            playDisabled={launchPhase !== 'idle'}
           />
         )}
       </AnimatePresence>
@@ -525,25 +629,64 @@ function InstallingCard({ entry, onCancel }) {
 }
 
 function InstanceCard({
-  inst, index, activeAccount, busy, renaming, renameDraft, pendingDelete,
+  inst, index, activeAccount, busy,
   packUpdate, onUpdatePack,
   launching, launchPhase, launchProgress, launchStatus, playDisabled, onCancelLaunch,
-  onPlay, onOpenFolder, onStartRename, onRenameDraft, onSubmitRename, onCancelRename,
-  onAskDelete, onConfirmDelete, onCancelDelete,
-  onJavaPick, onWorlds, onExport,
+  onPlay, onManage,
+  selectMode, selected, onToggleSelect, onLongPress,
 }) {
   const LoaderIcon = LOADER_ICONS[inst.loader] || Box;
   const loaderLabel = LOADER_LABEL[inst.loader] || inst.loader;
   const isModpack = inst.source === 'browse-modpack';
   const isServerInstance = !!inst.serverInstance;
 
+  // Long-press → enter multi-select. Arm a timer on pointer-down; a move past a
+  // small threshold (a scroll/drag, not a press) or an early release cancels
+  // it. When it fires we flag the synthetic click that follows so it doesn't
+  // immediately toggle the just-selected card straight back off.
+  const lpTimer = useRef(null);
+  const lpStart = useRef(null);
+  const lpFired = useRef(false);
+  const clearLp = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
+
+  const handlePointerDown = (e) => {
+    if (selectMode) return;                          // already selecting
+    if (e.button != null && e.button !== 0) return;  // primary button / touch only
+    lpStart.current = { x: e.clientX, y: e.clientY };
+    lpFired.current = false;
+    clearLp();
+    lpTimer.current = setTimeout(() => { lpFired.current = true; onLongPress?.(); }, 450);
+  };
+  const handlePointerMove = (e) => {
+    if (!lpStart.current) return;
+    if (Math.abs(e.clientX - lpStart.current.x) > 8 || Math.abs(e.clientY - lpStart.current.y) > 8) clearLp();
+  };
+  const handlePointerEnd = () => { clearLp(); lpStart.current = null; };
+
+  const handleCardClick = () => {
+    if (lpFired.current) { lpFired.current = false; return; } // swallow post-longpress click
+    if (selectMode) onToggleSelect?.();
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index * 0.02, 0.2), duration: 0.2 }}
-      whileHover={{ y: -3 }}
-      className="group relative bg-[var(--c-surface-1)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-2xl overflow-hidden flex flex-col transition-colors"
+      whileHover={selectMode ? {} : { y: -3 }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerLeave={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onClick={handleCardClick}
+      className={`group relative bg-[var(--c-surface-1)] border rounded-2xl overflow-hidden flex flex-col transition-colors ${
+        selectMode ? 'cursor-pointer select-none ' : ''
+      }${
+        selected
+          ? 'border-[#00AF5C] ring-2 ring-[#00AF5C]/40'
+          : 'border-[var(--c-border)] hover:border-[#00AF5C]/40'
+      }`}
     >
       {/* Icon / cover area. Modpacks ship their own cover art (inst.iconUrl);
           hand-made and server instances fall back to the shared dusk cover so
@@ -555,10 +698,24 @@ function InstanceCard({
           className="w-full h-full object-cover"
         />
 
+        {/* Selection checkbox — shown only in multi-select mode, top-left where
+            the source badge would otherwise sit. */}
+        {selectMode && (
+          <div className="absolute top-2 left-2 z-30">
+            <span className={`flex items-center justify-center w-6 h-6 rounded-full border-2 transition-colors ${
+              selected
+                ? 'bg-[#00AF5C] border-[#00AF5C] text-white'
+                : 'bg-[#000000]/40 border-white/70 backdrop-blur-sm text-transparent'
+            }`}>
+              <Check size={14} strokeWidth={3} />
+            </span>
+          </div>
+        )}
+
         {/* Source badge in the corner. Server instances get their own badge
             so a user with both kinds doesn't confuse a pack with a
-            server-managed profile. */}
-        {(isModpack || isServerInstance) && (
+            server-managed profile. Hidden while selecting (checkbox takes over). */}
+        {!selectMode && (isModpack || isServerInstance) && (
           <span className={`absolute top-2 left-2 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md border ${
             isServerInstance
               ? 'bg-[var(--c-surface-1)]/80 text-[var(--c-text-secondary)] border-[var(--c-border)]'
@@ -571,9 +728,11 @@ function InstanceCard({
         {/* Top-right corner controls: the optional "update available" pill plus
             the loader glyph badge so Forge/Fabric/NeoForge is identifiable at a
             glance (same Modrinth marks as the Browse filter rail). Loaders
-            without a dedicated glyph (vanilla) fall back to their lucide icon. */}
+            without a dedicated glyph (vanilla) fall back to their lucide icon.
+            The update pill is suppressed while selecting so a tap can't fire an
+            update instead of toggling the card. */}
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
-          {packUpdate && (
+          {packUpdate && !selectMode && (
             <Tooltip content="Modpack update available" side="bottom" align="end">
               <button
                 onClick={(e) => { e.stopPropagation(); onUpdatePack?.(); }}
@@ -629,10 +788,10 @@ function InstanceCard({
               </>
             )}
           </div>
-        ) : (
+        ) : selectMode ? null : (
           /* Hover play button — centered, big, brand green. */
           <motion.button
-            onClick={onPlay}
+            onClick={(e) => { e.stopPropagation(); onPlay?.(); }}
             disabled={playDisabled}
             whileHover={playDisabled ? {} : { scale: 1.05 }}
             whileTap={playDisabled ? {} : { scale: 0.95 }}
@@ -657,170 +816,29 @@ function InstanceCard({
 
       {/* Card body */}
       <div className="p-3 flex flex-col gap-1 flex-1">
-        {renaming ? (
-          <div className="flex items-center gap-1">
-            <input
-              type="text"
-              autoFocus
-              value={renameDraft}
-              onChange={e => onRenameDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') onSubmitRename();
-                if (e.key === 'Escape') onCancelRename();
-              }}
-              className="flex-1 min-w-0 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-lg px-2 py-1 text-sm text-[var(--c-text-primary)] outline-none focus:ring-2 focus:ring-[#00AF5C]/10 transition-all"
-            />
-            <button onClick={onSubmitRename} disabled={busy} className="p-1.5 rounded-lg bg-[#00AF5C] text-white disabled:opacity-50">
-              {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            </button>
-            <button onClick={onCancelRename} className="p-1.5 rounded-lg bg-[var(--c-surface-2)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]">
-              <X size={12} />
-            </button>
-          </div>
-        ) : (
-          <Tooltip content={inst.displayName} align="start" className="w-full min-w-0">
-            <p className="text-sm font-bold text-[var(--c-text-primary)] truncate w-full">
-              {inst.displayName}
-            </p>
-          </Tooltip>
-        )}
+        <Tooltip content={inst.displayName} align="start" className="w-full min-w-0">
+          <p className="text-sm font-bold text-[var(--c-text-primary)] truncate w-full">
+            {inst.displayName}
+          </p>
+        </Tooltip>
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1 text-[10px] text-[var(--c-text-secondary)] font-bold truncate">
             <LoaderIcon size={10} />
             {loaderLabel} {inst.version}
           </span>
-          {!renaming && (
-            <KebabMenu
-              onOpenFolder={onOpenFolder}
-              onStartRename={onStartRename}
-              onAskDelete={onAskDelete}
-              onJavaPick={onJavaPick}
-              onWorlds={onWorlds}
-              onExport={onExport}
-            />
+          {!selectMode && (
+            <Tooltip content="Manage instance" side="top" align="end">
+              <button
+                onClick={(e) => { e.stopPropagation(); onManage?.(); }}
+                className="p-1 rounded-md text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] transition-colors"
+                aria-label="Manage instance"
+              >
+                <Settings2 size={14} />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
-
-      {/* Delete confirm overlay — local to the card so we don't fire a modal
-          for a "did the user really mean that" prompt. Mirrors BackupsViewer's
-          pattern in feel. */}
-      <AnimatePresence>
-        {pendingDelete && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[var(--c-surface-1)]/95 backdrop-blur-sm p-3 text-center"
-          >
-            <Trash2 size={20} className="text-[var(--c-danger)]" />
-            <p className="text-sm font-bold text-[var(--c-text-primary)]">Delete this instance?</p>
-            <p className="text-[10px] text-[var(--c-text-secondary)]">The on-disk profile (mods, worlds) will be removed.</p>
-            <div className="flex items-center gap-2 mt-1">
-              <button onClick={onCancelDelete} className="px-3 py-1.5 rounded-lg text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-2)]">
-                Cancel
-              </button>
-              <motion.button
-                onClick={onConfirmDelete}
-                whileTap={{ scale: 0.97 }}
-                disabled={busy}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white disabled:opacity-50"
-              >
-                {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                Delete
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
-  );
-}
-
-// Kebab "more actions" menu. The dropdown is rendered in a portal anchored to
-// the trigger's viewport rect rather than inside the card — the card is
-// `overflow-hidden` (for its rounded image corners), which would otherwise clip
-// the menu, and a stacked grid means an in-card menu can hide behind the next
-// row. Fixed positioning sidesteps both.
-function KebabMenu({ onOpenFolder, onStartRename, onAskDelete, onJavaPick, onWorlds, onExport }) {
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-  const btnRef = useRef(null);
-  const menuRef = useRef(null);
-
-  const MENU_W = 190;
-  const place = () => {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (!r) return;
-    // Right-align the menu to the button, clamped into the viewport.
-    const left = Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8));
-    setCoords({ top: r.bottom + 4, left });
-  };
-
-  useLayoutEffect(() => { if (open) place(); }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => {
-      if (btnRef.current?.contains(e.target)) return;
-      if (menuRef.current?.contains(e.target)) return;
-      setOpen(false);
-    };
-    const onScrollOrResize = () => setOpen(false);
-    document.addEventListener('mousedown', onDown);
-    window.addEventListener('resize', onScrollOrResize);
-    // Capture-phase scroll so a scroll in any ancestor closes the menu (its
-    // anchored position would otherwise drift away from the button).
-    window.addEventListener('scroll', onScrollOrResize, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      window.removeEventListener('resize', onScrollOrResize);
-      window.removeEventListener('scroll', onScrollOrResize, true);
-    };
-  }, [open]);
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="p-1 rounded-md text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-border)] transition-colors"
-        aria-label="More actions"
-      >
-        <MoreVertical size={14} />
-      </button>
-      {open && createPortal(
-        <motion.div
-          ref={menuRef}
-          initial={{ opacity: 0, y: -4, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.12 }}
-          style={{ position: 'fixed', top: coords.top, left: coords.left, width: MENU_W }}
-          className="z-[100] bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-xl shadow-xl shadow-black/40 overflow-hidden"
-        >
-          <MenuRow icon={FolderOpen} label="Open folder"          onClick={() => { setOpen(false); onOpenFolder(); }} />
-          <MenuRow icon={Pencil}     label="Rename"               onClick={() => { setOpen(false); onStartRename(); }} />
-          <MenuRow icon={Globe}      label="Worlds & screenshots" onClick={() => { setOpen(false); onWorlds?.(); }} />
-          <MenuRow icon={Coffee}     label="Java runtime"         onClick={() => { setOpen(false); onJavaPick?.(); }} />
-          <MenuRow icon={FileDown}   label="Export as .mrpack"    onClick={() => { setOpen(false); onExport?.(); }} />
-          <MenuRow icon={Trash2}     label="Delete"               onClick={() => { setOpen(false); onAskDelete(); }} danger />
-        </motion.div>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-function MenuRow({ icon: Icon, label, onClick, danger }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-bold transition-colors ${
-        danger
-          ? 'text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10'
-          : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)]'
-      }`}
-    >
-      <Icon size={12} />
-      {label}
-    </button>
   );
 }
