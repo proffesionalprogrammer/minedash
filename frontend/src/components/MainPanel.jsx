@@ -104,8 +104,10 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
 
   // Sample each metric into history on update for sparklines
   React.useEffect(() => {
-    setHistory(h => ({ ...h, cpu: pushHistory(h.cpu, num(systemStats.cpu)) }));
-  }, [systemStats.cpu]);
+    // Push 0 when offline so the line settles cleanly at the bottom instead of stalling.
+    const sample = isOnline ? num(systemStats.cpu) : 0;
+    setHistory(h => ({ ...h, cpu: pushHistory(h.cpu, sample) }));
+  }, [systemStats.cpu, isOnline]);
   React.useEffect(() => {
     // Push 0 when offline so the line settles cleanly at the bottom instead of stalling.
     const sample = isOnline ? num(serverMemStats.ramPercent) : 0;
@@ -575,48 +577,10 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
         </div>
       </motion.div>
 
-      <motion.div 
-        initial={{ opacity: 0, y: 8 }} 
-        animate={{ opacity: 1, y: 0 }} 
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 flex-shrink-0"
-      >
-        <StatCard
-          icon={<Cpu />}
-          label="CPU usage"
-          value={systemStats.cpu || '0%'}
-          secondary="100%"
-          color={getUsageColor(systemStats.cpu)}
-          history={history.cpu}
-        />
-        <StatCard
-          icon={<MemoryStick />}
-          label="Memory usage"
-          detail={isOnline ? (serverMemStats.ram || '0 MB') : '0 MB'}
-          value={isOnline ? (serverMemStats.ramPercent || '0%') : '0%'}
-          secondary="100%"
-          color={isOnline ? getUsageColor(serverMemStats.ramPercent) : null}
-          history={history.ram}
-        />
-        <StatCard
-          icon={<Folder />}
-          label="Storage usage"
-          value={storageSize}
-          history={history.storage}
-          hint="Double-click to open instance folder"
-          onDoubleClick={() => fetch(`http://localhost:3001/api/servers/${server.id}/open-folder`, { method: 'POST' }).catch(() => {})}
-        />
-        <StatCard
-          icon={<Users />}
-          label="Players online"
-          value={isOnline ? `${serverStats.players.length}` : '0'}
-        />
-      </motion.div>
-
-      <motion.div 
-        initial={{ opacity: 0, y: 8 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ duration: 0.4, delay: 0.15 }}
         className="flex-1 flex flex-col min-h-[350px]"
       >
         {/* Animated Tabs */}
@@ -657,7 +621,48 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className="flex-1 flex flex-col min-h-0"
           >
-            {activeTab === 'console' && <ConsoleViewer serverId={server.id} socket={socket} />}
+            {activeTab === 'console' && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 flex-shrink-0"
+                >
+                  <StatCard
+                    icon={<Cpu />}
+                    label="CPU usage"
+                    value={isOnline ? (systemStats.cpu || '0%') : '0%'}
+                    secondary="100%"
+                    color={isOnline ? getUsageColor(systemStats.cpu) : null}
+                    history={history.cpu}
+                  />
+                  <StatCard
+                    icon={<MemoryStick />}
+                    label="Memory usage"
+                    detail={isOnline ? (serverMemStats.ram || '0 MB') : '0 MB'}
+                    value={isOnline ? (serverMemStats.ramPercent || '0%') : '0%'}
+                    secondary="100%"
+                    color={isOnline ? getUsageColor(serverMemStats.ramPercent) : null}
+                    history={history.ram}
+                  />
+                  <StatCard
+                    icon={<Folder />}
+                    label="Storage usage"
+                    value={storageSize}
+                    history={history.storage}
+                    hint="Double-click to open instance folder"
+                    onDoubleClick={() => fetch(`http://localhost:3001/api/servers/${server.id}/open-folder`, { method: 'POST' }).catch(() => {})}
+                  />
+                  <StatCard
+                    icon={<Users />}
+                    label="Players online"
+                    value={isOnline ? `${serverStats.players.length}` : '0'}
+                  />
+                </motion.div>
+                <ConsoleViewer serverId={server.id} socket={socket} />
+              </>
+            )}
             {activeTab === 'players' && <PlayersViewer serverId={server.id} socket={socket} onError={onError} />}
             {activeTab === 'activity' && <ActivityTimeline events={activityEvents} />}
             {activeTab === 'mods' && isPaper && (
