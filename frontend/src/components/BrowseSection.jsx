@@ -217,11 +217,46 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
   // Track the in-flight search so a late response from a previous query can't
   // overwrite the current results.
   const requestSeq = useRef(0);
-  // The results scroll container. We reset it to the top whenever a new search
-  // runs (page change, type switch, sort, filter, query) — otherwise paging
-  // forward from the bottom lands you at the bottom of the next page, and
-  // switching type keeps the old scroll offset.
+  // The results scroll container. Whenever the result set changes — paging,
+  // switching type, sorting, filtering, a new query — we DON'T snap it back to
+  // the top. Instead we leave the old rows (and the user's scroll offset) in
+  // place, let the new results swap in underneath, then glide smoothly up to the
+  // top so the fresh rows feel like they carried the list up with them. A hard
+  // jump reads as a jarring flicker. The glide is a no-op when you're already at
+  // the top (the common case), so it only shows itself when you'd otherwise have
+  // been yanked up from somewhere down the list. See smoothScrollToTop and the
+  // pendingScrollUp handshake below.
   const resultsScrollRef = useRef(null);
+  // rAF handle for the custom scroll-to-top tween, so we can cancel a half-done
+  // glide if another search fires (or the component unmounts) mid-animation.
+  const scrollAnim = useRef(0);
+  // Set by every search; the [results] effect reads it once the new results have
+  // painted and glides the scroll up to the top.
+  const pendingScrollUp = useRef(false);
+
+  // Animate the results pane's scrollTop to 0 ourselves rather than leaning on
+  // scrollTo({ behavior: 'smooth' }) — Chromium's native smooth scroll scales
+  // its speed with distance, so paging forward from the very bottom of a long
+  // list snaps almost instantly and defeats the point. A fixed-duration
+  // easeOutCubic glides the same way no matter how far down you paged from.
+  const smoothScrollToTop = () => {
+    const el = resultsScrollRef.current;
+    if (!el) return;
+    cancelAnimationFrame(scrollAnim.current);
+    const start = el.scrollTop;
+    if (start <= 0) return;
+    const duration = 480;
+    const t0 = performance.now();
+    // easeOutCubic — quick off the mark (so it answers the click), feathers to
+    // a stop as it reaches the top.
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / duration);
+      el.scrollTop = start * (1 - ease(t));
+      if (t < 1) scrollAnim.current = requestAnimationFrame(step);
+    };
+    scrollAnim.current = requestAnimationFrame(step);
+  };
 
   // ── One-time taxonomy fetches ───────────────────────────────────────
   useEffect(() => {
@@ -270,8 +305,12 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
   // ── Search ─────────────────────────────────────────────────────────
   const runSearch = async (q, p, s, t, cats, lds, gvs) => {
     const seq = ++requestSeq.current;
-    // Always start a fresh search at the top of the list.
-    resultsScrollRef.current?.scrollTo({ top: 0 });
+    // Kill any in-flight scroll glide so it can't fight this search.
+    cancelAnimationFrame(scrollAnim.current);
+    // Don't snap to the top — leave the old rows + scroll offset alone and let
+    // the [results] effect glide up once the new results have painted. (No-op
+    // when we're already at the top, which is the usual case.)
+    pendingScrollUp.current = true;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -338,6 +377,20 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
       Array.from(selectedMcVersions),
     );
   };
+
+  // Once a search has swapped its results in, glide the scroll back up to the
+  // top. Doing it in a [results] effect (rather than right after setResults)
+  // guarantees the new rows have committed, so the glide starts from a real,
+  // post-swap scroll height instead of the stale one.
+  useEffect(() => {
+    if (!pendingScrollUp.current) return;
+    pendingScrollUp.current = false;
+    const id = requestAnimationFrame(() => smoothScrollToTop());
+    return () => cancelAnimationFrame(id);
+  }, [results]);
+
+  // Cancel a half-finished glide if we unmount mid-scroll.
+  useEffect(() => () => cancelAnimationFrame(scrollAnim.current), []);
 
   const totalPages = Math.ceil(totalHits / LIMIT);
 
