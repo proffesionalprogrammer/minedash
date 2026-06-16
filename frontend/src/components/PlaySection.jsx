@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Box, Layers, Hammer, FlaskConical, AlertCircle, Download, Plus, X, Pencil, Trash2, Check, FolderOpen } from 'lucide-react';
+import { Box, AlertCircle, Download, Plus, X, Pencil, Trash2, Check, FolderOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import VersionSelect from './VersionSelect';
 import PlayProgressButton from './PlayProgressButton';
@@ -7,12 +7,13 @@ import ContentBrowserModal from './ContentBrowserModal';
 import Tooltip from './Tooltip';
 import Select from './Select';
 import SkinHead from './SkinHead';
+import { VanillaIcon, FabricIcon, ForgeIcon, NeoForgeIcon } from './LoaderIcons';
 
 const LOADERS = [
-  { key: 'vanilla',  label: 'Vanilla',  icon: Box          },
-  { key: 'fabric',   label: 'Fabric',   icon: Layers       },
-  { key: 'forge',    label: 'Forge',    icon: Hammer       },
-  { key: 'neoforge', label: 'NeoForge', icon: FlaskConical },
+  { key: 'vanilla',  label: 'Vanilla',  icon: VanillaIcon  },
+  { key: 'fabric',   label: 'Fabric',   icon: FabricIcon   },
+  { key: 'forge',    label: 'Forge',    icon: ForgeIcon    },
+  { key: 'neoforge', label: 'NeoForge', icon: NeoForgeIcon },
 ];
 
 export default function PlaySection({ servers, socket, initialServerId, accounts, activeAccountId, settings, installedProfiles, onProfilesChanged, onError, launchSession, modpackInstalls, launcherSelection, onSelectionConsumed, instancesRefreshKey, onOpenDetail }) {
