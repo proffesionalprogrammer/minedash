@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Download, Heart, ExternalLink, Loader2, Server as ServerIcon,
@@ -90,6 +90,53 @@ export default function ProjectDetailModal({
   const [installingMain, setInstallingMain] = useState(false);
   const [pickerVersion, setPickerVersion] = useState(null); // version object pending profile pick
   const [lightboxIndex, setLightboxIndex] = useState(null);
+
+  // ── Tab underline indicator ─────────────────────────────────────────────
+  // Driven off the active button's cached geometry rather than framer-motion's
+  // layoutId. layoutId animates *every* layout change of the shared element,
+  // which caused two bugs: (1) when the project finishes loading the header
+  // grows (description/author/stats appear), shifting the whole tab strip down,
+  // and the bar slid vertically into place ("jumps from below"); (2) switching
+  // to a tab with a long list forced a layout-projection remeasure against that
+  // freshly-mounted heavy subtree on the same commit, stalling the spring.
+  // Caching button geometry (it's independent of tab content) means a switch
+  // never touches the DOM, and animating only x/width keeps the bar glued to
+  // the strip with no vertical motion.
+  const tabStripRef = useRef(null);
+  const tabBtnRefs = useRef({});
+  const tabGeom = useRef({}); // key -> { x, width }
+  const activeTabRef = useRef(activeTab); // latest activeTab for the resize closure
+  const [indicator, setIndicator] = useState({ x: 0, width: 0, ready: false });
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
+  // Measure all tab buttons on mount and whenever the strip resizes (the
+  // responsive px-6 → md:px-8 padding shift, window resize). Cached so tab
+  // switches read numbers, not the DOM.
+  useLayoutEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip) return;
+    const measureAll = () => {
+      for (const { key } of TABS) {
+        const btn = tabBtnRefs.current[key];
+        // left-2 / right-2 in the old markup = 8px inset on each side.
+        if (btn) tabGeom.current[key] = { x: btn.offsetLeft + 8, width: Math.max(0, btn.offsetWidth - 16) };
+      }
+      const g = tabGeom.current[activeTabRef.current];
+      if (g) setIndicator({ x: g.x, width: g.width, ready: true });
+    };
+    measureAll();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measureAll);
+    ro.observe(strip);
+    return () => ro.disconnect();
+  }, []);
+
+  // On tab switch, slide the bar to the cached geometry — no DOM read, so a
+  // heavy list mounting in the same commit can't force a reflow that stalls it.
+  useLayoutEffect(() => {
+    const g = tabGeom.current[activeTab];
+    if (g) setIndicator({ x: g.x, width: g.width, ready: true });
+  }, [activeTab]);
 
   // Effective project type. seedType wins until full project arrives —
   // /project/:id returns the same field as `project_type`, so we let it
@@ -442,29 +489,31 @@ export default function ProjectDetailModal({
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div className="flex-1 min-w-0 flex flex-col">
               {/* Tab strip */}
-              <div className="px-6 md:px-8 pt-3 flex items-center gap-1 border-b border-[var(--c-border)] flex-shrink-0 relative">
+              <div ref={tabStripRef} className="px-6 md:px-8 pt-3 flex items-center gap-1 border-b border-[var(--c-border)] flex-shrink-0 relative">
                 {TABS.map(({ key, label, icon: Icon }) => {
                   const active = activeTab === key;
                   return (
                     <button
                       key={key}
+                      ref={el => { tabBtnRefs.current[key] = el; }}
                       onClick={() => setActiveTab(key)}
-                      className={`relative flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors ${
+                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors ${
                         active ? 'text-[#00AF5C]' : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]'
                       }`}
                     >
                       <Icon size={13} />
                       {label}
-                      {active && (
-                        <motion.span
-                          layoutId="projectDetailTabIndicator"
-                          className="absolute left-2 right-2 -bottom-px h-0.5 bg-[#00AF5C] rounded-full"
-                          transition={{ type: 'spring', stiffness: 500, damping: 35, mass: 0.8 }}
-                        />
-                      )}
                     </button>
                   );
                 })}
+                {indicator.ready && (
+                  <motion.span
+                    className="absolute left-0 -bottom-px h-0.5 bg-[#00AF5C] rounded-full"
+                    initial={false}
+                    animate={{ x: indicator.x, width: indicator.width }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 35, mass: 0.8 }}
+                  />
+                )}
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-6 md:px-8 py-5">
