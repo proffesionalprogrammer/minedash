@@ -1364,6 +1364,7 @@ function register(app) {
     if (['hide', 'keep'].includes(incoming.afterLaunch)) next.afterLaunch = incoming.afterLaunch;
     if (typeof incoming.showSnapshots === 'boolean') next.showSnapshots = incoming.showSnapshots;
     if (typeof incoming.onlyInstalled === 'boolean') next.onlyInstalled = incoming.onlyInstalled;
+    if (typeof incoming.elybySkins === 'boolean') next.elybySkins = incoming.elybySkins;
     if (typeof incoming.lastLoader === 'string' && ['vanilla','fabric','forge','neoforge',''].includes(incoming.lastLoader)) next.lastLoader = incoming.lastLoader;
     if (typeof incoming.lastVersion === 'string') next.lastVersion = incoming.lastVersion.trim();
     if (typeof incoming.lastInstanceId === 'string') next.lastInstanceId = incoming.lastInstanceId.trim();
