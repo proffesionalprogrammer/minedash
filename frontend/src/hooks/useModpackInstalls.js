@@ -17,6 +17,15 @@ export function useModpackInstalls(socket) {
   // and to dedupe a `trackInstall` call for a session we're already tracking
   // (e.g. a component remounting and re-firing the same install accidentally).
   const handlersRef = useRef({});
+  // Live mirror of `installs` so cancelInstall can read the current sessionId
+  // synchronously. We must NOT read it out of a setInstalls updater's side
+  // effect — React only runs that updater eagerly when its queue is empty, and
+  // during an active install the constant progress events keep the queue full,
+  // so the updater (and the sessionId assignment) is deferred past the point
+  // where we fire the DELETE. That made Stop a no-op (the button flipped to
+  // "Stopping…" but no cancel request was ever sent).
+  const installsRef = useRef(installs);
+  installsRef.current = installs;
 
   const trackInstall = useCallback((sessionId, key, meta = {}) => {
     if (!socket || !sessionId || !key) return;
@@ -83,15 +92,18 @@ export function useModpackInstalls(socket) {
   // arrives (above). Optimistically flips the entry to `cancelling` so the
   // button can show progress immediately. No-op if the entry already finished.
   const cancelInstall = useCallback((key) => {
-    let sessionId;
-    setInstalls(prev => {
-      const entry = prev[key];
-      if (!entry || !entry.sessionId) return prev;
-      sessionId = entry.sessionId;
-      if (entry.status === 'cancelling') return prev;
-      return { ...prev, [key]: { ...entry, status: 'cancelling' } };
-    });
+    // Read the sessionId from the live mirror — synchronous and queue-independent
+    // (see installsRef above for why we can't read it inside the updater).
+    const entry = installsRef.current[key];
+    const sessionId = entry && entry.sessionId;
     if (!sessionId) return;
+    // Optimistically flip the button to "Stopping…". This update can be deferred
+    // by React; that's fine — the DELETE below has already fired by then.
+    setInstalls(prev => {
+      const e = prev[key];
+      if (!e || e.status === 'cancelling') return prev;
+      return { ...prev, [key]: { ...e, status: 'cancelling' } };
+    });
     fetch(`http://localhost:3001/api/launcher/modpack-install/${sessionId}`, { method: 'DELETE' })
       .catch(() => { /* the cancelled/terminal event still clears the entry */ });
   }, []);
