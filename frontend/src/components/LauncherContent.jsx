@@ -24,7 +24,7 @@ function fmt(n) {
 // Browse and install client-side content (mods / resource packs / shaders)
 // into a launcher profile. Trimmed-down counterpart of ModrinthBrowser that
 // targets a `${loader}-${version}` profile directory instead of a server.
-export default function LauncherContent({ loader, version, instanceId, onError, inModal, modpackInstalls, onOpenDetail }) {
+export default function LauncherContent({ loader, version, instanceId, onError, inModal, modpackInstalls, onOpenDetail, lockedType }) {
   // Suffix appended to every profile-scoped API call so it targets the right
   // instance. Empty string when the caller didn't pick one — the backend then
   // resolves to the default instance for this loader+version.
@@ -33,7 +33,10 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
   // start them on resource packs. Picking the right value at mount time avoids
   // a race where the first (mod) search resolves after the snap-to-valid one
   // and leaves stale mod results in the resource-pack tab.
-  const [type, setType] = useState(() => loader === 'vanilla' ? 'resourcepack' : 'mod');
+  // When `lockedType` is set (the per-instance Mods / Resource Packs / Shaders
+  // panels), this component shows a single content type and hides the type-tab
+  // strip — the rail item already chose the type.
+  const [type, setType] = useState(() => lockedType || (loader === 'vanilla' ? 'resourcepack' : 'mod'));
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -72,11 +75,13 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
   );
 
   // If the currently-selected type isn't visible for this loader, snap to the first visible one.
+  // Locked panels never snap — the parent only mounts a panel for a type valid for the loader.
   useEffect(() => {
+    if (lockedType) return;
     if (!visibleTypes.some(t => t.key === type)) {
       setType(visibleTypes[0]?.key || 'resourcepack');
     }
-  }, [visibleTypes, type]);
+  }, [visibleTypes, type, lockedType]);
 
   const supportsLoader = true; // hidden tabs replace the previous "unsupported loader" gate
   const showDatapackHint = type === 'datapack';
@@ -339,6 +344,23 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
     }
   };
 
+  // Enable / disable a single file (rename ⇄ `.disabled`). Only meaningful for
+  // mods / resource packs / shaders — datapacks and modpacks have no folder-load
+  // semantics to toggle.
+  const handleToggle = async (filename) => {
+    try {
+      const r = await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/content/${type}/${encodeURIComponent(filename)}/toggle${instanceQuery}`, {
+        method: 'POST',
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Toggle failed');
+      fetchInstalled();
+    } catch (err) {
+      onError?.(err.message);
+    }
+  };
+  const canToggle = ['mod', 'resourcepack', 'shader'].includes(type);
+
   const handleChangeVersionOpen = async (project) => {
     const pid = project.project_id;
     if (versionPickerOpen[pid]) {
@@ -550,25 +572,27 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
         </div>
       )}
 
-      {/* Type tabs */}
-      <div className="flex flex-wrap items-center gap-1.5 mb-4">
-        {visibleTypes.map(({ key, label, icon: Icon }) => {
-          const active = type === key;
-          return (
-            <motion.button key={key}
-              onClick={() => setType(key)}
-              whileTap={{ scale: 0.97 }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors duration-150 ${
-                active
-                  ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
-                  : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
-              }`}>
-              <Icon size={14} />
-              {label}
-            </motion.button>
-          );
-        })}
-      </div>
+      {/* Type tabs — hidden when the panel is locked to a single type */}
+      {!lockedType && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-4">
+          {visibleTypes.map(({ key, label, icon: Icon }) => {
+            const active = type === key;
+            return (
+              <motion.button key={key}
+                onClick={() => setType(key)}
+                whileTap={{ scale: 0.97 }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-colors duration-150 ${
+                  active
+                    ? 'bg-[#00AF5C]/10 text-[#00AF5C] border border-[#00AF5C]/20'
+                    : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] border border-transparent hover:bg-[var(--c-surface-2)]'
+                }`}>
+                <Icon size={14} />
+                {label}
+              </motion.button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Sub-tabs: Browse Modrinth vs. show what's already installed in the profile.
           Mirrors the server-side ModsViewer pattern so users have a consistent mental
@@ -703,6 +727,7 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
             filter={installedFilter}
             onFilterChange={setInstalledFilter}
             onDelete={handleDelete}
+            onToggle={canToggle ? handleToggle : null}
             contentType={type}
             updateInfo={type === 'mod' ? updateInfo : null}
           />
@@ -941,13 +966,20 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
 // Long-press (~500 ms) on any row flips the view into multi-select mode —
 // checkboxes appear, every subsequent click toggles selection, and a
 // header bar offers Select All / Clear / Delete selected.
-function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, contentType, updateInfo }) {
+function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, onToggle, contentType, updateInfo }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [toggling, setToggling] = useState({}); // filename → in-flight enable/disable
   const pressTimer = useRef(null);
   const pressTriggered = useRef(false);
+
+  const doToggle = async (filename) => {
+    setToggling(t => ({ ...t, [filename]: true }));
+    try { await onToggle(filename); }
+    finally { setToggling(t => { const n = { ...t }; delete n[filename]; return n; }); }
+  };
 
   // Drop selection state when the type changes or the underlying list shrinks.
   useEffect(() => {
@@ -1130,7 +1162,7 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                   isSelected
                     ? 'border-[#00AF5C] bg-[#00AF5C]/10'
                     : 'border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
-                } ${selectMode ? 'cursor-pointer' : ''}`}>
+                } ${selectMode ? 'cursor-pointer' : ''} ${onToggle && f.enabled === false ? 'opacity-60' : ''}`}>
                 {selectMode && (
                   <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
                     isSelected ? 'bg-[#00AF5C] text-white' : 'bg-[var(--c-base)] border border-[var(--c-border)]'
@@ -1145,7 +1177,12 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{f.title || f.filename}</p>
+                    <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">{f.title || f.baseName || f.filename}</p>
+                    {onToggle && f.enabled === false && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-border)] text-[var(--c-text-muted)] rounded-md flex-shrink-0">
+                        Disabled
+                      </span>
+                    )}
                     {f.wrongVersion && (
                       <Tooltip content="This mod's jar doesn't list this profile's Minecraft version as supported" className="flex-shrink-0">
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-danger)]/15 text-[var(--c-danger)] border border-[var(--c-danger)]/30 rounded-md">
@@ -1168,16 +1205,33 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                       </Tooltip>
                     )}
                   </div>
-                  {f.title && f.title !== f.filename && (
-                    <p className="text-[10px] text-[var(--c-text-muted)] truncate font-mono">{f.filename}</p>
+                  {f.title && f.title !== (f.baseName || f.filename) && (
+                    <p className="text-[10px] text-[var(--c-text-muted)] truncate font-mono">{f.baseName || f.filename}</p>
                   )}
                 </div>
                 {!selectMode && (
-                  <button onClick={(e) => { e.stopPropagation(); onDelete(f.filename); }}
-                    className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0"
-                    aria-label="Remove">
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {onToggle && (
+                      <Tooltip content={f.enabled === false ? 'Enable' : 'Disable'} align="end">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); doToggle(f.filename); }}
+                          disabled={!!toggling[f.filename]}
+                          aria-label={f.enabled === false ? 'Enable' : 'Disable'}
+                          className={`w-10 h-6 rounded-full relative transition-all duration-300 ${f.enabled === false ? 'bg-[var(--c-border)]' : 'bg-[#00AF5C]'} ${toggling[f.filename] ? 'opacity-50' : ''}`}>
+                          <motion.div
+                            className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-md"
+                            animate={{ left: f.enabled === false ? '4px' : '20px' }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                          />
+                        </button>
+                      </Tooltip>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(f.filename); }}
+                      className="p-2 text-[var(--c-text-secondary)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      aria-label="Remove">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 )}
               </motion.div>
               );

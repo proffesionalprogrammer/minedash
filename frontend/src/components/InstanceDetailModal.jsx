@@ -1,24 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-  Settings2, ScrollText, X, Check, Loader2, Cpu, Coffee, Globe, FolderOpen,
-  FileDown, Trash2, Play, RefreshCw, Copy, FileText, AlertTriangle, ChevronRight,
-  Clock,
+  Settings2, ScrollText, X, Check, Loader2, Coffee, Globe, Play, RefreshCw,
+  Copy, FileText, AlertTriangle, Package, Image as ImageIcon, Sparkles, Camera,
 } from 'lucide-react';
-import { formatPlaytime, formatLastPlayed } from '../lib/playtime';
 import ModalPortal from './ModalPortal';
 import Tooltip from './Tooltip';
 import LoaderGlyph from './LoaderGlyph';
-import JavaRuntimeModal from './JavaRuntimeModal';
-import InstanceWorldsModal from './InstanceWorldsModal';
-import { useSystemRam } from '../hooks/useSystemRam';
+import LauncherContent from './LauncherContent';
+import InstanceSettingsPanel from './instance/InstanceSettingsPanel';
+import InstanceJavaPanel from './instance/InstanceJavaPanel';
+import InstanceWorldsPanel from './instance/InstanceWorldsPanel';
+import InstanceScreenshotsPanel from './instance/InstanceScreenshotsPanel';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
 import duskCover from '../assets/dusk.jpg';
 
 const GLYPH_LOADERS = new Set(['fabric', 'forge', 'neoforge', 'quilt']);
 const LOADER_LABEL = { vanilla: 'Vanilla', fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
-const RAM_MIN = 1;
-const RAM_MAX_FALLBACK = 16;
 
 function humanBytes(n) {
   if (!n && n !== 0) return '';
@@ -26,39 +24,39 @@ function humanBytes(n) {
   if (n >= 1024) return (n / 1024).toFixed(0) + ' KB';
   return n + ' B';
 }
-
 function fmtTime(ms) {
   if (!ms) return '';
-  try {
-    return new Date(ms).toLocaleString(undefined, {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-    });
-  } catch { return ''; }
+  try { return new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
 }
 
-function javaSummary(java) {
-  const v = (java || '').trim();
-  if (!v || v === 'auto') return 'Automatic';
-  const m = /^jdk-(\d+)$/.exec(v);
-  if (m) return `Java ${m[1]} (managed)`;
-  return 'Custom path';
-}
-
-// Centered, two-pane management panel for a single launcher instance. This is
-// the one home for everything that used to crowd the card's kebab — rename,
-// per-instance memory, Java, worlds, folder/export/delete — plus a Logs viewer
-// (logs/ + crash-reports/). Opening it from a card declutters the grid: the
-// card stays just art + Play + a single "Manage" affordance.
-export default function InstanceDetailModal({ inst: instProp, settings, onClose, onError, onSaved, onDeleted, onPlay, playDisabled }) {
+// Centered, two-pane management panel for a single launcher instance — a
+// Prism-style left rail (Settings · Java · Mods · Resource Packs · Shaders ·
+// Worlds · Screenshots · Logs) with a dedicated panel for each. Mods/Shaders
+// are hidden for vanilla instances.
+export default function InstanceDetailModal({
+  inst: instProp, settings, onClose, onError, onSaved, onDeleted, onPlay, onJoinWorld,
+  playDisabled, modpackInstalls, onOpenDetail,
+}) {
   const [inst, setInst] = useState(instProp);
-  const [section, setSection] = useState('settings'); // 'settings' | 'logs'
-  const [javaOpen, setJavaOpen] = useState(false);
-  const [worldsOpen, setWorldsOpen] = useState(false);
+  const [section, setSection] = useState('settings');
 
-  // Keep local copy in sync if the parent pushes an update (e.g. modpack refresh).
   useEffect(() => { setInst(instProp); }, [instProp]);
 
+  const isVanilla = inst.loader === 'vanilla';
   const loaderLabel = LOADER_LABEL[inst.loader] || inst.loader;
+
+  const rail = [
+    { key: 'settings', label: 'Settings', icon: Settings2 },
+    { key: 'java', label: 'Java', icon: Coffee },
+    ...(isVanilla ? [] : [{ key: 'mods', label: 'Mods', icon: Package }]),
+    { key: 'resourcepack', label: 'Resource Packs', icon: ImageIcon },
+    ...(isVanilla ? [] : [{ key: 'shader', label: 'Shaders', icon: Sparkles }]),
+    { key: 'worlds', label: 'Worlds', icon: Globe },
+    { key: 'screenshots', label: 'Screenshots', icon: Camera },
+    { key: 'logs', label: 'Logs', icon: ScrollText },
+  ];
+
   const patch = async (body) => {
     const r = await fetch(`http://localhost:3001/api/launcher/instances/${inst.id}`, {
       method: 'PATCH',
@@ -72,6 +70,22 @@ export default function InstanceDetailModal({ inst: instProp, settings, onClose,
     return d;
   };
 
+  // Shared wrapper for the embedded LauncherContent panels (Mods / RP / Shaders).
+  const contentPanel = (lockedType) => (
+    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5">
+      <LauncherContent
+        inModal
+        lockedType={lockedType}
+        loader={inst.loader}
+        version={inst.version}
+        instanceId={inst.id}
+        onError={onError}
+        modpackInstalls={modpackInstalls}
+        onOpenDetail={onOpenDetail}
+      />
+    </div>
+  );
+
   return (
     <ModalPortal>
       <motion.div
@@ -84,7 +98,7 @@ export default function InstanceDetailModal({ inst: instProp, settings, onClose,
           initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
           transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
           onClick={e => e.stopPropagation()}
-          className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl w-full max-w-3xl h-[min(620px,82vh)] flex flex-col overflow-hidden shadow-2xl shadow-black/50"
+          className="bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl w-full max-w-4xl h-[min(680px,88vh)] flex flex-col overflow-hidden shadow-2xl shadow-black/50"
         >
           {/* Header */}
           <div className="flex items-center gap-3 p-5 border-b border-[var(--c-border)]">
@@ -98,9 +112,7 @@ export default function InstanceDetailModal({ inst: instProp, settings, onClose,
             </div>
             <div className="min-w-0 flex-1">
               <h3 className="text-lg font-bold text-[var(--c-text-primary)] truncate">{inst.displayName}</h3>
-              <p className="text-xs text-[var(--c-text-secondary)] font-bold truncate">
-                {loaderLabel} {inst.version}
-              </p>
+              <p className="text-xs text-[var(--c-text-secondary)] font-bold truncate">{loaderLabel} {inst.version}</p>
             </div>
             {onPlay && (
               <motion.button
@@ -124,48 +136,35 @@ export default function InstanceDetailModal({ inst: instProp, settings, onClose,
 
           {/* Body: left rail + content */}
           <div className="flex-1 min-h-0 flex">
-            <nav className="w-44 flex-shrink-0 border-r border-[var(--c-border)] p-3 flex flex-col gap-1">
-              <RailItem icon={Settings2} label="Settings" active={section === 'settings'} onClick={() => setSection('settings')} />
-              <RailItem icon={ScrollText} label="Logs" active={section === 'logs'} onClick={() => setSection('logs')} />
+            <nav className="w-44 flex-shrink-0 border-r border-[var(--c-border)] p-3 flex flex-col gap-1 overflow-y-auto custom-scrollbar">
+              {rail.map(item => (
+                <RailItem key={item.key} icon={item.icon} label={item.label}
+                  active={section === item.key} onClick={() => setSection(item.key)} />
+              ))}
             </nav>
             <div className="flex-1 min-w-0 flex flex-col">
-              {section === 'settings' ? (
-                <SettingsPane
-                  inst={inst}
-                  settings={settings}
-                  patch={patch}
-                  onError={onError}
-                  onOpenJava={() => setJavaOpen(true)}
-                  onOpenWorlds={() => setWorldsOpen(true)}
-                  onDeleted={onDeleted}
-                />
-              ) : (
+              {section === 'settings' && (
+                <InstanceSettingsPanel inst={inst} settings={settings} patch={patch} onError={onError} onDeleted={onDeleted} />
+              )}
+              {section === 'java' && (
+                <InstanceJavaPanel inst={inst} patch={patch} onError={onError} />
+              )}
+              {section === 'mods' && contentPanel('mod')}
+              {section === 'resourcepack' && contentPanel('resourcepack')}
+              {section === 'shader' && contentPanel('shader')}
+              {section === 'worlds' && (
+                <InstanceWorldsPanel inst={inst} onError={onError} onJoinWorld={onJoinWorld} />
+              )}
+              {section === 'screenshots' && (
+                <InstanceScreenshotsPanel inst={inst} onError={onError} />
+              )}
+              {section === 'logs' && (
                 <LogsPane inst={inst} onError={onError} />
               )}
             </div>
           </div>
         </motion.div>
       </motion.div>
-
-      <AnimatePresence>
-        {javaOpen && (
-          <JavaRuntimeModal
-            key="detail-java"
-            inst={inst}
-            onClose={() => setJavaOpen(false)}
-            onError={onError}
-            onSaved={(updated) => { setInst(prev => ({ ...prev, ...updated })); onSaved?.(updated); }}
-          />
-        )}
-        {worldsOpen && (
-          <InstanceWorldsModal
-            key="detail-worlds"
-            inst={inst}
-            onClose={() => setWorldsOpen(false)}
-            onError={onError}
-          />
-        )}
-      </AnimatePresence>
     </ModalPortal>
   );
 }
@@ -174,244 +173,22 @@ function RailItem({ icon: Icon, label, active, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-bold transition-colors ${
+      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-bold transition-colors text-left ${
         active
           ? 'bg-[#00AF5C]/10 text-[#00AF5C]'
           : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)]'
       }`}
     >
-      <Icon size={16} />
-      {label}
+      <Icon size={16} className="flex-shrink-0" />
+      <span className="truncate">{label}</span>
     </button>
   );
 }
 
-function SettingsPane({ inst, settings, patch, onError, onOpenJava, onOpenWorlds, onDeleted }) {
-  const ramMax = useSystemRam(RAM_MAX_FALLBACK);
-  const [name, setName] = useState(inst.displayName || '');
-  const [savingName, setSavingName] = useState(false);
-
-  // Per-instance RAM. `custom` off = inherit the global default; on = pin `ram`.
-  const [custom, setCustom] = useState(typeof inst.ram === 'number' && inst.ram >= 1);
-  const [ram, setRam] = useState(typeof inst.ram === 'number' && inst.ram >= 1 ? inst.ram : 4);
-  const [savingRam, setSavingRam] = useState(false);
-
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [exporting, setExporting] = useState(false);
-
-  useEffect(() => { setName(inst.displayName || ''); }, [inst.displayName]);
-
-  const nameDirty = name.trim() && name.trim() !== (inst.displayName || '');
-  const savedRam = typeof inst.ram === 'number' && inst.ram >= 1 ? inst.ram : null;
-  const ramDirty = custom ? ram !== savedRam : savedRam !== null;
-  const ramPercent = ramMax > RAM_MIN ? ((ram - RAM_MIN) / (ramMax - RAM_MIN)) * 100 : 0;
-
-  const saveName = async () => {
-    if (!nameDirty) return;
-    setSavingName(true);
-    try { await patch({ displayName: name.trim() }); }
-    catch (err) { onError?.(err.message); }
-    setSavingName(false);
-  };
-
-  const saveRam = async () => {
-    setSavingRam(true);
-    try { await patch({ ram: custom ? ram : null }); }
-    catch (err) { onError?.(err.message); }
-    setSavingRam(false);
-  };
-
-  const handleOpenFolder = async () => {
-    try { await fetch(`http://localhost:3001/api/launcher/instances/${inst.id}/open-folder`, { method: 'POST' }); }
-    catch (err) { onError?.(err.message); }
-  };
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const url = `http://localhost:3001/api/launcher/instances/${encodeURIComponent(inst.id)}/export`;
-      const r = await fetch(`${url}?check=1`);
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Export failed');
-      const a = document.createElement('a');
-      a.href = url; a.download = '';
-      document.body.appendChild(a); a.click(); a.remove();
-    } catch (err) { onError?.(err.message); }
-    setExporting(false);
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      const r = await fetch(`http://localhost:3001/api/launcher/instances/${inst.id}`, { method: 'DELETE' });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Failed to delete');
-      onDeleted?.(inst.id);
-    } catch (err) {
-      onError?.(err.message);
-      setDeleting(false);
-      setConfirmDelete(false);
-    }
-  };
-
-  const showPlaytime = settings?.showPlaytime !== false;
-  const lastPlayedLabel = formatLastPlayed(inst.lastPlayed);
-
-  return (
-    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-6">
-      {/* Game time — accumulated play time + last played (Settings → Minecraft). */}
-      {showPlaytime && (inst.playtimeMs > 0 || lastPlayedLabel) && (
-        <div className="flex items-center gap-4 px-4 py-3 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl">
-          <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
-            <Clock size={16} className="text-[#00AF5C]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-[var(--c-text-primary)] tabular-nums">
-              {formatPlaytime(inst.playtimeMs, !!settings?.durationsInHours)} played
-            </p>
-            {lastPlayedLabel && (
-              <p className="text-[11px] text-[var(--c-text-secondary)]">Last played {lastPlayedLabel}</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Name */}
-      <Field label="Display name">
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={name}
-            maxLength={60}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') saveName(); }}
-            className="flex-1 min-w-0 bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm font-bold text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all"
-          />
-          <motion.button
-            onClick={saveName}
-            disabled={!nameDirty || savingName}
-            whileTap={{ scale: 0.97 }}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-[#00AF5C] hover:bg-[#00964F] text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {savingName ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            Save
-          </motion.button>
-        </div>
-      </Field>
-
-      {/* Memory */}
-      <Field
-        label="Memory"
-        icon={Cpu}
-        action={
-          <ToggleChip
-            on={custom}
-            onLabel="Custom"
-            offLabel="Global default"
-            onToggle={() => setCustom(c => !c)}
-          />
-        }
-      >
-        {custom ? (
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-[var(--c-text-secondary)] font-bold">Allocate to this instance</span>
-              <span className="text-sm font-bold text-[#00AF5C] bg-[#00AF5C]/10 px-3 py-1 rounded-lg tabular-nums">{ram} GB</span>
-            </div>
-            <input
-              type="range"
-              min={RAM_MIN}
-              max={ramMax}
-              step={1}
-              value={ram}
-              onChange={e => setRam(Number(e.target.value))}
-              style={{ '--fill': `${ramPercent}%` }}
-              className="w-full ram-slider"
-            />
-            <div className="flex justify-between text-xs text-[var(--c-text-muted)] px-0.5">
-              <span>{RAM_MIN} GB</span>
-              <span>{ramMax} GB</span>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-[var(--c-text-secondary)] pt-1">
-            Uses the global memory amount from <span className="font-bold text-[var(--c-text-primary)]">Settings</span>. Turn on <span className="font-bold text-[var(--c-text-primary)]">Custom</span> to give this instance its own heap.
-          </p>
-        )}
-        {ramDirty && (
-          <div className="flex justify-end pt-1">
-            <motion.button
-              onClick={saveRam}
-              disabled={savingRam}
-              whileTap={{ scale: 0.97 }}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#00AF5C] hover:bg-[#00964F] text-white transition-colors disabled:opacity-50"
-            >
-              {savingRam ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-              Save memory
-            </motion.button>
-          </div>
-        )}
-      </Field>
-
-      {/* Java + Worlds — open their dedicated panels */}
-      <Field label="Runtime & content">
-        <div className="space-y-2">
-          <LinkRow icon={Coffee} title="Java runtime" subtitle={javaSummary(inst.java)} onClick={onOpenJava} />
-          <LinkRow icon={Globe} title="Worlds & screenshots" subtitle="Manage saves and screenshots" onClick={onOpenWorlds} />
-        </div>
-      </Field>
-
-      {/* Files */}
-      <Field label="Files">
-        <div className="flex flex-wrap gap-2">
-          <SecondaryButton icon={FolderOpen} label="Open folder" onClick={handleOpenFolder} />
-          <SecondaryButton icon={FileDown} label="Export as .mrpack" onClick={handleExport} busy={exporting} />
-        </div>
-      </Field>
-
-      {/* Danger zone */}
-      <div className="border-t border-[var(--c-border)] pt-5">
-        {confirmDelete ? (
-          <div className="bg-[var(--c-danger)]/10 border border-[var(--c-danger)]/30 rounded-2xl p-4">
-            <p className="text-sm font-bold text-[var(--c-text-primary)]">Delete this instance?</p>
-            <p className="text-xs text-[var(--c-text-secondary)] mt-1">The on-disk profile (mods, worlds, configs) will be permanently removed.</p>
-            <div className="flex items-center gap-2 mt-3">
-              <button
-                onClick={() => setConfirmDelete(false)}
-                disabled={deleting}
-                className="px-3 py-2 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-2)] transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <motion.button
-                onClick={handleDelete}
-                disabled={deleting}
-                whileTap={{ scale: 0.97 }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white transition-colors disabled:opacity-50"
-              >
-                {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                Delete instance
-              </motion.button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 border border-[var(--c-danger)]/30 transition-colors"
-          >
-            <Trash2 size={15} /> Delete instance
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function LogsPane({ inst, onError }) {
-  const [files, setFiles] = useState(null);     // null = loading
-  const [active, setActive] = useState(null);   // { name, kind }
-  const [content, setContent] = useState(null); // { content, truncated, sizeBytes }
+  const [files, setFiles] = useState(null);
+  const [active, setActive] = useState(null);
+  const [content, setContent] = useState(null);
   const [loadingFile, setLoadingFile] = useState(false);
   const [copied, setCopied] = useState(false);
   const preRef = useRef(null);
@@ -425,7 +202,6 @@ function LogsPane({ inst, onError }) {
       if (!r.ok) throw new Error(d.error || 'Failed to load logs');
       const list = Array.isArray(d.files) ? d.files : [];
       setFiles(list);
-      // Auto-open the first (latest.log, or newest) readable file.
       const first = list.find(f => !f.name.toLowerCase().endsWith('.gz')) || list[0] || null;
       if (first) openFile(first);
       else { setActive(null); setContent(null); }
@@ -450,7 +226,6 @@ function LogsPane({ inst, onError }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inst.id]);
 
-  // Jump to the bottom (newest lines) whenever a fresh file finishes loading.
   useEffect(() => {
     if (content && preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
   }, [content]);
@@ -466,7 +241,6 @@ function LogsPane({ inst, onError }) {
 
   return (
     <div className="flex-1 min-h-0 flex">
-      {/* File list */}
       <div className="w-52 flex-shrink-0 border-r border-[var(--c-border)] flex flex-col">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--c-border)]">
           <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Log files</span>
@@ -517,7 +291,6 @@ function LogsPane({ inst, onError }) {
         </div>
       </div>
 
-      {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col">
         {active ? (
           <>
@@ -560,63 +333,5 @@ function LogsPane({ inst, onError }) {
         )}
       </div>
     </div>
-  );
-}
-
-function Field({ label, icon: Icon, action, children }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <label className="text-xs uppercase tracking-wider font-bold text-[var(--c-text-muted)] flex items-center gap-1.5">
-          {Icon && <Icon size={13} />}
-          {label}
-        </label>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function LinkRow({ icon: Icon, title, subtitle, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] transition-colors text-left group"
-    >
-      <span className="p-1.5 rounded-lg bg-[#00AF5C]/10 text-[#00AF5C]"><Icon size={15} /></span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-bold text-[var(--c-text-primary)] truncate">{title}</span>
-        <span className="block text-xs text-[var(--c-text-secondary)] truncate">{subtitle}</span>
-      </span>
-      <ChevronRight size={16} className="text-[var(--c-text-muted)] group-hover:text-[var(--c-text-secondary)] flex-shrink-0" />
-    </button>
-  );
-}
-
-function SecondaryButton({ icon: Icon, label, onClick, busy }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] transition-colors disabled:opacity-50"
-    >
-      {busy ? <Loader2 size={15} className="animate-spin" /> : <Icon size={15} />}
-      {label}
-    </button>
-  );
-}
-
-function ToggleChip({ on, onLabel, offLabel, onToggle }) {
-  return (
-    <button
-      onClick={onToggle}
-      className="flex items-center gap-1.5 text-xs font-bold transition-colors"
-    >
-      <span className={`relative w-9 h-5 rounded-full transition-colors ${on ? 'bg-[#00AF5C]' : 'bg-[var(--c-border)]'}`}>
-        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
-      </span>
-      <span className={on ? 'text-[#00AF5C]' : 'text-[var(--c-text-secondary)]'}>{on ? onLabel : offLabel}</span>
-    </button>
   );
 }
