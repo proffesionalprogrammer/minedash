@@ -2,6 +2,25 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.3.0 — 2026-06-17
+
+### Added
+
+- **A proper home for every launcher instance — Prism-style.** Clicking **Manage** on an instance now opens a redesigned panel with a sidebar: **Settings, Java, Mods, Resource Packs, Shaders, Worlds, Screenshots,** and **Logs**, each on its own page (Mods and Shaders are hidden for vanilla instances).
+  - **Per-instance Settings** — override any of the global Minecraft settings (Game Window, Launcher Behavior, Console, Custom Commands, Environment Variables, Tweaks) for just this instance, with a simple Custom/Global toggle on each. Leave it on Global to follow your defaults, flip to Custom when one pack needs something different.
+  - **Enable/disable mods, resource packs, and shaders** with a per-row toggle — just like the server Mods tab — without deleting anything. Disabled files keep their place and their metadata.
+  - **A real Worlds manager.** Each singleplayer world now shows its game mode, seed, and when you last played it (read straight from the save). You can **Join** a world directly (quick-play), rename it, copy its seed, reset its icon, open its data packs, export or duplicate it, delete it, or **import a world from a .zip**.
+
+### Fixed
+
+- **Modpack mods no longer silently go missing.** Installing a modpack — into a server *or* a launcher instance — could quietly drop needed mods (including a pack's huge main jar, like Pixelmon's 400 MB+ file) and still tell you it succeeded. The downloader now streams large files straight to disk instead of holding them in memory, aborts and retries a download that stalls mid-file, retries transient failures up to three times per mirror, and — if a mod genuinely can't be fetched — tells you exactly which ones failed instead of claiming the install worked. Stop still cancels cleanly mid-download.
+- **Cancelling "Install as server" from Browse no longer leaves a half-built server behind.** Hitting cancel while a modpack was installing as a server used to abort your end of the connection while the build quietly finished anyway, so the server still showed up fully created. Cancel now tears down the partial server instead of saving it.
+- **Stop actually stops a modpack install on the Browse tab.** The Stop button would flip to "Stopping…" but the install kept running to completion. It now cancels the moment you click it.
+- **Gallery images are crisp full-screen.** Clicking a screenshot in a mod or modpack's gallery opened a blurry, upscaled thumbnail; it now loads the original full-resolution image.
+- **Tidier account rows.** In **Settings → Accounts**, the second account row no longer wraps its "OFFLINE" chip and "Last used" time into a ragged, taller row — every account row keeps the same clean height.
+
+---
+
 ## v1.1.28 — 2026-06-17
 
 ### Added
