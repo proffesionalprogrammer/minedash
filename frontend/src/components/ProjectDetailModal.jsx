@@ -894,7 +894,7 @@ function Lightbox({ items, index, onPrev, onNext, onClose }) {
         onClick={onClose}
       >
         <div className="relative flex-1 w-full flex items-center justify-center min-h-0" onClick={e => e.stopPropagation()}>
-          <img src={item.url} alt={item.title || ''} className="w-full h-full object-contain rounded-xl" />
+          <img src={item.raw_url || item.url} alt={item.title || ''} className="w-full h-full object-contain rounded-xl" />
           {index > 0 && (
             <button
               onClick={onPrev}
