@@ -163,10 +163,21 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
         const pid = entry.projectId || key.split(':')[2];
         const title = entry.title || 'Modpack';
         setInstalled(prev => ({ ...prev, [pid]: true }));
-        const extras = [];
-        if (entry.summary?.installed) extras.push(`${entry.summary.installed} mods`);
-        if (entry.summary?.skippedClientOnly) extras.push(`${entry.summary.skippedClientOnly} client-only mods stashed`);
-        showToast(`${title} installed! ${extras.join(', ') || 'done'}`);
+        // Surface failed downloads loudly. A modpack's main jar is the biggest
+        // and most likely to drop mid-stream — if it silently failed and we
+        // still said "installed!", the user would think the install ate the mod.
+        const failedCount = entry.summary?.failed || 0;
+        if (failedCount > 0) {
+          const names = Array.isArray(entry.summary?.failedFiles) ? entry.summary.failedFiles : [];
+          const preview = names.slice(0, 3).join(', ');
+          const more = names.length > 3 ? ` +${names.length - 3} more` : '';
+          showToast(`${title}: ${failedCount} mod${failedCount !== 1 ? 's' : ''} failed to download${preview ? ` (${preview}${more})` : ''}. Install again to retry.`, true);
+        } else {
+          const extras = [];
+          if (entry.summary?.installed) extras.push(`${entry.summary.installed} mods`);
+          if (entry.summary?.skippedClientOnly) extras.push(`${entry.summary.skippedClientOnly} client-only mods stashed`);
+          showToast(`${title} installed! ${extras.join(', ') || 'done'}`);
+        }
         if (onInstalled) onInstalled();
         fetchInstalledFiles();
       } else {

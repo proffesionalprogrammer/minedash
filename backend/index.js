@@ -1509,40 +1509,72 @@ function isUnsafeSegment(name) {
 
 async function downloadToFile(url, destPath) {
   await fs.ensureDir(path.dirname(destPath));
+  // axios's `timeout` only bounds receiving the response *headers* — it does
+  // NOT cover the streamed body. So a connection that stalls or drips partway
+  // through a big jar (the 400 MB+ Pixelmon main mod is the usual victim) would
+  // otherwise hang the whole modpack install forever, and a mid-stream drop
+  // would silently leave the mod missing. Guard the body with an idle-stall
+  // timer: if no bytes arrive for STALL_MS we abort, which surfaces as a
+  // retryable error in downloadFromAny.
+  const STALL_MS = 60000;
+  const controller = new AbortController();
+  let stallTimer = null;
+  const armStall = () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => controller.abort(), STALL_MS);
+  };
   // Some CDNs (notably CurseForge mirrors used by Modrinth modpacks) reject the default
   // axios UA. Also stream large files instead of buffering in memory.
   const res = await axios.get(url, {
     responseType: 'stream',
-    timeout: 180000,
+    timeout: 60000, // header/connect timeout only — body is guarded by armStall above
     maxRedirects: 10,
     maxContentLength: Infinity,
     maxBodyLength: Infinity,
+    signal: controller.signal,
     headers: {
       'User-Agent': 'MineDash/1.0 (+https://github.com/anthropics) modpack-importer',
       'Accept': '*/*',
     },
     validateStatus: (s) => s >= 200 && s < 300,
   });
-  await new Promise((resolve, reject) => {
-    const w = fs.createWriteStream(destPath);
-    res.data.pipe(w);
-    w.on('finish', resolve);
-    w.on('error', reject);
-    res.data.on('error', reject);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      const w = fs.createWriteStream(destPath);
+      armStall();
+      res.data.on('data', armStall);
+      res.data.pipe(w);
+      w.on('finish', resolve);
+      w.on('error', reject);
+      res.data.on('error', reject);
+    });
+  } finally {
+    if (stallTimer) clearTimeout(stallTimer);
+  }
 }
 
-// Try downloads[0]; on failure fall through to the rest.
+// Try downloads[0]; on failure fall through to the rest. Each URL gets a few
+// attempts before we move on — Modrinth usually lists only one CDN URL, so
+// without per-URL retries a single transient blip mid-stream (very likely on
+// the big main-mod jar) drops a needed mod from the install and the user sees
+// it "removed". A definitive 4xx won't fix itself, so those skip straight to
+// the next mirror.
 async function downloadFromAny(urls, destPath) {
   const errors = [];
+  const MAX_ATTEMPTS = 3;
   for (const url of urls) {
-    try {
-      await downloadToFile(url, destPath);
-      return;
-    } catch (e) {
-      const code = e.response?.status ? `HTTP ${e.response.status}` : e.code || 'ERR';
-      errors.push(`${code} from ${new URL(url).host}`);
-      await fs.remove(destPath).catch(() => {});
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await downloadToFile(url, destPath);
+        return;
+      } catch (e) {
+        const status = e.response?.status;
+        const code = status ? `HTTP ${status}` : e.code || 'ERR';
+        errors.push(`${code} from ${new URL(url).host}`);
+        await fs.remove(destPath).catch(() => {});
+        if (status && status >= 400 && status < 500) break; // gone/forbidden — try next mirror
+        if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
     }
   }
   throw new Error(errors.join('; ') || 'no download URLs');
@@ -3955,6 +3987,7 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
     let done = 0;
     let installed = 0;
     let failed = 0;
+    const failedFiles = [];
     let skippedClient = 0;
     let clientStashed = 0;
 
@@ -4003,6 +4036,7 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
       } catch (e) {
         console.error(`Failed to download ${file.path}:`, e.message);
         failed++;
+        failedFiles.push(path.basename(String(file.path)));
       }
       tick(file.path);
     }
@@ -4043,6 +4077,7 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
     emitServerModpack(sessionId, 'done', {
       installed,
       failed,
+      failedFiles,
       total: files.length,
       skippedClientOnly: skippedClient,
       clientModsStashed: clientStashed,
