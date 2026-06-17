@@ -14,6 +14,7 @@ import MapViewer from './MapViewer';
 import ActivityTimeline from './ActivityTimeline';
 import ScheduleViewer from './ScheduleViewer';
 import ModalPortal from './ModalPortal';
+import LaunchConsole from './LaunchConsole';
 import StatCard from './main/StatCard';
 import { parseLogEvent, num, toMB, getUsageColor } from '../lib/logParse';
 
@@ -266,7 +267,16 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
 
   return (
     <div className="flex-1 flex flex-col min-h-0 p-8 overflow-y-auto z-10 relative">
-      
+
+      {/* In-app launch console for this server's "join" session. */}
+      <LaunchConsole
+        open={joinSession.consoleOpen}
+        logs={joinSession.logs}
+        status={joinSession.statusText}
+        phase={joinSession.phase}
+        onClose={joinSession.closeConsole}
+      />
+
       {/* Restart-with-players Confirmation Modal */}
       <AnimatePresence>
         {showRestartModal && (

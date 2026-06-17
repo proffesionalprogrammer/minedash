@@ -40,6 +40,13 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   // right card even after it unmounts/remounts on a tab switch — local card
   // state would otherwise forget which instance is running.
   const [instanceId, setInstanceId] = useState(null);
+  // In-app launch console. `logs` is the raw stdout/stderr stream from the game
+  // JVM (capped); `consoleOpen` drives the LaunchConsole modal and is toggled
+  // automatically per the user's console settings (show-on-launch / -crash,
+  // hide-on-exit). Logs survive `reset()` so a crash log stays readable after
+  // the process exits — they're only cleared when the next launch starts.
+  const [logs, setLogs] = useState([]);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const stageRef = useRef('');
   const handlerRef = useRef(null);
   const launchIdRef = useRef(null);
@@ -53,6 +60,9 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   // when the "After launching: hide" setting fires, cleared on close. We only
   // auto-show when we hid; otherwise we'd surprise users who minimised manually.
   const hidToTrayRef = useRef(false);
+  // Set once the game actually launched, so the "Quit when the game closes"
+  // setting only fires for a real game exit (not a cancelled download).
+  const gameLaunchedRef = useRef(false);
 
   useEffect(() => () => {
     clearTimeout(resetTimerRef.current);
@@ -110,6 +120,8 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     setStatusText('Preparing…');
     setFileCount({ current: 0, total: 0 });
     setInstanceId(body?.instanceId ?? null);
+    setLogs([]);
+    setConsoleOpen(false);
 
     try {
       const r = await fetch('http://localhost:3001/api/launcher/launch', {
@@ -124,7 +136,18 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
 
       const handler = (payload) => {
         const { event } = payload;
-        if (event === 'status') {
+        if (event === 'log') {
+          // Append raw game output; cap at the last 4000 chunks so a long
+          // session can't grow the buffer without bound.
+          const line = payload.message;
+          if (line != null) {
+            setLogs(prev => {
+              const next = prev.length >= 4000 ? prev.slice(prev.length - 3999) : prev.slice();
+              next.push(String(line));
+              return next;
+            });
+          }
+        } else if (event === 'status') {
           setStatusText(payload.message || '');
         } else if (event === 'mod_sync') {
           setStatusText(`Syncing mods · ${payload.name}`);
@@ -148,6 +171,8 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           setProgress(100);
           setPhase('launched');
           setStatusText('Game running');
+          gameLaunchedRef.current = true;
+          if (settings?.consoleShowOnLaunch) setConsoleOpen(true);
           onProfilesChanged?.();
           if (settings?.afterLaunch === 'hide' && window.electronAPI?.windowControls) {
             // Prefer hideToTray when available (newer preload); fall back to
@@ -162,17 +187,38 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
         } else if (event === 'error') {
           setPhase('error');
           setStatusText(payload.message || 'Launch failed.');
+          if (settings?.consoleShowOnCrash) setConsoleOpen(true);
           onError?.(payload.message || 'Launch failed');
           clearTimeout(resetTimerRef.current);
           resetTimerRef.current = setTimeout(reset, 4000);
         } else if (event === 'close') {
-          // Game (or cancelled launch) exited — bring MineDash back into view
-          // if we hid it. Skip on `code === 'cancelled'` so the user sees their
-          // already-visible MineDash window stay put after they hit Stop.
+          // Game (or cancelled launch) exited. If the user opted to quit
+          // MineDash when the game closes, do that instead of restoring the
+          // window — but only for a real game exit (not a cancelled download).
+          const realExit = gameLaunchedRef.current && payload.code !== 'cancelled';
+          if (realExit && settings?.quitOnGameClose && window.electronAPI?.quitApp) {
+            try { window.electronAPI.quitApp(); } catch {}
+            gameLaunchedRef.current = false;
+            hidToTrayRef.current = false;
+            reset();
+            return;
+          }
+          // Console auto-behaviour: a non-zero exit after a real launch is a
+          // crash → surface the log if show-on-crash is on; an clean exit hides
+          // the console if hide-on-exit is on. Cancelled stops touch neither.
+          if (realExit) {
+            const crashed = typeof payload.code === 'number' && payload.code !== 0;
+            if (crashed && settings?.consoleShowOnCrash) setConsoleOpen(true);
+            else if (settings?.consoleHideOnExit) setConsoleOpen(false);
+          }
+          // Otherwise bring MineDash back into view if we hid it. Skip on
+          // `code === 'cancelled'` so the user sees their already-visible
+          // MineDash window stay put after they hit Stop.
           if (hidToTrayRef.current && payload.code !== 'cancelled') {
             const show = window.electronAPI?.windowControls?.showFromTray;
             if (show) try { show(); } catch {}
           }
+          gameLaunchedRef.current = false;
           hidToTrayRef.current = false;
           reset();
         }
@@ -198,5 +244,10 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     }
   };
 
-  return { phase, progress, statusText, fileCount, instanceId, launch, cancel };
+  return {
+    phase, progress, statusText, fileCount, instanceId, launch, cancel,
+    logs, consoleOpen,
+    openConsole: () => setConsoleOpen(true),
+    closeConsole: () => setConsoleOpen(false),
+  };
 }

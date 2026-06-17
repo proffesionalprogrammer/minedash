@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Play, Search, Trash2, Boxes, Loader2, Check, X,
   Box, Layers, Hammer, FlaskConical, Download, Square,
-  Settings2, ListChecks,
+  Settings2, ListChecks, Clock,
 } from 'lucide-react';
+import { formatPlaytime } from '../lib/playtime';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import SkinHead from './SkinHead';
@@ -57,7 +58,7 @@ const SORT_OPTIONS = [
 //     /modpack/update endpoint with full progress in the toast stack.
 export default function InstancesSection({
   onError, instancesRefreshKey, modpackInstalls,
-  accounts, activeAccountId, launchSession,
+  accounts, activeAccountId, launchSession, settings,
 }) {
   const [instances, setInstances] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -95,6 +96,11 @@ export default function InstancesSection({
   // (and reflects launches kicked off from the Play tab too). Null while idle.
   const launchingId = launchPhase !== 'idle' ? sessionLaunchingId : null;
   const activeAccount = accounts?.find(a => a.id === activeAccountId);
+
+  // Game Time — combined play time across all instances (Settings → Minecraft).
+  const inHours = !!settings?.durationsInHours;
+  const showTotalPlaytime = settings?.showTotalPlaytime !== false;
+  const totalPlaytime = instances.reduce((sum, i) => sum + (i.playtimeMs || 0), 0);
 
   const handlePlay = (inst) => {
     if (!activeAccount) {
@@ -354,6 +360,12 @@ export default function InstancesSection({
                   : `${Math.max(0, instances.length - installingInstanceIds.size)} installed${liveInstalls.length > 0 ? ` · ${liveInstalls.length} downloading` : ''}`}
               </p>
             </div>
+            {!loading && showTotalPlaytime && totalPlaytime >= 60_000 && (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-xl text-xs font-bold text-[var(--c-text-secondary)]">
+                <Clock size={13} className="text-[#00AF5C]" />
+                <span className="tabular-nums">{formatPlaytime(totalPlaytime, inHours)} played</span>
+              </div>
+            )}
           </div>
           {!loading && visibleInstances.length > 0 && (
             selectMode ? (
@@ -534,6 +546,7 @@ export default function InstancesSection({
           <InstanceDetailModal
             key="detail-modal"
             inst={detailInst}
+            settings={settings}
             onClose={() => setDetailInst(null)}
             onError={onError}
             onSaved={applyInstanceUpdate}

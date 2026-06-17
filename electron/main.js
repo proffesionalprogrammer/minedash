@@ -322,6 +322,13 @@ ipcMain.on('app-relaunch', () => {
   app.quit();
 });
 
+// Quit MineDash entirely — driven by the "Quit when the game closes" setting
+// (useLaunchSession fires this on the game's close event). before-quit tears
+// down the backend cleanly.
+ipcMain.on('app-quit', () => {
+  app.quit();
+});
+
 // Hide MineDash to the system tray. Called from useLaunchSession when the
 // user's "After launching" setting is 'hide' — keeping the backend alive
 // (servers, scheduled tasks) while the game owns the screen.

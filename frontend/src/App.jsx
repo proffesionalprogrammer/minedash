@@ -11,6 +11,7 @@ import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
 import Tooltip from './components/Tooltip';
 import ConnectIndicator from './components/ConnectIndicator';
+import LaunchConsole from './components/LaunchConsole';
 import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 
@@ -612,10 +613,15 @@ function App() {
       setSelectedServer((prev) => (prev && prev.id === id ? null : prev));
     };
 
+    // The backend bumps this after recording an instance's play time on a
+    // game close — refetch the instance grid so playtime/last-played update live.
+    const handleInstancesChanged = () => setInstancesRefreshKey(k => k + 1);
+
     socket.on('server_created', handleServerCreated);
     socket.on('server_status_change', handleStatusChange);
     socket.on('server_updated', handleServerUpdated);
     socket.on('server_deleted', handleServerDeleted);
+    socket.on('instances_changed', handleInstancesChanged);
 
     const pollInterval = setInterval(() => {
       fetch('http://localhost:3001/api/servers')
@@ -642,6 +648,7 @@ function App() {
       socket.off('server_status_change', handleStatusChange);
       socket.off('server_updated', handleServerUpdated);
       socket.off('server_deleted', handleServerDeleted);
+      socket.off('instances_changed', handleInstancesChanged);
       clearInterval(pollInterval);
     };
   }, []);
@@ -754,6 +761,7 @@ function App() {
                   launchSession={launchSession}
                   modpackInstalls={modpackInstalls}
                   instancesRefreshKey={instancesRefreshKey}
+                  settings={launcherSettings}
                   onError={showError}
                 />
               </Suspense>
@@ -891,6 +899,15 @@ function App() {
           </Suspense>
         )}
       </AnimatePresence>
+
+      {/* In-app launch console for the global launcher's session. */}
+      <LaunchConsole
+        open={launchSession.consoleOpen}
+        logs={launchSession.logs}
+        status={launchSession.statusText}
+        phase={launchSession.phase}
+        onClose={launchSession.closeConsole}
+      />
 
       <UpdateToast />
       <BrowseInstallToast

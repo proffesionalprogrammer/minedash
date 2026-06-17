@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Restart MineDash entirely — applies a moved data folder.
   relaunchApp: () => ipcRenderer.send('app-relaunch'),
 
+  // Quit MineDash entirely — used by the "Quit when the game closes" setting.
+  quitApp: () => ipcRenderer.send('app-quit'),
+
   windowControls: {
     minimize:        () => ipcRenderer.send('window-minimize'),
     maximize:        () => ipcRenderer.send('window-maximize'),

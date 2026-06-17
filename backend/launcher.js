@@ -501,6 +501,24 @@ const DEFAULT_SETTINGS = {
   lastVersion: '',           // last version the user launched
   lastInstanceId: '',        // last instance ID launched — narrower than lastLoader+lastVersion when multiple instances exist
   onboardingComplete: false, // first-run guided tour — true once the user finishes or skips it
+  quitOnGameClose: false,    // quit MineDash entirely once the game window closes
+  preLaunchCommand: '',      // shell command run before the game launches (non-zero exit aborts)
+  postExitCommand: '',       // shell command run after the game exits
+  gameEnv: [],               // user-defined env vars injected into the game JVM — [{ name, value }]
+  // Game time — per-instance playtime tracking (recorded in forkLaunchWorker).
+  recordPlaytime: true,      // accumulate play time per instance
+  showPlaytime: true,        // show each instance's play time in the UI
+  showTotalPlaytime: true,   // show the combined play time across instances
+  durationsInHours: false,   // render durations as "2.5h" instead of "2h 30m"
+  // Console — when the in-app launch log opens automatically.
+  consoleShowOnLaunch: false, // open the console when the game launches
+  consoleShowOnCrash: true,   // open the console when the game crashes / fails to launch
+  consoleHideOnExit: false,   // close the console when the game exits cleanly
+  // Tweaks — point LWJGL at system native libraries instead of the bundled ones.
+  useSystemGlfw: false,
+  glfwPath: '',
+  useSystemOpenal: false,
+  openalPath: '',
 };
 
 async function readAccounts() {
@@ -1470,6 +1488,29 @@ function register(app) {
     if (typeof incoming.lastInstanceId === 'string') next.lastInstanceId = incoming.lastInstanceId.trim();
     if (typeof incoming.onboardingComplete === 'boolean') next.onboardingComplete = incoming.onboardingComplete;
     if (['system', 'light', 'dark', 'oled'].includes(incoming.theme)) next.theme = incoming.theme;
+    if (typeof incoming.quitOnGameClose === 'boolean') next.quitOnGameClose = incoming.quitOnGameClose;
+    if (typeof incoming.preLaunchCommand === 'string') next.preLaunchCommand = incoming.preLaunchCommand.slice(0, 4000);
+    if (typeof incoming.postExitCommand === 'string') next.postExitCommand = incoming.postExitCommand.slice(0, 4000);
+    if (Array.isArray(incoming.gameEnv)) {
+      // Keep only well-formed { name, value } pairs with a non-empty name.
+      // Trim names, coerce values to strings, and cap the list so a malformed
+      // client can't bloat the settings file or the launch environment.
+      next.gameEnv = incoming.gameEnv
+        .filter(e => e && typeof e.name === 'string' && e.name.trim())
+        .slice(0, 100)
+        .map(e => ({ name: e.name.trim().slice(0, 200), value: (e.value == null ? '' : String(e.value)).slice(0, 2000) }));
+    }
+    if (typeof incoming.recordPlaytime === 'boolean') next.recordPlaytime = incoming.recordPlaytime;
+    if (typeof incoming.showPlaytime === 'boolean') next.showPlaytime = incoming.showPlaytime;
+    if (typeof incoming.showTotalPlaytime === 'boolean') next.showTotalPlaytime = incoming.showTotalPlaytime;
+    if (typeof incoming.durationsInHours === 'boolean') next.durationsInHours = incoming.durationsInHours;
+    if (typeof incoming.consoleShowOnLaunch === 'boolean') next.consoleShowOnLaunch = incoming.consoleShowOnLaunch;
+    if (typeof incoming.consoleShowOnCrash === 'boolean') next.consoleShowOnCrash = incoming.consoleShowOnCrash;
+    if (typeof incoming.consoleHideOnExit === 'boolean') next.consoleHideOnExit = incoming.consoleHideOnExit;
+    if (typeof incoming.useSystemGlfw === 'boolean') next.useSystemGlfw = incoming.useSystemGlfw;
+    if (typeof incoming.glfwPath === 'string') next.glfwPath = incoming.glfwPath.trim().slice(0, 1000);
+    if (typeof incoming.useSystemOpenal === 'boolean') next.useSystemOpenal = incoming.useSystemOpenal;
+    if (typeof incoming.openalPath === 'string') next.openalPath = incoming.openalPath.trim().slice(0, 1000);
 
     await writeSettings(next);
     res.json(next);
@@ -2674,6 +2715,24 @@ function register(app) {
 // sends `jvm_started` — currently we let the worker handle JVM kill itself on
 // cancel, but the field is here so the parent can SIGKILL the JVM directly if
 // the worker becomes unresponsive.
+// Accumulate play time onto an instance in the profile registry and stamp
+// lastPlayed. Runs in the parent (which owns the registry); fired from the
+// launch worker's launched→close window in forkLaunchWorker. Best-effort.
+async function recordInstancePlaytime(instanceId, ms) {
+  if (!instanceId || !(ms > 0)) return;
+  try {
+    const reg = await readProfileRegistry();
+    const inst = reg.instances.find(i => i.id === instanceId);
+    if (!inst) return;
+    inst.playtimeMs = (inst.playtimeMs || 0) + ms;
+    inst.lastPlayed = Date.now();
+    await writeProfileRegistry(reg);
+    if (io) io.emit('instances_changed');
+  } catch (err) {
+    console.warn('[launcher] recordPlaytime failed:', err.message);
+  }
+}
+
 function forkLaunchWorker(payload) {
   const { fork } = require('child_process');
   const path = require('path');
@@ -2723,6 +2782,20 @@ function forkLaunchWorker(payload) {
       // back as a broken card. Don't route it and don't mark it terminal here.
       const deferCancelClose = payload.modpackSessionId && event === 'close'
         && data && data.code === 'cancelled';
+      // Game-time tracking (real game launches only — never modpack pre-installs).
+      // Stamp a start on `launched`; on a genuine `close` (not cancel/prepare),
+      // add the elapsed time to the instance, unless recording is disabled.
+      if (!payload.modpackSessionId) {
+        const entry = activeLaunches.get(payload.launchId);
+        if (event === 'launched' && entry) {
+          entry.playStart = Date.now();
+        } else if (event === 'close' && entry && entry.playStart
+            && data && data.code !== 'cancelled' && data.code !== 'prepared'
+            && payload.launchArgs?.settings?.recordPlaytime !== false) {
+          recordInstancePlaytime(payload.launchArgs?.instance?.id, Date.now() - entry.playStart);
+          entry.playStart = null;
+        }
+      }
       // Track terminal events so the worker.on('exit') handler below doesn't
       // synthesize a second close/error after we already forwarded one. Same
       // launchId could get a "close" → IPC exit → exit handler racing.
@@ -2935,6 +3008,47 @@ async function resolveLauncherJava({ launchId, instance, settings, version }) {
   }
 }
 
+// ─── Custom launch hooks (Settings → Minecraft) ──────────────────────────────
+// Prism-Launcher-style pre-launch / post-exit shell commands plus user-defined
+// environment variables. The launch worker is a dedicated per-launch process,
+// so the env we build here is isolated to this one launch. The INST_* tokens
+// mirror Prism's substitution variables, exposed as env vars so existing
+// scripts port over verbatim.
+function buildHookEnv({ instance, profileRoot, javaPath, gameEnv }) {
+  const env = { ...process.env };
+  for (const e of (Array.isArray(gameEnv) ? gameEnv : [])) {
+    if (e && typeof e.name === 'string' && e.name.trim()) {
+      env[e.name.trim()] = e.value == null ? '' : String(e.value);
+    }
+  }
+  env.INST_NAME = instance.displayName || instance.id || '';
+  env.INST_ID = instance.id || '';
+  env.INST_DIR = profileRoot;
+  env.INST_MC_DIR = profileRoot;
+  env.INST_JAVA = javaPath || '';
+  return env;
+}
+
+// Run a user shell command (pre-launch / post-exit), streaming its output into
+// the launch log. Resolves with the process exit code; rejects only when the
+// shell itself can't spawn. The caller decides whether a non-zero exit is fatal
+// (pre-launch aborts the launch, like Prism; post-exit is best-effort).
+function runHookCommand({ cmd, env, launchId, label }) {
+  return new Promise((resolve, reject) => {
+    if (!cmd || !String(cmd).trim()) return resolve(0);
+    emit(launchId, 'status', { message: `Running ${label}…` });
+    emit(launchId, 'log', { message: `[${label}] $ ${cmd}\n` });
+    const child = exec(String(cmd), { env, windowsHide: true });
+    child.stdout?.on('data', (d) => emit(launchId, 'log', { message: String(d) }));
+    child.stderr?.on('data', (d) => emit(launchId, 'log', { message: String(d) }));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      emit(launchId, 'log', { message: `[${label}] exited with code ${code == null ? 0 : code}\n` });
+      resolve(code == null ? 0 : code);
+    });
+  });
+}
+
 async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, depAttempted, prepareOnly, modpackInstall, elybyLaunch }) {
   const { loader, version, id: instanceId } = instance;
   const profileRoot = instanceDir(instanceId);
@@ -3072,10 +3186,22 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   };
   if (versionCustom) opts.version.custom = versionCustom;
   if (forgeInstaller) opts.forge = forgeInstaller;
+  // Tweaks → system native libraries. LWJGL3 (MC 1.13+) reads these system
+  // properties to load a specific GLFW / OpenAL binary instead of the one mclc
+  // extracted from the natives jar. Advanced opt-in (Settings → Minecraft →
+  // Tweaks); only added when the toggle is on AND a path is provided.
+  const nativeLibArgs = [];
+  if (settings?.useSystemGlfw && settings.glfwPath && settings.glfwPath.trim()) {
+    nativeLibArgs.push(`-Dorg.lwjgl.glfw.libname=${settings.glfwPath.trim()}`);
+  }
+  if (settings?.useSystemOpenal && settings.openalPath && settings.openalPath.trim()) {
+    nativeLibArgs.push(`-Dorg.lwjgl.openal.libname=${settings.openalPath.trim()}`);
+  }
   // customArgs gets the Ely.by authlib-injector agent (if any) PLUS NeoForge's
-  // required JVM args (if any). mclc concats opts.customArgs into the JVM args.
-  // The agent is prepended so it registers ahead of NeoForge's module path.
-  const customArgs = [...elybyAgentArgs, ...(neoForgeJvmArgs || [])];
+  // required JVM args (if any) PLUS any system-native-lib overrides. mclc concats
+  // opts.customArgs into the JVM args. The agent is prepended so it registers
+  // ahead of NeoForge's module path.
+  const customArgs = [...elybyAgentArgs, ...(neoForgeJvmArgs || []), ...nativeLibArgs];
   if (customArgs.length > 0) opts.customArgs = customArgs;
   // Guardrail: the authlib-injector agent must appear iff we resolved an Ely.by
   // skins bundle for this (offline) launch. Throws loud otherwise so a builder
@@ -3164,11 +3290,39 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     } catch (err) {
       emit(launchId, 'log', { message: `[Auto-install ERR] ${err.message || err}` });
     }
+    // Post-exit command — runs after the game has actually exited (not on cancel
+    // or a dep-crash retry, both of which returned above). Best-effort: a failure
+    // here is logged but never blocks the close signal.
+    if (settings?.postExitCommand && settings.postExitCommand.trim()) {
+      try {
+        const env = buildHookEnv({ instance, profileRoot, javaPath, gameEnv: settings?.gameEnv });
+        await runHookCommand({ cmd: settings.postExitCommand, env, launchId, label: 'post-exit command' });
+      } catch (err) {
+        emit(launchId, 'log', { message: `[post-exit command] failed: ${err.message || err}\n` });
+      }
+    }
     emit(launchId, 'close', { code });
     activeLaunches.delete(launchId);
   });
 
   try {
+    // User-defined env vars + Prism-style INST_* tokens, shared by the launch
+    // hooks below and the game JVM. Injecting them onto this worker's
+    // process.env means the mclc-spawned child inherits them (the worker is
+    // dedicated to this one launch, so it's safe to mutate the env here).
+    const hookEnv = buildHookEnv({ instance, profileRoot, javaPath, gameEnv: settings?.gameEnv });
+    for (const e of (Array.isArray(settings?.gameEnv) ? settings.gameEnv : [])) {
+      if (e && typeof e.name === 'string' && e.name.trim()) {
+        process.env[e.name.trim()] = e.value == null ? '' : String(e.value);
+      }
+    }
+    // Pre-launch command — skipped for prepare-only Browse installs (those never
+    // start the game). A non-zero exit aborts the launch, matching Prism.
+    if (!prepareOnly && settings?.preLaunchCommand && settings.preLaunchCommand.trim()) {
+      const code = await runHookCommand({ cmd: settings.preLaunchCommand, env: hookEnv, launchId, label: 'pre-launch command' });
+      if (code !== 0) throw new Error(`Pre-launch command failed (exit code ${code}) — launch aborted.`);
+    }
+
     const child = await launcher.launch(opts);
     if (!child) throw new Error('Launcher returned no process.');
     // Catch the case where Stop was clicked while mclc was still downloading.

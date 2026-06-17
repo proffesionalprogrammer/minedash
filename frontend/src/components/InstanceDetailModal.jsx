@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings2, ScrollText, X, Check, Loader2, Cpu, Coffee, Globe, FolderOpen,
   FileDown, Trash2, Play, RefreshCw, Copy, FileText, AlertTriangle, ChevronRight,
+  Clock,
 } from 'lucide-react';
+import { formatPlaytime, formatLastPlayed } from '../lib/playtime';
 import ModalPortal from './ModalPortal';
 import Tooltip from './Tooltip';
 import LoaderGlyph from './LoaderGlyph';
@@ -47,7 +49,7 @@ function javaSummary(java) {
 // per-instance memory, Java, worlds, folder/export/delete — plus a Logs viewer
 // (logs/ + crash-reports/). Opening it from a card declutters the grid: the
 // card stays just art + Play + a single "Manage" affordance.
-export default function InstanceDetailModal({ inst: instProp, onClose, onError, onSaved, onDeleted, onPlay, playDisabled }) {
+export default function InstanceDetailModal({ inst: instProp, settings, onClose, onError, onSaved, onDeleted, onPlay, playDisabled }) {
   const [inst, setInst] = useState(instProp);
   const [section, setSection] = useState('settings'); // 'settings' | 'logs'
   const [javaOpen, setJavaOpen] = useState(false);
@@ -130,6 +132,7 @@ export default function InstanceDetailModal({ inst: instProp, onClose, onError, 
               {section === 'settings' ? (
                 <SettingsPane
                   inst={inst}
+                  settings={settings}
                   patch={patch}
                   onError={onError}
                   onOpenJava={() => setJavaOpen(true)}
@@ -183,7 +186,7 @@ function RailItem({ icon: Icon, label, active, onClick }) {
   );
 }
 
-function SettingsPane({ inst, patch, onError, onOpenJava, onOpenWorlds, onDeleted }) {
+function SettingsPane({ inst, settings, patch, onError, onOpenJava, onOpenWorlds, onDeleted }) {
   const ramMax = useSystemRam(RAM_MAX_FALLBACK);
   const [name, setName] = useState(inst.displayName || '');
   const [savingName, setSavingName] = useState(false);
@@ -252,8 +255,28 @@ function SettingsPane({ inst, patch, onError, onOpenJava, onOpenWorlds, onDelete
     }
   };
 
+  const showPlaytime = settings?.showPlaytime !== false;
+  const lastPlayedLabel = formatLastPlayed(inst.lastPlayed);
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-6">
+      {/* Game time — accumulated play time + last played (Settings → Minecraft). */}
+      {showPlaytime && (inst.playtimeMs > 0 || lastPlayedLabel) && (
+        <div className="flex items-center gap-4 px-4 py-3 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl">
+          <div className="p-2 bg-[#00AF5C]/10 rounded-xl">
+            <Clock size={16} className="text-[#00AF5C]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-[var(--c-text-primary)] tabular-nums">
+              {formatPlaytime(inst.playtimeMs, !!settings?.durationsInHours)} played
+            </p>
+            {lastPlayedLabel && (
+              <p className="text-[11px] text-[var(--c-text-secondary)]">Last played {lastPlayedLabel}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Name */}
       <Field label="Display name">
         <div className="flex items-center gap-2">

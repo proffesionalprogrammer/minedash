@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Settings, MemoryStick, Monitor, Coffee, EyeOff, Eye, FlaskConical,
+  Settings, MemoryStick, Monitor, Coffee, FlaskConical,
   Loader2, Sparkles, ChevronUp, ChevronDown, Compass, SlidersHorizontal,
   Users, DownloadCloud, Info, Image, Check, HardDrive, FolderOpen,
   AlertTriangle, RotateCcw, RefreshCw, FolderCog,
   Palette, Sun, Moon, Contrast,
+  Gamepad2, Terminal, Braces, Maximize2, Plus, X, Trash2,
+  Wrench, Clock, SquareTerminal,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSystemRam } from '../hooks/useSystemRam';
@@ -68,10 +70,26 @@ const DEFAULTS = {
   onlyInstalled: false,
   elybySkins: true,
   theme: 'dark',
+  quitOnGameClose: false,
+  preLaunchCommand: '',
+  postExitCommand: '',
+  gameEnv: [],
+  recordPlaytime: true,
+  showPlaytime: true,
+  showTotalPlaytime: true,
+  durationsInHours: false,
+  consoleShowOnLaunch: false,
+  consoleShowOnCrash: true,
+  consoleHideOnExit: false,
+  useSystemGlfw: false,
+  glfwPath: '',
+  useSystemOpenal: false,
+  openalPath: '',
 };
 
 const SECTIONS = [
   { key: 'general',    label: 'General',    icon: SlidersHorizontal },
+  { key: 'minecraft',  label: 'Minecraft',  icon: Gamepad2 },
   { key: 'appearance', label: 'Appearance', icon: Palette },
   { key: 'java',       label: 'Java',       icon: Coffee },
   { key: 'storage',    label: 'Storage',    icon: HardDrive },
@@ -456,6 +474,294 @@ function JavaSection({ draft, commit }) {
   );
 }
 
+// ─── Settings → Minecraft ────────────────────────────────────────────────────
+// Prism-Launcher-style game settings, grouped into the same three tabs Prism
+// uses (Game Window · Custom Commands · Environment Variables). Everything here
+// feeds the launch worker (backend/launcher.js → runLaunch): window dims, the
+// hide/quit launcher behavior, the pre-launch / post-exit shell hooks, and the
+// per-launch environment variables injected into the game JVM.
+
+const MC_TABS = [
+  { key: 'general',  label: 'General',     icon: SlidersHorizontal },
+  { key: 'tweaks',   label: 'Tweaks',      icon: Wrench },
+  { key: 'commands', label: 'Commands',    icon: Terminal },
+  { key: 'env',      label: 'Environment', icon: Braces },
+];
+
+// Monospace command / path input used by the Custom Commands tab.
+function MonoInput({ value, onChange, placeholder }) {
+  return (
+    <input
+      type="text"
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      spellCheck={false}
+      className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2.5 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono"
+    />
+  );
+}
+
+function GeneralPanel({ draft, commit }) {
+  return (
+    <>
+      <Group icon={Maximize2} title="Window size" hint="The initial Minecraft window dimensions.">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <NumberInput min={320} value={draft.windowWidth}
+            onChange={(v) => commit({ ...draft, windowWidth: v })} disabled={draft.fullscreen} />
+          <span className="text-[var(--c-text-muted)] text-xs font-bold">×</span>
+          <NumberInput min={240} value={draft.windowHeight}
+            onChange={(v) => commit({ ...draft, windowHeight: v })} disabled={draft.fullscreen} />
+        </div>
+        <div className="mt-3">
+          <CheckRow checked={draft.fullscreen} onChange={(e) => commit({ ...draft, fullscreen: e.target.checked })}>
+            Launch in fullscreen
+          </CheckRow>
+        </div>
+      </Group>
+
+      <Group icon={Monitor} title="Launcher behavior" hint="What MineDash does around the game session.">
+        <div className="space-y-2.5">
+          <CheckRow
+            checked={draft.afterLaunch === 'hide'}
+            onChange={(e) => commit({ ...draft, afterLaunch: e.target.checked ? 'hide' : 'keep' })}>
+            Hide MineDash to the tray when the game opens
+          </CheckRow>
+          <CheckRow
+            checked={!!draft.quitOnGameClose}
+            onChange={(e) => commit({ ...draft, quitOnGameClose: e.target.checked })}>
+            Quit MineDash when the game closes
+          </CheckRow>
+        </div>
+      </Group>
+
+      <Group icon={SquareTerminal} title="Console window"
+        hint="MineDash streams the game's live output to an in-app console. Choose when it opens on its own.">
+        <div className="space-y-2.5">
+          <CheckRow checked={!!draft.consoleShowOnLaunch}
+            onChange={(e) => commit({ ...draft, consoleShowOnLaunch: e.target.checked })}>
+            Show the console when the game launches
+          </CheckRow>
+          <CheckRow checked={draft.consoleShowOnCrash !== false}
+            onChange={(e) => commit({ ...draft, consoleShowOnCrash: e.target.checked })}>
+            Show the console when the game crashes
+          </CheckRow>
+          <CheckRow checked={!!draft.consoleHideOnExit}
+            onChange={(e) => commit({ ...draft, consoleHideOnExit: e.target.checked })}>
+            Hide the console when the game exits
+          </CheckRow>
+        </div>
+      </Group>
+
+      <Group icon={Clock} title="Game time" hint="Track how long you spend in each instance.">
+        <div className="space-y-2.5">
+          <CheckRow checked={draft.recordPlaytime !== false}
+            onChange={(e) => commit({ ...draft, recordPlaytime: e.target.checked })}>
+            Record time spent playing instances
+          </CheckRow>
+          <CheckRow checked={draft.showPlaytime !== false}
+            onChange={(e) => commit({ ...draft, showPlaytime: e.target.checked })}>
+            Show time spent on each instance
+          </CheckRow>
+          <CheckRow checked={draft.showTotalPlaytime !== false}
+            onChange={(e) => commit({ ...draft, showTotalPlaytime: e.target.checked })}>
+            Show the total time played across instances
+          </CheckRow>
+          <CheckRow checked={!!draft.durationsInHours}
+            onChange={(e) => commit({ ...draft, durationsInHours: e.target.checked })}>
+            Always show durations in hours
+          </CheckRow>
+        </div>
+      </Group>
+    </>
+  );
+}
+
+function TweaksPanel({ draft, commit }) {
+  return (
+    <Group icon={Wrench} title="Native libraries"
+      hint="Point the game at your system's GLFW / OpenAL libraries instead of the ones MineDash bundles. Advanced — only set this if you know you need it (e.g. a Linux/Wayland GLFW fix or a custom audio driver).">
+      <div className="space-y-4">
+        <div className="space-y-2.5">
+          <CheckRow checked={!!draft.useSystemGlfw}
+            onChange={(e) => commit({ ...draft, useSystemGlfw: e.target.checked })}>
+            Use system installation of GLFW
+          </CheckRow>
+          {draft.useSystemGlfw && (
+            <MonoInput value={draft.glfwPath}
+              onChange={(v) => commit({ ...draft, glfwPath: v })}
+              placeholder="Path to glfw library file (e.g. C:\\Windows\\System32\\glfw.dll)" />
+          )}
+        </div>
+        <div className="space-y-2.5">
+          <CheckRow checked={!!draft.useSystemOpenal}
+            onChange={(e) => commit({ ...draft, useSystemOpenal: e.target.checked })}>
+            Use system installation of OpenAL
+          </CheckRow>
+          {draft.useSystemOpenal && (
+            <MonoInput value={draft.openalPath}
+              onChange={(v) => commit({ ...draft, openalPath: v })}
+              placeholder="Path to OpenAL library file (e.g. OpenAL32.dll)" />
+          )}
+        </div>
+      </div>
+    </Group>
+  );
+}
+
+function CustomCommandsPanel({ draft, commit }) {
+  const VARS = [
+    ['$INST_NAME',   'Instance name'],
+    ['$INST_ID',     'Instance ID (folder name)'],
+    ['$INST_DIR',    'Absolute path of the instance'],
+    ['$INST_MC_DIR', 'Absolute path of the .minecraft folder'],
+    ['$INST_JAVA',   'Java binary used to launch'],
+  ];
+  return (
+    <>
+      <Group icon={Terminal} title="Pre-launch command"
+        hint="Runs in your system shell before the game starts. A non-zero exit code cancels the launch.">
+        <MonoInput value={draft.preLaunchCommand}
+          onChange={(v) => commit({ ...draft, preLaunchCommand: v })}
+          placeholder="e.g. python sync-mods.py" />
+      </Group>
+
+      <Group icon={Terminal} title="Post-exit command"
+        hint="Runs once the game window closes — handy for cleanup or backups.">
+        <MonoInput value={draft.postExitCommand}
+          onChange={(v) => commit({ ...draft, postExitCommand: v })}
+          placeholder="e.g. python backup-world.py" />
+      </Group>
+
+      <Group icon={Info} title="Available variables"
+        hint="Both commands are run with these environment variables set:">
+        <div className="space-y-1.5">
+          {VARS.map(([name, desc]) => (
+            <div key={name} className="flex items-center gap-3 text-xs">
+              <code className="font-mono font-bold text-[#00AF5C] bg-[#00AF5C]/10 border border-[#00AF5C]/20 rounded-md px-1.5 py-0.5 whitespace-nowrap">{name}</code>
+              <span className="text-[var(--c-text-secondary)]">{desc}</span>
+            </div>
+          ))}
+        </div>
+      </Group>
+    </>
+  );
+}
+
+function EnvVarsPanel({ draft, commit }) {
+  // Local working copy so a half-typed row (empty name) doesn't vanish when the
+  // backend filters unnamed rows out on save. Seeded once on mount — this panel
+  // owns env editing while it's open.
+  const [rows, setRows] = useState(() =>
+    (Array.isArray(draft.gameEnv) ? draft.gameEnv : []).map(e => ({ name: e?.name || '', value: e?.value || '' }))
+  );
+
+  // Persist only well-formed rows (non-empty name); keep empties locally so the
+  // user can type a name after adding the row.
+  const persist = (next) =>
+    commit({ ...draft, gameEnv: next.filter(r => r.name.trim()).map(r => ({ name: r.name.trim(), value: r.value })) });
+
+  const update = (i, key, val) => {
+    const next = rows.map((r, idx) => (idx === i ? { ...r, [key]: val } : r));
+    setRows(next); persist(next);
+  };
+  const add = () => setRows([...rows, { name: '', value: '' }]); // unnamed → not persisted yet
+  const remove = (i) => { const next = rows.filter((_, idx) => idx !== i); setRows(next); persist(next); };
+  const clearAll = () => { setRows([]); persist([]); };
+
+  return (
+    <Group icon={Braces} title="Environment variables"
+      hint="Passed to the game's Java process when it launches. Useful for things like __GL_THREADED_OPTIMIZATIONS or MESA_GL_VERSION_OVERRIDE.">
+      {rows.length > 0 && (
+        <div className="space-y-2 mb-3">
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 px-1">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Name</span>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Value</span>
+            <span className="w-8" />
+          </div>
+          {rows.map((row, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+              <input
+                type="text" value={row.name} onChange={(e) => update(i, 'name', e.target.value)}
+                placeholder="NAME" spellCheck={false}
+                className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono"
+              />
+              <input
+                type="text" value={row.value} onChange={(e) => update(i, 'value', e.target.value)}
+                placeholder="value" spellCheck={false}
+                className="w-full bg-[var(--c-base)] border border-[var(--c-border)] focus:border-[#00AF5C] rounded-xl px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none focus:ring-4 focus:ring-[#00AF5C]/10 transition-all placeholder-[var(--c-text-muted)] font-mono"
+              />
+              <button
+                onClick={() => remove(i)} title="Remove"
+                className="w-8 h-8 flex items-center justify-center rounded-xl text-[var(--c-text-muted)] hover:text-[var(--c-danger)] hover:bg-[var(--c-danger)]/10 transition-colors">
+                <X size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {rows.length === 0 && (
+        <p className="text-xs text-[var(--c-text-muted)] mb-3 italic">No environment variables set.</p>
+      )}
+
+      <div className="flex gap-2">
+        <button onClick={add}
+          className="flex items-center gap-1.5 px-3 py-2 bg-[#00AF5C]/10 hover:bg-[#00AF5C]/15 border border-[#00AF5C]/30 text-[#00AF5C] rounded-xl text-xs font-bold transition-colors">
+          <Plus size={14} /> Add variable
+        </button>
+        {rows.length > 0 && (
+          <button onClick={clearAll}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[var(--c-text-muted)] text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] rounded-xl text-xs font-bold transition-colors">
+            <Trash2 size={14} /> Clear all
+          </button>
+        )}
+      </div>
+    </Group>
+  );
+}
+
+function MinecraftSection({ draft, commit }) {
+  const [tab, setTab] = useState('general');
+  return (
+    <div className="space-y-5">
+      {/* Prism-style tab bar */}
+      <div className="flex gap-1.5 p-1 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl">
+        {MC_TABS.map(t => {
+          const Icon = t.icon;
+          const active = tab === t.key;
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`relative flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-xs font-bold transition-colors ${
+                active ? 'text-[#00AF5C]' : 'text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]'
+              }`}>
+              {active && (
+                <motion.span layoutId="mcTabIndicator"
+                  className="absolute inset-0 rounded-xl bg-[#00AF5C]/10 border border-[#00AF5C]/30"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }} />
+              )}
+              <Icon size={14} className="relative z-10 flex-shrink-0" />
+              <span className="relative z-10 truncate">{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <AnimatePresence mode="wait">
+        <motion.div key={tab}
+          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.16 }}
+          className="space-y-5">
+          {tab === 'general'  && <GeneralPanel draft={draft} commit={commit} />}
+          {tab === 'tweaks'   && <TweaksPanel draft={draft} commit={commit} />}
+          {tab === 'commands' && <CustomCommandsPanel draft={draft} commit={commit} />}
+          {tab === 'env'      && <EnvVarsPanel draft={draft} commit={commit} />}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function SettingsPage({ settings, onChange, onError, accountProps, socket }) {
   const [section, setSection] = useState('general');
   const [draft, setDraft] = useState(settings || DEFAULTS);
@@ -560,42 +866,6 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                     </div>
                   </Group>
 
-                  <Group icon={Monitor} title="Window size" hint="The initial Minecraft window dimensions.">
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                      <NumberInput min={320} value={draft.windowWidth}
-                        onChange={(v) => commit({ ...draft, windowWidth: v })} disabled={draft.fullscreen} />
-                      <span className="text-[var(--c-text-muted)] text-xs font-bold">×</span>
-                      <NumberInput min={240} value={draft.windowHeight}
-                        onChange={(v) => commit({ ...draft, windowHeight: v })} disabled={draft.fullscreen} />
-                    </div>
-                    <div className="mt-3">
-                      <CheckRow checked={draft.fullscreen} onChange={(e) => commit({ ...draft, fullscreen: e.target.checked })}>
-                        Launch in fullscreen
-                      </CheckRow>
-                    </div>
-                  </Group>
-
-                  <Group icon={draft.afterLaunch === 'hide' ? EyeOff : Eye} title="After launch" hint="What MineDash does once the game window opens.">
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { key: 'hide', label: 'Hide MineDash' },
-                        { key: 'keep', label: 'Keep open' },
-                      ].map(opt => {
-                        const active = draft.afterLaunch === opt.key;
-                        return (
-                          <button key={opt.key}
-                            onClick={() => commit({ ...draft, afterLaunch: opt.key })}
-                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                              active ? 'bg-[#00AF5C]/10 text-[#00AF5C] border-[#00AF5C]/30'
-                                : 'bg-[var(--c-base)] text-[var(--c-text-secondary)] border-[var(--c-border)] hover:border-[var(--c-text-muted)]'
-                            }`}>
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </Group>
-
                   <Group icon={Image} title="Skins" hint="Cosmetic only — affects how player heads are displayed in MineDash, never how the game launches.">
                     <CheckRow checked={draft.elybySkins !== false}
                       onChange={(e) => commit({ ...draft, elybySkins: e.target.checked })}>
@@ -622,6 +892,10 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                     </button>
                   </Group>
                 </>
+              )}
+
+              {section === 'minecraft' && (
+                <MinecraftSection draft={draft} commit={commit} />
               )}
 
               {section === 'appearance' && (
