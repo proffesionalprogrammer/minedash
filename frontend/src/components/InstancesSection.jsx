@@ -102,13 +102,34 @@ export default function InstancesSection({
   const showTotalPlaytime = settings?.showTotalPlaytime !== false;
   const totalPlaytime = instances.reduce((sum, i) => sum + (i.playtimeMs || 0), 0);
 
+  // The console / hide / quit launcher-UX keys an instance may override. These
+  // are consumed frontend-side (useLaunchSession), so we merge them here and
+  // hand the effective values to launch() as `_effectiveConsole`.
+  const CONSOLE_KEYS = ['consoleShowOnLaunch', 'consoleShowOnCrash', 'consoleHideOnExit', 'afterLaunch', 'quitOnGameClose'];
+  const effConsole = (inst) => {
+    const ov = inst?.overrides || {};
+    const out = {};
+    for (const k of CONSOLE_KEYS) if (Object.prototype.hasOwnProperty.call(ov, k)) out[k] = ov[k];
+    return out;
+  };
+
   const handlePlay = (inst) => {
     if (!activeAccount) {
       onError?.('Add an account from the menu in the top right to start playing.');
       return;
     }
     if (launchPhase !== 'idle') return; // a launch is already in flight
-    launch?.({ loader: inst.loader, version: inst.version, instanceId: inst.id });
+    launch?.({ loader: inst.loader, version: inst.version, instanceId: inst.id, _effectiveConsole: effConsole(inst) });
+  };
+
+  // Worlds → Join: launch straight into a singleplayer world, then close the
+  // detail panel so the launch progress is the focus.
+  const handleJoinWorld = (worldName) => {
+    if (!detailInst) return;
+    if (!activeAccount) { onError?.('Add an account from the menu in the top right to start playing.'); return; }
+    if (launchPhase !== 'idle') return;
+    launch?.({ loader: detailInst.loader, version: detailInst.version, instanceId: detailInst.id, quickPlayWorld: worldName, _effectiveConsole: effConsole(detailInst) });
+    setDetailInst(null);
   };
 
   const fetchInstances = async () => {
@@ -547,11 +568,13 @@ export default function InstancesSection({
             key="detail-modal"
             inst={detailInst}
             settings={settings}
+            modpackInstalls={modpackInstalls}
             onClose={() => setDetailInst(null)}
             onError={onError}
             onSaved={applyInstanceUpdate}
             onDeleted={removeInstance}
             onPlay={() => { handlePlay(detailInst); setDetailInst(null); }}
+            onJoinWorld={handleJoinWorld}
             playDisabled={launchPhase !== 'idle'}
           />
         )}

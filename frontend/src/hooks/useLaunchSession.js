@@ -111,6 +111,10 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   // `body` is forwarded as-is to /api/launcher/launch — supports
   //   { version, loader, instanceId?, syncFromServerId? }  (standalone)
   //   { joinServerId }                                      (per-server Play)
+  //   { ..., quickPlayWorld }                               (Worlds → Join)
+  // Plus an optional `_effectiveConsole` map of the console / hide / quit
+  // settings to honour for THIS launch (per-instance overrides merged by the
+  // caller). Stripped before the POST — the backend doesn't read it.
   const launch = async (body) => {
     if (phase !== 'idle') return;
     cancelRequestedRef.current = false;
@@ -123,11 +127,16 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     setLogs([]);
     setConsoleOpen(false);
 
+    // Effective launcher-UX settings for this launch: global defaults overlaid
+    // with any per-instance overrides the caller computed.
+    const { _effectiveConsole, ...launchBody } = body || {};
+    const eff = { ...(settings || {}), ...(_effectiveConsole || {}) };
+
     try {
       const r = await fetch('http://localhost:3001/api/launcher/launch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(launchBody),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Launch failed');
@@ -172,9 +181,9 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           setPhase('launched');
           setStatusText('Game running');
           gameLaunchedRef.current = true;
-          if (settings?.consoleShowOnLaunch) setConsoleOpen(true);
+          if (eff.consoleShowOnLaunch) setConsoleOpen(true);
           onProfilesChanged?.();
-          if (settings?.afterLaunch === 'hide' && window.electronAPI?.windowControls) {
+          if (eff.afterLaunch === 'hide' && window.electronAPI?.windowControls) {
             // Prefer hideToTray when available (newer preload); fall back to
             // minimize for older builds that haven't reloaded the preload yet.
             const controls = window.electronAPI.windowControls;
@@ -187,7 +196,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
         } else if (event === 'error') {
           setPhase('error');
           setStatusText(payload.message || 'Launch failed.');
-          if (settings?.consoleShowOnCrash) setConsoleOpen(true);
+          if (eff.consoleShowOnCrash) setConsoleOpen(true);
           onError?.(payload.message || 'Launch failed');
           clearTimeout(resetTimerRef.current);
           resetTimerRef.current = setTimeout(reset, 4000);
@@ -196,7 +205,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           // MineDash when the game closes, do that instead of restoring the
           // window — but only for a real game exit (not a cancelled download).
           const realExit = gameLaunchedRef.current && payload.code !== 'cancelled';
-          if (realExit && settings?.quitOnGameClose && window.electronAPI?.quitApp) {
+          if (realExit && eff.quitOnGameClose && window.electronAPI?.quitApp) {
             try { window.electronAPI.quitApp(); } catch {}
             gameLaunchedRef.current = false;
             hidToTrayRef.current = false;
@@ -208,8 +217,8 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           // the console if hide-on-exit is on. Cancelled stops touch neither.
           if (realExit) {
             const crashed = typeof payload.code === 'number' && payload.code !== 0;
-            if (crashed && settings?.consoleShowOnCrash) setConsoleOpen(true);
-            else if (settings?.consoleHideOnExit) setConsoleOpen(false);
+            if (crashed && eff.consoleShowOnCrash) setConsoleOpen(true);
+            else if (eff.consoleHideOnExit) setConsoleOpen(false);
           }
           // Otherwise bring MineDash back into view if we hid it. Skip on
           // `code === 'cancelled'` so the user sees their already-visible

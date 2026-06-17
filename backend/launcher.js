@@ -36,6 +36,9 @@ const { ensureAuthlibInjector, fetchPrefetchMeta } = require('./authlib-injector
 // (not passed through init opts) so the forked launch worker — which loads
 // this module without index.js — gets the same pool. Initialised in init().
 const javaPool = require('./java-pool');
+// Tiny dependency-free NBT reader used to surface a world's seed / game mode /
+// last-played from its level.dat (Worlds panel). See backend/nbt-lite.js.
+const nbtLite = require('./nbt-lite');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
@@ -521,6 +524,64 @@ const DEFAULT_SETTINGS = {
   openalPath: '',
 };
 
+// Keys an instance may override from the global launcher settings (Prism-style
+// per-instance overrides). Mirrors the validation in PUT /api/launcher/settings,
+// but per-instance: each is optional, and a null value clears the override so
+// the instance falls back to the global value. `ram`/`java` stay first-class
+// fields on the instance, so they're deliberately NOT in this list.
+const OVERRIDABLE_KEYS = [
+  'windowWidth', 'windowHeight', 'fullscreen',
+  'afterLaunch', 'quitOnGameClose',
+  'consoleShowOnLaunch', 'consoleShowOnCrash', 'consoleHideOnExit',
+  'preLaunchCommand', 'postExitCommand', 'gameEnv',
+  'useSystemGlfw', 'glfwPath', 'useSystemOpenal', 'openalPath',
+];
+
+// Validate one override value. { ok:false } means malformed → the caller 400s.
+function sanitizeOverrideValue(key, v) {
+  switch (key) {
+    case 'windowWidth':  return (typeof v === 'number' && v >= 320) ? { ok: true, value: Math.round(v) } : { ok: false };
+    case 'windowHeight': return (typeof v === 'number' && v >= 240) ? { ok: true, value: Math.round(v) } : { ok: false };
+    case 'fullscreen':
+    case 'quitOnGameClose':
+    case 'consoleShowOnLaunch':
+    case 'consoleShowOnCrash':
+    case 'consoleHideOnExit':
+    case 'useSystemGlfw':
+    case 'useSystemOpenal':
+      return (typeof v === 'boolean') ? { ok: true, value: v } : { ok: false };
+    case 'afterLaunch':
+      return (['hide', 'keep'].includes(v)) ? { ok: true, value: v } : { ok: false };
+    case 'preLaunchCommand':
+    case 'postExitCommand':
+      return (typeof v === 'string') ? { ok: true, value: v.slice(0, 4000) } : { ok: false };
+    case 'glfwPath':
+    case 'openalPath':
+      return (typeof v === 'string') ? { ok: true, value: v.trim().slice(0, 1000) } : { ok: false };
+    case 'gameEnv':
+      if (!Array.isArray(v)) return { ok: false };
+      return { ok: true, value: v
+        .filter(e => e && typeof e.name === 'string' && e.name.trim())
+        .slice(0, 100)
+        .map(e => ({ name: e.name.trim().slice(0, 200), value: (e.value == null ? '' : String(e.value)).slice(0, 2000) })) };
+    default:
+      return { ok: false };
+  }
+}
+
+// Overlay an instance's overrides onto the global settings for a launch. Only
+// keys the instance explicitly set win; everything else stays the global value.
+function mergeInstanceOverrides(global, overrides) {
+  if (!overrides || typeof overrides !== 'object') return global;
+  const out = { ...global };
+  for (const key of OVERRIDABLE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key) && overrides[key] !== undefined) {
+      out[key] = overrides[key];
+    }
+  }
+  return out;
+}
+
 async function readAccounts() {
   try { return await fs.readJson(accountsFile()); }
   catch { return { activeAccountId: null, accounts: [] }; }
@@ -918,8 +979,9 @@ function register(app) {
     const body = req.body || {};
     const { displayName, java } = body;
     const hasRam = Object.prototype.hasOwnProperty.call(body, 'ram');
-    if (typeof displayName !== 'string' && typeof java !== 'string' && !hasRam) {
-      return res.status(400).json({ error: 'Nothing to update — pass displayName, java and/or ram' });
+    const hasOverrides = Object.prototype.hasOwnProperty.call(body, 'overrides');
+    if (typeof displayName !== 'string' && typeof java !== 'string' && !hasRam && !hasOverrides) {
+      return res.status(400).json({ error: 'Nothing to update — pass displayName, java, ram and/or overrides' });
     }
     let name = null;
     if (typeof displayName === 'string') {
@@ -952,6 +1014,31 @@ function register(app) {
       }
     }
 
+    // Per-instance setting overrides — a partial map of OVERRIDABLE_KEYS. A null
+    // value (or a null `overrides` object) clears the override(s) so the
+    // instance reverts to the global setting. Unknown keys are ignored;
+    // malformed values 400.
+    let overrideSet = null;   // keys → sanitised value
+    let overrideUnset = null; // keys to delete
+    if (hasOverrides) {
+      const incoming = body.overrides;
+      if (incoming === null) {
+        overrideUnset = [...OVERRIDABLE_KEYS];
+      } else if (typeof incoming === 'object' && !Array.isArray(incoming)) {
+        overrideSet = {};
+        overrideUnset = [];
+        for (const [key, val] of Object.entries(incoming)) {
+          if (!OVERRIDABLE_KEYS.includes(key)) continue;
+          if (val === null) { overrideUnset.push(key); continue; }
+          const r = sanitizeOverrideValue(key, val);
+          if (!r.ok) return res.status(400).json({ error: `Invalid override value for "${key}"` });
+          overrideSet[key] = r.value;
+        }
+      } else {
+        return res.status(400).json({ error: 'overrides must be an object or null' });
+      }
+    }
+
     const reg = await readProfileRegistry();
     const inst = reg.instances.find(i => i.id === id);
     if (!inst) return res.status(404).json({ error: 'Instance not found' });
@@ -963,6 +1050,13 @@ function register(app) {
     if (ramChoice !== undefined) {
       if (ramChoice === null) delete inst.ram;
       else inst.ram = ramChoice;
+    }
+    if (overrideSet || overrideUnset) {
+      const cur = (inst.overrides && typeof inst.overrides === 'object') ? { ...inst.overrides } : {};
+      if (overrideUnset) for (const k of overrideUnset) delete cur[k];
+      if (overrideSet) Object.assign(cur, overrideSet);
+      if (Object.keys(cur).length === 0) delete inst.overrides;
+      else inst.overrides = cur;
     }
     await writeProfileRegistry(reg);
     res.json(inst);
@@ -1215,13 +1309,24 @@ function register(app) {
       if (!dir) continue;
       try {
         if (!(await fs.stat(dir)).isDirectory()) continue;
-        const levelStat = await fs.stat(path.join(dir, 'level.dat')).catch(() => null);
+        const levelPath = path.join(dir, 'level.dat');
+        const levelStat = await fs.stat(levelPath).catch(() => null);
         if (!levelStat) continue;
+        // Best-effort level.dat parse for game mode / seed / the in-file
+        // LastPlayed. A corrupt or locked level.dat (game running) just leaves
+        // these null — the world still lists, falling back to the file mtime.
+        let summary = {};
+        try { summary = nbtLite.summarizeLevelDat(await fs.readFile(levelPath)); } catch {}
         out.push({
           name,
           sizeBytes: await dirSizeBytes(dir),
-          lastPlayed: levelStat.mtimeMs,
+          lastPlayed: typeof summary.lastPlayed === 'number' && summary.lastPlayed > 0
+            ? summary.lastPlayed
+            : levelStat.mtimeMs,
           hasIcon: await fs.pathExists(path.join(dir, 'icon.png')),
+          gameMode: typeof summary.gameMode === 'number' ? summary.gameMode : null,
+          seed: summary.seed || null,
+          levelName: summary.levelName || null,
         });
       } catch {}
     }
@@ -1274,6 +1379,131 @@ function register(app) {
       return res.status(500).json({ error: `Delete failed: ${err.message}. If the game is running, close it first.` });
     }
     res.json({ ok: true });
+  });
+
+  // Rename a world folder. The folder name is what Minecraft lists; the in-file
+  // LevelName is cosmetic and left untouched (Prism behaves the same — renaming
+  // the folder is enough). Guards both ends against traversal, refuses to
+  // clobber an existing world, and surfaces a friendly error if the game holds a
+  // lock on the folder.
+  app.post('/api/launcher/instances/:id/worlds/:name/rename', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const savesDir = path.join(instanceDir(inst.id), 'saves');
+    const src = safeChildPath(savesDir, req.params.name);
+    if (!src || !await fs.pathExists(src)) return res.status(404).json({ error: 'World not found' });
+
+    const newName = typeof req.body?.newName === 'string' ? req.body.newName.trim() : '';
+    if (!newName) return res.status(400).json({ error: 'newName is required' });
+    if (newName.length > 120) return res.status(400).json({ error: 'newName too long' });
+    const dest = safeChildPath(savesDir, newName);
+    if (!dest) return res.status(400).json({ error: 'Invalid world name (no slashes or special path characters)' });
+    if (path.resolve(dest) === path.resolve(src)) return res.json({ ok: true, name: newName });
+    if (await fs.pathExists(dest)) return res.status(409).json({ error: `A world named "${newName}" already exists.` });
+    try {
+      await fs.move(src, dest);
+    } catch (err) {
+      return res.status(500).json({ error: `Rename failed: ${err.message}. If the game is running, close it first.` });
+    }
+    res.json({ ok: true, name: newName });
+  });
+
+  // Open a world's datapacks folder (Worlds → Data Packs) in the OS file
+  // explorer, creating saves/<name>/datapacks first so the user always lands on
+  // a real folder. Per-world datapacks are the Minecraft-native location (the
+  // profile-level datapacks/ folder is separate).
+  app.post('/api/launcher/instances/:id/worlds/:name/open-datapacks', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const worldDir = safeChildPath(path.join(instanceDir(inst.id), 'saves'), req.params.name);
+    if (!worldDir || !await fs.pathExists(worldDir)) return res.status(404).json({ error: 'World not found' });
+    const dpDir = path.join(worldDir, 'datapacks');
+    try { await fs.ensureDir(dpDir); } catch {}
+    const cmd = process.platform === 'win32'
+      ? `explorer "${dpDir}"`
+      : process.platform === 'darwin' ? `open "${dpDir}"` : `xdg-open "${dpDir}"`;
+    exec(cmd);
+    res.json({ ok: true, path: dpDir });
+  });
+
+  // Reset a world's icon — delete icon.png so Minecraft regenerates it from the
+  // spawn view on the next load. No-op (still 200) if there's no icon.
+  app.delete('/api/launcher/instances/:id/worlds/:name/icon', async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) return res.status(404).json({ error: 'Instance not found' });
+    const dir = safeChildPath(path.join(instanceDir(inst.id), 'saves'), req.params.name);
+    if (!dir || !await fs.pathExists(dir)) return res.status(404).json({ error: 'World not found' });
+    try {
+      const icon = path.join(dir, 'icon.png');
+      if (await fs.pathExists(icon)) await fs.remove(icon);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: `Could not reset icon: ${err.message}` });
+    }
+  });
+
+  // Import a world from a .zip (Worlds → Add). Accepts a zip whose level.dat is
+  // either at the root or one folder deep, extracts it into saves/ under a
+  // unique name, and skips session.lock so an imported copy never carries a
+  // stale lock.
+  const worldImportUpload = multer({
+    dest: path.join(require('os').tmpdir(), 'minedash-world-imports'),
+    limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // worlds can be large
+  });
+  app.post('/api/launcher/instances/:id/worlds/import', worldImportUpload.single('file'), async (req, res) => {
+    const inst = await getInstance(req.params.id);
+    if (!inst) {
+      if (req.file) await fs.remove(req.file.path).catch(() => {});
+      return res.status(404).json({ error: 'Instance not found' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!/\.zip$/i.test(req.file.originalname || '')) {
+      await fs.remove(req.file.path).catch(() => {});
+      return res.status(400).json({ error: 'World imports must be .zip files' });
+    }
+
+    const tmpExtract = `${req.file.path}-extracted`;
+    try {
+      const AdmZip = require('adm-zip');
+      new AdmZip(req.file.path).extractAllTo(tmpExtract, true);
+
+      // Locate the world root: either the extract dir itself (level.dat at zip
+      // root) or a single subfolder containing level.dat.
+      let worldRoot = null;
+      let baseName = (req.file.originalname || 'world').replace(/\.zip$/i, '').trim() || 'world';
+      if (await fs.pathExists(path.join(tmpExtract, 'level.dat'))) {
+        worldRoot = tmpExtract;
+      } else {
+        for (const entry of await fs.readdir(tmpExtract)) {
+          const sub = path.join(tmpExtract, entry);
+          if ((await fs.stat(sub)).isDirectory() && await fs.pathExists(path.join(sub, 'level.dat'))) {
+            worldRoot = sub;
+            baseName = entry;
+            break;
+          }
+        }
+      }
+      if (!worldRoot) {
+        return res.status(400).json({ error: 'No level.dat found in the zip — that doesn\'t look like a Minecraft world.' });
+      }
+
+      const savesDir = path.join(instanceDir(inst.id), 'saves');
+      await fs.ensureDir(savesDir);
+      // Sanitise the folder name (strip path separators) then de-dupe.
+      let safeBase = baseName.replace(/[\\/:*?"<>|]/g, '_').slice(0, 100) || 'world';
+      let target = safeBase;
+      for (let n = 2; await fs.pathExists(path.join(savesDir, target)); n++) target = `${safeBase} (${n})`;
+      // Drop any session.lock the zip carried so the import never starts locked
+      // (fs.move has no copy-style filter, so strip it first).
+      await fs.remove(path.join(worldRoot, 'session.lock')).catch(() => {});
+      await fs.move(worldRoot, path.join(savesDir, target), { overwrite: false });
+      res.json({ ok: true, name: target });
+    } catch (err) {
+      res.status(500).json({ error: `Import failed: ${err.message}` });
+    } finally {
+      await fs.remove(req.file.path).catch(() => {});
+      await fs.remove(tmpExtract).catch(() => {});
+    }
   });
 
   // Download a world as a zip. Streams via archiver so a multi-GB world never
@@ -1819,12 +2049,20 @@ function register(app) {
         const files = await fs.readdir(dir);
         let meta = {};
         try { meta = await fs.readJson(path.join(dir, '.minedash-launcher.json')); } catch {}
-        const contentFiles = files.filter(f => !f.startsWith('.') && /\.(jar|zip)$/i.test(f));
+        // Include disabled content (renamed `<file>.disabled`, Prism convention)
+        // so the UI can list and re-enable it. Meta is keyed by the *enabled*
+        // (base) name so a disable→enable round-trip keeps the icon/title.
+        const contentFiles = files.filter(f => !f.startsWith('.') && /\.(jar|zip)(\.disabled)?$/i.test(f));
+        const baseNameOf = (f) => f.replace(/\.disabled$/i, '');
+        // Enrich only enabled files — disabled ones already carry meta keyed by
+        // their base name from when they were installed (and their on-disk name
+        // ends in `.disabled`, so hashing-by-base-name would miss anyway).
+        const enrichTargets = contentFiles.filter(f => !/\.disabled$/i.test(f));
         // Kick off enrichment but only await up to the remaining budget. The
         // promise keeps running after we move on — its `meta` mutation and
         // writeJson finish out-of-band, so the next /content call sees a
         // warmer cache without us having blocked this response.
-        const enrichPromise = enrichLauncherMeta(dir, contentFiles, meta).catch(() => {});
+        const enrichPromise = enrichLauncherMeta(dir, enrichTargets, meta).catch(() => {});
         const remaining = deadline - Date.now();
         if (remaining > 0) {
           await Promise.race([
@@ -1835,7 +2073,9 @@ function register(app) {
           backgroundEnrichments.push(enrichPromise);
         }
         for (const f of contentFiles) {
-          const m = meta[f] || {};
+          const baseName = baseNameOf(f);
+          const enabled = f === baseName; // f had no `.disabled` suffix
+          const m = meta[baseName] || {};
           // Compatibility checks only apply to mods (resource packs, shaders,
           // datapacks aren't loader-gated and tolerate version mismatches).
           let wrongVersion = false;
@@ -1860,7 +2100,9 @@ function register(app) {
               installedAt = st.mtimeMs;
             } catch {}
           }
-          result[type].push({ filename: f, ...m, installedAt, wrongVersion, wrongLoader });
+          // `filename` is the real on-disk name (the target for delete/toggle);
+          // `baseName` is the clean name to display (no `.disabled` suffix).
+          result[type].push({ filename: f, baseName, enabled, ...m, installedAt, wrongVersion, wrongLoader });
         }
       } catch {}
     }
@@ -2252,6 +2494,42 @@ function register(app) {
     }
   });
 
+  // Enable / disable a single content file by renaming `<file>` ⇄
+  // `<file>.disabled` (Prism convention). mclc only loads `*.jar` from `mods/`,
+  // so a `.disabled` file is ignored at launch — same effect as the server-side
+  // mods toggle. Resource packs / shaders work the same way (the in-game list
+  // skips `.disabled`). Returns the new on-disk filename + the resulting state.
+  app.post('/api/launcher/profiles/:loader/:version/content/:type/:filename/toggle', async (req, res) => {
+    const { loader, version, type, filename } = req.params;
+    const instanceId = req.query.instance || null;
+    const SUBDIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks', datapack: 'datapacks' };
+    const sub = SUBDIR[type];
+    if (!sub) return res.status(400).json({ error: 'Invalid content type' });
+
+    let profileDir;
+    try { profileDir = await resolveProfileDir({ loader, version, instanceId }); }
+    catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+
+    const dir = path.join(profileDir, sub);
+    const src = safeChildPath(dir, filename);
+    if (!src) return res.status(400).json({ error: 'Invalid filename' });
+    if (!await fs.pathExists(src)) return res.status(404).json({ error: 'File not found' });
+
+    const isDisabled = /\.disabled$/i.test(filename);
+    const newName = isDisabled ? filename.replace(/\.disabled$/i, '') : `${filename}.disabled`;
+    const dest = safeChildPath(dir, newName);
+    if (!dest) return res.status(400).json({ error: 'Invalid target filename' });
+    if (await fs.pathExists(dest)) {
+      return res.status(409).json({ error: `A file named "${newName}" already exists.` });
+    }
+    try {
+      await fs.move(src, dest);
+      res.json({ ok: true, enabled: isDisabled, newFilename: newName });
+    } catch (err) {
+      res.status(500).json({ error: `Could not ${isDisabled ? 'enable' : 'disable'} file: ${err.message}. If the game is running, close it first.` });
+    }
+  });
+
   // Delete a cached profile (loader + version) so the user can re-download it.
   // Removes the default instance for that loader+version. Use the instances
   // DELETE endpoint to remove a specific named instance.
@@ -2508,6 +2786,12 @@ function register(app) {
   app.post('/api/launcher/launch', async (req, res) => {
     const { joinServerId } = req.body || {};
     let { version, loader, instanceId, syncFromServerId } = req.body || {};
+    // Optional singleplayer quick-play target (Worlds → Join): a world folder
+    // name. Only honoured for standalone launches (not when joining a server,
+    // which always quick-plays into the server host).
+    let quickPlayWorld = typeof req.body?.quickPlayWorld === 'string' && req.body.quickPlayWorld.trim()
+      ? req.body.quickPlayWorld.trim().slice(0, 260)
+      : null;
 
     let quickPlayHost;
     if (joinServerId) {
@@ -2629,6 +2913,7 @@ function register(app) {
         syncServer,
         settings,
         quickPlayHost,
+        quickPlayWorld,
         // Pre-resolved Ely.by skins bundle (jar path + prefetched metadata +
         // Ely.by UUID). Null unless this is an offline account with Ely.by skins
         // enabled — the worker only injects the agent when this is present.
@@ -3049,7 +3334,7 @@ function runHookCommand({ cmd, env, launchId, label }) {
   });
 }
 
-async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, depAttempted, prepareOnly, modpackInstall, elybyLaunch }) {
+async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, quickPlayWorld, depAttempted, prepareOnly, modpackInstall, elybyLaunch }) {
   const { loader, version, id: instanceId } = instance;
   const profileRoot = instanceDir(instanceId);
   await fs.ensureDir(profileRoot);
@@ -3172,6 +3457,13 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     ? instance.ram
     : (settings?.ramGb || 4);
   const ramStr = String(ramGb) + 'G';
+  // Per-instance overrides win over the global launcher settings for everything
+  // the launch pipeline reads below (window, Tweaks native libs, pre/post-launch
+  // commands, env vars). Computed once here so the normal launch and the
+  // dep-crash retry (both call runLaunch with the same instance+settings) stay
+  // consistent. The frontend-consumed keys (console/afterLaunch/quitOnGameClose)
+  // are merged client-side instead — they never reach this worker.
+  const effSettings = mergeInstanceOverrides(settings, instance?.overrides);
   const opts = {
     authorization,
     root: profileRoot,
@@ -3179,9 +3471,9 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     memory: { max: ramStr, min: ramStr },
     javaPath,
     window: {
-      width:  String(settings?.windowWidth  || 925),
-      height: String(settings?.windowHeight || 530),
-      fullscreen: !!settings?.fullscreen,
+      width:  String(effSettings?.windowWidth  || 925),
+      height: String(effSettings?.windowHeight || 530),
+      fullscreen: !!effSettings?.fullscreen,
     },
   };
   if (versionCustom) opts.version.custom = versionCustom;
@@ -3191,11 +3483,11 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   // extracted from the natives jar. Advanced opt-in (Settings → Minecraft →
   // Tweaks); only added when the toggle is on AND a path is provided.
   const nativeLibArgs = [];
-  if (settings?.useSystemGlfw && settings.glfwPath && settings.glfwPath.trim()) {
-    nativeLibArgs.push(`-Dorg.lwjgl.glfw.libname=${settings.glfwPath.trim()}`);
+  if (effSettings?.useSystemGlfw && effSettings.glfwPath && effSettings.glfwPath.trim()) {
+    nativeLibArgs.push(`-Dorg.lwjgl.glfw.libname=${effSettings.glfwPath.trim()}`);
   }
-  if (settings?.useSystemOpenal && settings.openalPath && settings.openalPath.trim()) {
-    nativeLibArgs.push(`-Dorg.lwjgl.openal.libname=${settings.openalPath.trim()}`);
+  if (effSettings?.useSystemOpenal && effSettings.openalPath && effSettings.openalPath.trim()) {
+    nativeLibArgs.push(`-Dorg.lwjgl.openal.libname=${effSettings.openalPath.trim()}`);
   }
   // customArgs gets the Ely.by authlib-injector agent (if any) PLUS NeoForge's
   // required JVM args (if any) PLUS any system-native-lib overrides. mclc concats
@@ -3217,6 +3509,10 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   });
   if (quickPlayHost) {
     opts.quickPlay = { type: 'multiplayer', identifier: quickPlayHost };
+  } else if (quickPlayWorld) {
+    // Launch straight into a singleplayer world (Worlds → Join). mclc passes
+    // --quickPlaySingleplayer <folder>; ignored by MC versions older than 1.20.
+    opts.quickPlay = { type: 'singleplayer', identifier: quickPlayWorld };
   }
 
   // Buffer game output so we can scan it for dep-crash signatures on close.
@@ -3280,7 +3576,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
             // client-only deps we just installed.
             runLaunch({
               launchId, instance, account, accountsDoc,
-              syncServer: null, settings, quickPlayHost,
+              syncServer: null, settings, quickPlayHost, quickPlayWorld,
               depAttempted: triedIds, elybyLaunch,
             }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
             return;
@@ -3293,10 +3589,10 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     // Post-exit command — runs after the game has actually exited (not on cancel
     // or a dep-crash retry, both of which returned above). Best-effort: a failure
     // here is logged but never blocks the close signal.
-    if (settings?.postExitCommand && settings.postExitCommand.trim()) {
+    if (effSettings?.postExitCommand && effSettings.postExitCommand.trim()) {
       try {
-        const env = buildHookEnv({ instance, profileRoot, javaPath, gameEnv: settings?.gameEnv });
-        await runHookCommand({ cmd: settings.postExitCommand, env, launchId, label: 'post-exit command' });
+        const env = buildHookEnv({ instance, profileRoot, javaPath, gameEnv: effSettings?.gameEnv });
+        await runHookCommand({ cmd: effSettings.postExitCommand, env, launchId, label: 'post-exit command' });
       } catch (err) {
         emit(launchId, 'log', { message: `[post-exit command] failed: ${err.message || err}\n` });
       }
@@ -3310,16 +3606,16 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     // hooks below and the game JVM. Injecting them onto this worker's
     // process.env means the mclc-spawned child inherits them (the worker is
     // dedicated to this one launch, so it's safe to mutate the env here).
-    const hookEnv = buildHookEnv({ instance, profileRoot, javaPath, gameEnv: settings?.gameEnv });
-    for (const e of (Array.isArray(settings?.gameEnv) ? settings.gameEnv : [])) {
+    const hookEnv = buildHookEnv({ instance, profileRoot, javaPath, gameEnv: effSettings?.gameEnv });
+    for (const e of (Array.isArray(effSettings?.gameEnv) ? effSettings.gameEnv : [])) {
       if (e && typeof e.name === 'string' && e.name.trim()) {
         process.env[e.name.trim()] = e.value == null ? '' : String(e.value);
       }
     }
     // Pre-launch command — skipped for prepare-only Browse installs (those never
     // start the game). A non-zero exit aborts the launch, matching Prism.
-    if (!prepareOnly && settings?.preLaunchCommand && settings.preLaunchCommand.trim()) {
-      const code = await runHookCommand({ cmd: settings.preLaunchCommand, env: hookEnv, launchId, label: 'pre-launch command' });
+    if (!prepareOnly && effSettings?.preLaunchCommand && effSettings.preLaunchCommand.trim()) {
+      const code = await runHookCommand({ cmd: effSettings.preLaunchCommand, env: hookEnv, launchId, label: 'pre-launch command' });
       if (code !== 0) throw new Error(`Pre-launch command failed (exit code ${code}) — launch aborted.`);
     }
 
