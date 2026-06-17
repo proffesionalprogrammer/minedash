@@ -1550,6 +1550,17 @@ async function downloadFromAny(urls, destPath) {
 
 app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req, res) => {
   let serverPath = null;
+  // Detect a client-side cancel. The browser ("install as server", App.jsx)
+  // aborts its fetch via an AbortController when the user clicks Stop, but
+  // multer has already buffered the upload by the time we get here, so this
+  // long download + create work would otherwise run to completion — leaving a
+  // fully-built server in the list even though the user cancelled. When the
+  // fetch aborts, the socket closes and we get 'aborted'/'close'; flip the flag
+  // and the checkpoints below tear down the partial instance instead of saving.
+  let clientGone = false;
+  const markGone = () => { clientGone = true; };
+  req.on('aborted', markGone);
+  res.on('close', () => { if (!res.writableEnded) markGone(); });
   try {
     if (!req.file) return res.status(400).json({ error: 'No .mrpack file uploaded' });
     const userName = (req.body && req.body.name) ? String(req.body.name).trim() : '';
@@ -1648,6 +1659,7 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     let failed = [];
     // Modrinth lists multiple mirrors in downloads[] — try all of them before giving up.
     for (const f of downloadable) {
+      if (clientGone) break;
       try {
         const dest = safeJoin(serverPath, f.path);
         await downloadFromAny(f.downloads, dest);
@@ -1702,6 +1714,15 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
       const relNorm = rel.replace(/\\/g, '/');
       if (!relNorm.startsWith('mods/')) continue;
       if (await stashClientModFromZipEntry(serverPath, entry, relNorm)) clientStashed++;
+    }
+
+    // Final cancel checkpoint before we persist anything. If the user clicked
+    // Stop while mods were downloading, tear down the half-built instance and
+    // never save it — otherwise it would surface in the Servers tab with all
+    // its mods despite being cancelled.
+    if (clientGone) {
+      if (serverPath) await fs.remove(serverPath).catch(() => {});
+      return;
     }
 
     const newServer = {
