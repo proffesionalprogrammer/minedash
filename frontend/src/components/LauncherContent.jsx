@@ -109,8 +109,19 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
       if (entry.status !== 'done' && entry.status !== 'error') continue;
       if (reactedSessions.current.has(entry.sessionId)) continue;
       reactedSessions.current.add(entry.sessionId);
-      if (entry.status === 'done') fetchInstalled();
-      else if (entry.errorMessage) onError?.(entry.errorMessage);
+      if (entry.status === 'done') {
+        fetchInstalled();
+        // A done install can still have dropped mods (the main jar is the most
+        // likely victim). Surface them so a partial install isn't reported as a
+        // silent success.
+        const failed = Array.isArray(entry.summary?.failed) ? entry.summary.failed : [];
+        if (failed.length > 0) {
+          const names = failed.map(p => String(p).split(/[\\/]/).pop());
+          const preview = names.slice(0, 3).join(', ');
+          const more = names.length > 3 ? ` +${names.length - 3} more` : '';
+          onError?.(`${failed.length} mod${failed.length !== 1 ? 's' : ''} failed to download (${preview}${more}). Install again to retry.`);
+        }
+      } else if (entry.errorMessage) onError?.(entry.errorMessage);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [installsMap, scopeKey]);

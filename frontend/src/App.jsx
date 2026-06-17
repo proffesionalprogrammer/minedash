@@ -382,6 +382,16 @@ function App() {
 
       fetchInstalledProfiles();
       setInstancesRefreshKey(k => k + 1);
+      // Surface failed mod downloads loudly. The pack's main jar is the biggest
+      // and likeliest to drop mid-stream — if it failed and we still showed only
+      // the "Play now" toast, the user would think the install ate the mod.
+      const failed = Array.isArray(entry.summary?.failed) ? entry.summary.failed : [];
+      if (failed.length > 0) {
+        const names = failed.map(p => String(p).split(/[\\/]/).pop());
+        const preview = names.slice(0, 3).join(', ');
+        const more = names.length > 3 ? ` +${names.length - 3} more` : '';
+        showError(`${entry.title || 'Modpack'}: ${failed.length} mod${failed.length !== 1 ? 's' : ''} failed to download (${preview}${more}). Install again to retry.`);
+      }
       upsertToast({
         id: `modpack-${entry.sessionId}`,
         kind: 'modpack',
@@ -394,7 +404,7 @@ function App() {
         autoDismissAfter: 10_000,
       });
     }
-  }, [modpackInstalls.installs, fetchInstalledProfiles, upsertToast]);
+  }, [modpackInstalls.installs, fetchInstalledProfiles, upsertToast, showError]);
 
   // Auto-dismiss timer per toast. Each toast carries its own
   // `autoDismissAfter` (ms) and `phase` — only terminal phases get a timer

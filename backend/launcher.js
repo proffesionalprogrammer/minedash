@@ -9,6 +9,8 @@
 const path = require('path');
 const fs = require('fs-extra');
 const crypto = require('crypto');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const { spawn, exec } = require('child_process');
 const AdmZip = require('adm-zip');
 const archiver = require('archiver');
@@ -4171,6 +4173,76 @@ async function buildNeoForgeJvmArgs(versionId, profileRoot) {
 // Emits progress events via emitModpack(sessionId, …) when a sessionId is set:
 //   - status   { message }      — phase change ("Downloading modpack", "Extracting overrides", …)
 //   - progress { task, total }  — files completed so far
+// Stream a single URL straight to disk with an idle-stall guard. Mirrors the
+// server-side downloadToFile in index.js, adapted to fetch (the launcher uses
+// fetch, not axios). Two problems this fixes versus the old
+// `Buffer.from(await resp.arrayBuffer())` approach:
+//   1. arrayBuffer() buffers the whole jar in RAM — the Pixelmon main mod is
+//      ~400 MB and that spikes memory badly. We stream resp.body to a write
+//      stream instead.
+//   2. fetch has no body timeout — a connection that stalls mid-jar would hang
+//      the install forever (or silently drop the file). We arm a timer on each
+//      data chunk and abort if no bytes arrive for STALL_MS, which surfaces as
+//      a retryable error in downloadModpackFileWithRetry.
+async function streamUrlToFile(url, destPath, headers) {
+  const STALL_MS = 60000;
+  const controller = new AbortController();
+  let stallTimer = null;
+  const armStall = () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => controller.abort(), STALL_MS);
+  };
+  armStall(); // also bounds the connect/headers phase
+  let resp;
+  try {
+    resp = await fetch(url, { headers, signal: controller.signal });
+  } catch (e) {
+    if (stallTimer) clearTimeout(stallTimer);
+    throw e;
+  }
+  if (!resp.ok || !resp.body) {
+    if (stallTimer) clearTimeout(stallTimer);
+    const err = new Error(`HTTP ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
+  try {
+    const body = Readable.fromWeb(resp.body);
+    body.on('data', armStall);
+    await pipeline(body, fs.createWriteStream(destPath));
+  } finally {
+    if (stallTimer) clearTimeout(stallTimer);
+  }
+}
+
+// Download one modpack file, trying each mirror URL up to MAX_ATTEMPTS times
+// with backoff. Modrinth usually lists only a single CDN URL, so without
+// per-URL retry a lone transient blip mid-stream (very likely on the big
+// main-mod jar) drops a needed mod and the user sees it "missing". A definitive
+// 4xx won't fix itself, so it skips straight to the next mirror. The
+// half-written file is removed between attempts. Returns true on success, false
+// if every URL/attempt failed. bailIfCancelled is checked before each attempt
+// so Stop interrupts mid-download (it throws a tagged cancelled error that
+// propagates out unchanged).
+async function downloadModpackFileWithRetry(urls, destPath, headers, bailIfCancelled) {
+  const MAX_ATTEMPTS = 3;
+  for (const url of urls) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      bailIfCancelled();
+      try {
+        await streamUrlToFile(url, destPath, headers);
+        return true;
+      } catch (e) {
+        await fs.remove(destPath).catch(() => {});
+        const status = e.status;
+        if (status && status >= 400 && status < 500) break; // gone/forbidden — next mirror
+        if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+    }
+  }
+  return false;
+}
+
 async function installModpackIntoProfile({ sessionId, profileDir, url, filename, projectId, iconUrl, title, versionId, versionNumber, previousFiles, emitEvent, cancelToken }) {
   await fs.ensureDir(profileDir);
 
@@ -4255,16 +4327,7 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
       const target = path.join(profileDir, targetRel);
       await fs.ensureDir(path.dirname(target));
 
-      let ok = false;
-      for (const dl of f.downloads) {
-        try {
-          const resp = await fetch(dl, { headers: MODRINTH_HEADERS });
-          if (!resp.ok) continue;
-          await fs.writeFile(target, Buffer.from(await resp.arrayBuffer()));
-          ok = true;
-          break;
-        } catch {}
-      }
+      const ok = await downloadModpackFileWithRetry(f.downloads, target, MODRINTH_HEADERS, bailIfCancelled);
       if (ok) {
         installedFiles.push(targetRel);
         trackedPaths.push(targetRel);
