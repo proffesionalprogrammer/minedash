@@ -2,6 +2,24 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.1.28 — 2026-06-17
+
+### Added
+
+- **A proper Minecraft settings hub.** **Settings → Minecraft** is a new home for everything that shapes a game launch, organised into tabs:
+  - **Game Window** — set the window size, launch in fullscreen, hide MineDash to the tray when the game opens, and (new) quit MineDash automatically when the game closes.
+  - **Custom Commands** — run your own command *before* a launch (a failure cancels the launch) and *after* the game exits — handy for backups or syncing. Useful variables like `$INST_NAME`, `$INST_DIR` and `$INST_JAVA` are filled in for you.
+  - **Environment Variables** — add your own `NAME` / `value` pairs that get passed straight to the game's Java process.
+  - **Tweaks** — point the game at your system's **GLFW / OpenAL** libraries instead of the bundled ones (advanced — handy for certain graphics/audio or Linux fixes).
+- **A live game console.** MineDash can now show the game's real-time output in an in-app console while you play, so you can see exactly why a modded launch failed. Choose whether it opens **on launch**, only **on a crash** (default), or **hides when the game exits** — under **Settings → Minecraft → General**.
+- **Play-time tracking.** MineDash now records how long you spend in each instance and shows it on the instance's **Manage** panel, plus a running total on the **Instances** page. You can turn recording off, hide the per-instance or total figures, or always show durations in hours — under **Settings → Minecraft → General**.
+
+### Fixed
+
+- **Gallery images open at full size.** Clicking a screenshot in a mod or modpack's gallery now opens it large instead of as a tiny thumbnail.
+
+---
+
 ## v1.1.27 — 2026-06-17
 
 ### Added
