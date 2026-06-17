@@ -191,10 +191,10 @@ export default function AccountManager({ accounts, activeAccountId, microsoftCon
                     <span className="font-bold text-sm text-[var(--c-text-primary)] truncate">{a.username}</span>
                     {active && <span className="text-[10px] font-bold uppercase tracking-wider text-[#00AF5C]">Active</span>}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[10px] text-[var(--c-text-muted)] uppercase tracking-wider font-bold">{a.type}</span>
+                  <div className="flex items-center gap-2 mt-0.5 min-w-0">
+                    <span className="text-[10px] text-[var(--c-text-muted)] uppercase tracking-wider font-bold whitespace-nowrap">{a.type}</span>
                     {a.lastUsedAt && (
-                      <span className="text-[10px] text-[var(--c-text-muted)] font-bold">· Last used {timeAgo(a.lastUsedAt)}</span>
+                      <span className="text-[10px] text-[var(--c-text-muted)] font-bold truncate">· Last used {timeAgo(a.lastUsedAt)}</span>
                     )}
                   </div>
                 </div>
