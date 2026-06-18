@@ -1580,24 +1580,55 @@ async function downloadFromAny(urls, destPath) {
   throw new Error(errors.join('; ') || 'no download URLs');
 }
 
-app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req, res) => {
-  let serverPath = null;
-  // Detect a client-side cancel. The browser ("install as server", App.jsx)
-  // aborts its fetch via an AbortController when the user clicks Stop, but
-  // multer has already buffered the upload by the time we get here, so this
-  // long download + create work would otherwise run to completion — leaving a
-  // fully-built server in the list even though the user cancelled. When the
-  // fetch aborts, the socket closes and we get 'aborted'/'close'; flip the flag
-  // and the checkpoints below tear down the partial instance instead of saving.
-  let clientGone = false;
-  const markGone = () => { clientGone = true; };
-  req.on('aborted', markGone);
-  res.on('close', () => { if (!res.writableEnded) markGone(); });
+// Sessions the user cancelled mid-create via the streaming from-modpack-url
+// route. installModpackAsServer polls this (through isCancelled) at checkpoints.
+const cancelledServerCreates = new Set();
+
+// Core modpack → new-server installer. Parses an in-memory .mrpack, validates
+// it, creates the instance, downloads mods + overrides (honouring the user's
+// client-mod filter), and persists the new server. When `sessionId` is set it
+// streams status/progress/done over emitServerModpack so the UI shows a real
+// fill bar; `isCancelled()` is polled at checkpoints so a Stop tears down the
+// half-built instance. Returns { server, summary }, or null if cancelled.
+// Throws Error (with optional .status) for client-facing validation failures.
+async function installModpackAsServer({ buffer, name, ramGB, sessionId = null, isCancelled = () => false }) {
+  const emit = (event, data = {}) => { if (sessionId) emitServerModpack(sessionId, event, data); };
+  const fail = (msg, status = 400) => { const e = new Error(msg); e.status = status; return e; };
+
+  let zip;
+  try { zip = new AdmZip(buffer); }
+  catch { throw fail('Uploaded file is not a valid .mrpack (zip)'); }
+  const indexEntry = zip.getEntry('modrinth.index.json');
+  if (!indexEntry) throw fail('modrinth.index.json missing — not a valid Modrinth modpack');
+
+  let index;
+  try { index = JSON.parse(indexEntry.getData().toString('utf8')); }
+  catch { throw fail('Could not parse modrinth.index.json'); }
+
+  const mcVersion = index.dependencies && index.dependencies.minecraft;
+  if (!mcVersion) throw fail('Modpack does not declare a Minecraft version');
+
+  const detected = detectModpackType(index.dependencies);
+  if (!detected) {
+    throw fail(index.dependencies && index.dependencies['quilt-loader']
+      ? 'Quilt modpacks are not supported yet — only Fabric, Forge, and NeoForge.'
+      : 'Unsupported modpack: no recognized loader in dependencies.');
+  }
+
+  const finalName = (name && name.trim()) || index.name || `Modpack ${Date.now()}`;
+  const existing = await getServers();
+  if (existing.some(s => s.name.toLowerCase() === finalName.toLowerCase())) {
+    throw fail(`A server named "${finalName}" already exists.`);
+  }
+
+  const id = finalName.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Date.now();
+  const serverPath = path.join(INSTANCES_DIR, id);
   try {
-    if (!req.file) return res.status(400).json({ error: 'No .mrpack file uploaded' });
-    const userName = (req.body && req.body.name) ? String(req.body.name).trim() : '';
-    // RAM (GB) from FormData; default 4 GB. Clamp to a sane range.
-    const ramGB = Math.max(1, Math.min(32, parseInt(req.body?.ram, 10) || 4));
+    await fs.ensureDir(serverPath);
+    await fs.ensureDir(path.join(serverPath, 'mods'));
+    await fs.ensureDir(path.join(serverPath, 'config'));
+    await fs.writeFile(path.join(serverPath, 'eula.txt'), 'eula=true\n');
+    await fs.writeFile(path.join(serverPath, 'server.properties'), 'online-mode=false\nenforce-secure-profile=false\n');
 
     // Whether to apply the heuristic client-only mod filter. User-toggleable in
     // Settings → General. Default on (matches historical behavior); turning it
@@ -1605,50 +1636,6 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     // hatch for packs whose required mods were being wrongly stripped.
     let removeClientMods = true;
     try { removeClientMods = (await launcher.readSettings()).removeClientMods !== false; } catch {}
-
-    // Parse the .mrpack (it's a zip)
-    let zip;
-    try {
-      zip = new AdmZip(req.file.buffer);
-    } catch (e) {
-      return res.status(400).json({ error: 'Uploaded file is not a valid .mrpack (zip)' });
-    }
-    const indexEntry = zip.getEntry('modrinth.index.json');
-    if (!indexEntry) return res.status(400).json({ error: 'modrinth.index.json missing — not a valid Modrinth modpack' });
-
-    let index;
-    try {
-      index = JSON.parse(indexEntry.getData().toString('utf8'));
-    } catch (e) {
-      return res.status(400).json({ error: 'Could not parse modrinth.index.json' });
-    }
-
-    const mcVersion = index.dependencies && index.dependencies.minecraft;
-    if (!mcVersion) return res.status(400).json({ error: 'Modpack does not declare a Minecraft version' });
-
-    const detected = detectModpackType(index.dependencies);
-    if (!detected) {
-      return res.status(400).json({
-        error: index.dependencies && index.dependencies['quilt-loader']
-          ? 'Quilt modpacks are not supported yet — only Fabric, Forge, and NeoForge.'
-          : 'Unsupported modpack: no recognized loader in dependencies.',
-      });
-    }
-
-    const finalName = userName || index.name || `Modpack ${Date.now()}`;
-    const existing = await getServers();
-    if (existing.some(s => s.name.toLowerCase() === finalName.toLowerCase())) {
-      return res.status(400).json({ error: `A server named "${finalName}" already exists.` });
-    }
-
-    const id = finalName.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Date.now();
-    serverPath = path.join(INSTANCES_DIR, id);
-    await fs.ensureDir(serverPath);
-    await fs.ensureDir(path.join(serverPath, 'mods'));
-    await fs.ensureDir(path.join(serverPath, 'config'));
-
-    await fs.writeFile(path.join(serverPath, 'eula.txt'), 'eula=true\n');
-    await fs.writeFile(path.join(serverPath, 'server.properties'), 'online-mode=false\nenforce-secure-profile=false\n');
 
     // Download declared files. Two layers decide what lands on the server:
     //   1. env.server === 'unsupported' → always skipped (the server can't run
@@ -1692,18 +1679,37 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
       return true;
     });
 
+    // Pre-collect override entries (overrides/ + server-overrides/) so the
+    // progress total reflects every file we'll actually write.
+    const overrideEntries = [];
+    for (const root of ['overrides', 'server-overrides']) {
+      for (const entry of zip.getEntries()) {
+        if (entry.isDirectory) continue;
+        if (!entry.entryName.startsWith(root + '/')) continue;
+        const rel = entry.entryName.slice(root.length + 1);
+        if (!rel) continue;
+        overrideEntries.push({ entry, rel });
+      }
+    }
+
+    const total = downloadable.length + overrideEntries.length;
+    let done = 0;
+    const tick = () => { done++; emit('progress', { task: done, total }); };
+    emit('status', { message: 'Downloading mods…' });
+    emit('progress', { task: 0, total });
+
     let downloaded = 0;
     let failed = [];
     // Modrinth lists multiple mirrors in downloads[] — try all of them before giving up.
     for (const f of downloadable) {
-      if (clientGone) break;
+      if (isCancelled()) { await fs.remove(serverPath).catch(() => {}); return null; }
       try {
-        const dest = safeJoin(serverPath, f.path);
-        await downloadFromAny(f.downloads, dest);
+        await downloadFromAny(f.downloads, safeJoin(serverPath, f.path));
         downloaded++;
       } catch (e) {
         failed.push({ path: f.path, error: e.message });
       }
+      tick();
     }
 
     // Stash client-only mods so the launcher can later push the full modpack
@@ -1719,27 +1725,23 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     // crashing my server" reports come from — pack authors drop Oculus.jar
     // into overrides/mods/ and the dedicated server explodes the moment it
     // tries to load it. Those filtered jars get stashed for the client.
-    const overrideRoots = ['overrides', 'server-overrides'];
-    for (const root of overrideRoots) {
-      for (const entry of zip.getEntries()) {
-        if (entry.isDirectory) continue;
-        if (!entry.entryName.startsWith(root + '/')) continue;
-        const rel = entry.entryName.slice(root.length + 1);
-        if (!rel) continue;
-        const relNorm = rel.replace(/\\/g, '/');
-        if (removeClientMods && relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
-          skippedClient.push(entry.entryName);
-          if (await stashClientModFromZipEntry(serverPath, entry, relNorm)) clientStashed++;
-          continue;
-        }
-        try {
-          const dest = safeJoin(serverPath, rel);
-          await fs.ensureDir(path.dirname(dest));
-          await fs.writeFile(dest, entry.getData());
-        } catch (e) {
-          failed.push({ path: entry.entryName, error: e.message });
-        }
+    if (overrideEntries.length) emit('status', { message: 'Extracting overrides…' });
+    for (const { entry, rel } of overrideEntries) {
+      const relNorm = rel.replace(/\\/g, '/');
+      if (removeClientMods && relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
+        skippedClient.push(entry.entryName);
+        if (await stashClientModFromZipEntry(serverPath, entry, relNorm)) clientStashed++;
+        tick();
+        continue;
       }
+      try {
+        const dest = safeJoin(serverPath, rel);
+        await fs.ensureDir(path.dirname(dest));
+        await fs.writeFile(dest, entry.getData());
+      } catch (e) {
+        failed.push({ path: entry.entryName, error: e.message });
+      }
+      tick();
     }
 
     // Also extract client-overrides/mods/ jars to the stash so the launcher
@@ -1757,11 +1759,9 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     // Stop while mods were downloading, tear down the half-built instance and
     // never save it — otherwise it would surface in the Servers tab with all
     // its mods despite being cancelled.
-    if (clientGone) {
-      if (serverPath) await fs.remove(serverPath).catch(() => {});
-      return;
-    }
+    if (isCancelled()) { await fs.remove(serverPath).catch(() => {}); return null; }
 
+    emit('status', { message: 'Creating server…' });
     const newServer = {
       id,
       name: finalName,
@@ -1779,34 +1779,96 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     const servers = await getServers();
     servers.push(newServer);
     await saveServers(servers);
-
     io.emit('server_created', newServer);
-    res.json({
-      server: newServer,
-      summary: {
-        modpackName: index.name || 'Unknown',
-        modpackVersion: index.versionId || '',
-        type: detected.type,
-        mcVersion,
-        loaderVersion: detected.loaderVersion,
-        downloaded,
-        attempted: downloadable.length,
-        failed,
-        // Tell the UI which mods we deliberately skipped because they would
-        // crash a dedicated server (Oculus, Iris, Sodium and friends). Lets
-        // the user see "we did this for you, not a bug" rather than wondering
-        // why some files from the pack didn't show up.
-        skippedClientOnly: skippedClient,
-        // How many of those skipped mods we stashed for client-side install
-        // when the user hits Play.
-        clientModsStashed: clientStashed,
-      },
+
+    const summary = {
+      modpackName: index.name || 'Unknown',
+      modpackVersion: index.versionId || '',
+      type: detected.type,
+      mcVersion,
+      loaderVersion: detected.loaderVersion,
+      downloaded,
+      attempted: downloadable.length,
+      // Mods we deliberately skipped because they'd crash a dedicated server
+      // (Oculus, Iris, Sodium…) — surfaced so the user sees "we did this for
+      // you" rather than wondering why some files didn't show up.
+      failed,
+      skippedClientOnly: skippedClient,
+      // How many of those skipped mods we stashed for client-side install.
+      clientModsStashed: clientStashed,
+    };
+    emit('done', { server: newServer, summary });
+    return { server: newServer, summary };
+  } catch (err) {
+    await fs.remove(serverPath).catch(() => {});
+    throw err;
+  }
+}
+
+// Multipart upload path (drag-drop / file picker). Blocking — fine for a local
+// .mrpack with no big client-side download. Large remote packs use the
+// streaming from-modpack-url route below instead.
+app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req, res) => {
+  // The browser aborts its fetch when the user clicks Stop; the socket closes
+  // and we get 'aborted'/'close'. Flip a flag so installModpackAsServer's
+  // checkpoints tear down the partial instance instead of saving it.
+  let clientGone = false;
+  req.on('aborted', () => { clientGone = true; });
+  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No .mrpack file uploaded' });
+    const userName = (req.body && req.body.name) ? String(req.body.name).trim() : '';
+    // RAM (GB) from FormData; default 4 GB. Clamp to a sane range.
+    const ramGB = Math.max(1, Math.min(32, parseInt(req.body?.ram, 10) || 4));
+    const result = await installModpackAsServer({
+      buffer: req.file.buffer, name: userName, ramGB, isCancelled: () => clientGone,
     });
+    if (!result) return; // cancelled mid-flight; client already gone
+    res.json(result);
   } catch (err) {
     console.error('[MineDash Modpack] Import failed:', err);
-    if (serverPath) await fs.remove(serverPath).catch(() => {});
-    res.status(500).json({ error: err.message || 'Failed to import modpack' });
+    res.status(err.status || 500).json({ error: err.message || 'Failed to import modpack' });
   }
+});
+
+// Streaming path for Browse → "Install as server". Returns a sessionId
+// immediately, then downloads the .mrpack AND every mod SERVER-SIDE while
+// emitting real progress over modpack_install_<sessionId>. This replaces the
+// old flow where the browser downloaded a 400 MB+ pack itself and held one
+// blocking request open through the whole server-side install — which failed
+// with "Failed to fetch" on big packs (Pixelmon/Cobblemon) and could only show
+// a fake indeterminate bar.
+app.post('/api/servers/from-modpack-url', async (req, res) => {
+  const { url, name, ram } = req.body || {};
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
+  const ramGB = Math.max(1, Math.min(32, parseInt(ram, 10) || 4));
+  const sessionId = crypto.randomUUID();
+  res.json({ sessionId });
+
+  (async () => {
+    const isCancelled = () => cancelledServerCreates.has(sessionId);
+    try {
+      emitServerModpack(sessionId, 'status', { message: 'Downloading modpack…' });
+      const response = await fetch(url, { headers: MODRINTH_HEADERS });
+      if (!response.ok) throw new Error(`Modpack download failed (${response.status})`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (isCancelled()) { emitServerModpack(sessionId, 'cancelled', {}); return; }
+      // installModpackAsServer emits its own 'done' on success.
+      const result = await installModpackAsServer({ buffer, name, ramGB, sessionId, isCancelled });
+      if (!result) emitServerModpack(sessionId, 'cancelled', {});
+    } catch (err) {
+      console.error('[MineDash Modpack] Streaming create failed:', err);
+      emitServerModpack(sessionId, 'error', { message: err.message || 'Failed to create server from modpack' });
+    } finally {
+      cancelledServerCreates.delete(sessionId);
+    }
+  })();
+});
+
+// Cancel an in-flight streaming "install as server".
+app.delete('/api/servers/from-modpack-url/:sessionId', (req, res) => {
+  cancelledServerCreates.add(req.params.sessionId);
+  res.json({ success: true });
 });
 
 // ─── Clone an existing server ────────────────────────────────────────────────

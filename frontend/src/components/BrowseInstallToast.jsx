@@ -59,6 +59,11 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
 
   const accent = isError ? 'text-[var(--c-danger)]' : 'text-[#00AF5C]';
 
+  // Real install progress (server installs stream task/total over a socket).
+  // null → we only have an indeterminate bar to show.
+  const prog = toast.progress;
+  const pct = prog && prog.total > 0 ? Math.min(100, Math.round((prog.task / prog.total) * 100)) : null;
+
   return (
     <>
       <div className="flex items-center gap-3 p-4">
@@ -74,8 +79,10 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
             <p className="text-[10px] text-[var(--c-text-secondary)] truncate">{toast.loader} {toast.version}</p>
           )}
           {toast.kind === 'server' && inFlight && (
-            <p className="text-[10px] text-[var(--c-text-secondary)] truncate">
-              {phase === 'downloading' ? 'Pulling .mrpack from Modrinth…' : 'Extracting and creating server…'}
+            <p className="text-[10px] text-[var(--c-text-secondary)] truncate tabular-nums">
+              {toast.statusText
+                ? (pct != null ? `${toast.statusText} ${pct}%` : toast.statusText)
+                : (phase === 'downloading' ? 'Pulling .mrpack from Modrinth…' : 'Extracting and creating server…')}
             </p>
           )}
           {isError && toast.error && (
@@ -97,13 +104,23 @@ function renderToastBody(toast, { onPlay, onDismiss, onCancel, onGoToServers }) 
 
       {inFlight && (
         <div className="h-0.5 bg-[var(--c-border)] overflow-hidden">
-          <motion.div
-            className="h-full bg-[#00AF5C]"
-            initial={{ x: '-100%' }}
-            animate={{ x: '100%' }}
-            transition={{ repeat: Infinity, duration: 1.4, ease: 'linear' }}
-            style={{ width: '40%' }}
-          />
+          {pct != null ? (
+            // Determinate — driven by real task/total from the install stream.
+            <motion.div
+              className="h-full bg-[#00AF5C]"
+              animate={{ width: `${pct}%` }}
+              transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+            />
+          ) : (
+            // Indeterminate — before the first progress event arrives.
+            <motion.div
+              className="h-full bg-[#00AF5C]"
+              initial={{ x: '-100%' }}
+              animate={{ x: '100%' }}
+              transition={{ repeat: Infinity, duration: 1.4, ease: 'linear' }}
+              style={{ width: '40%' }}
+            />
+          )}
         </div>
       )}
 

@@ -445,13 +445,17 @@ function App() {
   const beginServerInstall = useCallback(async (hit) => {
     const toastId = `server-${hit.project_id}-${Date.now()}`;
     const controller = new AbortController();
-    serverInstallAborts.current[toastId] = controller;
+    // Track both the AbortController (for the quick version-lookup + kickoff
+    // fetches) and the sessionId once the backend hands one back, so cancel can
+    // tell the server-side install to stop.
+    serverInstallAborts.current[toastId] = { controller, sessionId: null };
     upsertToast({
       id: toastId,
       kind: 'server',
       phase: 'downloading',
       title: hit.title,
       iconUrl: hit.icon_url || null,
+      progress: null,
     });
     try {
       const vr = await fetch(`http://localhost:3001/api/modrinth/project/${hit.project_id}/versions`, { signal: controller.signal });
@@ -465,28 +469,45 @@ function App() {
       const file = (best.files || []).find(f => f.primary) || (best.files || [])[0];
       if (!file?.url) throw new Error('Modpack version has no downloadable file');
 
-      const dl = await fetch(file.url, { signal: controller.signal });
-      if (!dl.ok) throw new Error(`Modpack download failed (${dl.status})`);
-      const blob = await dl.blob();
-      upsertToast({ id: toastId, phase: 'creating' });
-
-      const fd = new FormData();
-      fd.append('mrpack', new File([blob], file.filename || `${hit.project_id}.mrpack`));
-      fd.append('name', hit.title);
-      fd.append('ram', '4');
-
-      const cr = await fetch('http://localhost:3001/api/servers/from-modpack', {
+      // Hand the .mrpack URL to the backend — it downloads the pack and every
+      // mod server-side and streams real progress over a socket. The old flow
+      // pulled the (often 400 MB+) pack into the browser and uploaded it on one
+      // blocking request, which failed with "Failed to fetch" on big packs.
+      const cr = await fetch('http://localhost:3001/api/servers/from-modpack-url', {
         method: 'POST',
-        body: fd,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: file.url, name: hit.title, ram: 4 }),
         signal: controller.signal,
       });
       const cd = await cr.json();
-      if (!cr.ok) throw new Error(cd.error || 'Server create failed');
+      if (!cr.ok || !cd.sessionId) throw new Error(cd.error || 'Server install failed to start');
+      const sessionId = cd.sessionId;
+      if (serverInstallAborts.current[toastId]) serverInstallAborts.current[toastId].sessionId = sessionId;
 
-      upsertToast({
-        id: toastId,
-        phase: 'done',
-        autoDismissAfter: 12_000,
+      // Watch the progress channel until the install reaches a terminal state.
+      const channel = `modpack_install_${sessionId}`;
+      await new Promise((resolve) => {
+        const handler = (payload) => {
+          if (payload.event === 'status') {
+            const creating = /creating/i.test(payload.message || '');
+            upsertToast({ id: toastId, phase: creating ? 'creating' : 'downloading', statusText: payload.message });
+          } else if (payload.event === 'progress') {
+            upsertToast({ id: toastId, phase: 'downloading', progress: { task: payload.task, total: payload.total } });
+          } else if (payload.event === 'done') {
+            socket.off(channel, handler);
+            upsertToast({ id: toastId, phase: 'done', progress: null, autoDismissAfter: 12_000 });
+            resolve();
+          } else if (payload.event === 'error') {
+            socket.off(channel, handler);
+            upsertToast({ id: toastId, phase: 'error', error: payload.message, autoDismissAfter: 8_000 });
+            resolve();
+          } else if (payload.event === 'cancelled') {
+            socket.off(channel, handler);
+            removeToast(toastId);
+            resolve();
+          }
+        };
+        socket.on(channel, handler);
       });
     } catch (err) {
       // User-initiated cancel: the toast is already removed by the cancel
@@ -501,14 +522,18 @@ function App() {
     } finally {
       delete serverInstallAborts.current[toastId];
     }
-  }, [upsertToast]);
+  }, [upsertToast, removeToast]);
 
-  // Cancel an in-flight "install as server" download/upload. Aborts the fetch
-  // chain (which rejects beginServerInstall's await) and clears the toast.
+  // Cancel an in-flight "install as server". Aborts the kickoff fetches and, if
+  // the server-side install already started, tells the backend to stop it (it
+  // tears down the half-built instance). Then clears the toast.
   const cancelServerInstall = useCallback((toastId) => {
-    const controller = serverInstallAborts.current[toastId];
-    if (controller) {
-      try { controller.abort(); } catch {}
+    const entry = serverInstallAborts.current[toastId];
+    if (entry) {
+      try { entry.controller.abort(); } catch {}
+      if (entry.sessionId) {
+        fetch(`http://localhost:3001/api/servers/from-modpack-url/${entry.sessionId}`, { method: 'DELETE' }).catch(() => {});
+      }
       delete serverInstallAborts.current[toastId];
     }
     removeToast(toastId);
