@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Square, RefreshCw, Cpu, Users, Settings, Trash2, Folder, Gamepad2, MoreVertical, Server, MemoryStick, Clock, Copy, Check, AlertTriangle, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useLaunchSession } from '../hooks/useLaunchSession';
 import Tooltip from './Tooltip';
 import ConsoleViewer from './ConsoleViewer';
 import ModsViewer from './ModsViewer';
@@ -26,9 +25,20 @@ function pushHistory(prev, sample) {
   return next;
 }
 
-function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBack, modpackInstalls, onOpenDetail }) {
-  const joinSession = useLaunchSession({ socket, settings, onProfilesChanged, onError });
+function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDetail, joinSession }) {
   const handleJoin = () => joinSession.launch({ joinServerId: server.id });
+  // The lifted join session is shared across every server. Only treat it as
+  // *this* server's launch when its target matches — otherwise a download
+  // started on another server (or from the Launcher tab) would paint progress
+  // on this server's Play button. While idle we let it through so the button
+  // reads "Play".
+  const joinIsForThisServer = joinSession.phase === 'idle' || joinSession.joinServerId === server.id;
+  // Presentational view of the session that collapses to "idle" when the
+  // in-flight launch belongs to a different server, so the Play button and
+  // launch console below only ever reflect this server.
+  const j = joinIsForThisServer
+    ? joinSession
+    : { phase: 'idle', progress: 0, statusText: '', fileCount: { current: 0, total: 0 }, logs: [], consoleOpen: false };
   const launcherSupported = ['vanilla', 'fabric', 'forge', 'neoforge'].includes(server.type);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('console');
@@ -270,10 +280,10 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
 
       {/* In-app launch console for this server's "join" session. */}
       <LaunchConsole
-        open={joinSession.consoleOpen}
-        logs={joinSession.logs}
-        status={joinSession.statusText}
-        phase={joinSession.phase}
+        open={j.consoleOpen}
+        logs={j.logs}
+        status={j.statusText}
+        phase={j.phase}
         onClose={joinSession.closeConsole}
       />
 
@@ -447,50 +457,50 @@ function MainPanel({ server, socket, onError, settings, onProfilesChanged, onBac
                 the launcher downloads / installs / starts the game. */}
             {launcherSupported && isOnline && (
               <Tooltip content={
-                joinSession.phase === 'idle'
+                j.phase === 'idle'
                   ? 'Install client mods, launch Minecraft, and join this server'
-                  : joinSession.fileCount?.total > 0 && joinSession.fileCount?.current > 0
-                    ? `${joinSession.statusText} (${joinSession.fileCount.current} / ${joinSession.fileCount.total} files)`
-                    : joinSession.statusText
+                  : j.fileCount?.total > 0 && j.fileCount?.current > 0
+                    ? `${j.statusText} (${j.fileCount.current} / ${j.fileCount.total} files)`
+                    : j.statusText
               }>
               <motion.button
-                whileHover={joinSession.phase === 'idle' ? { scale: 1.03 } : {}}
-                whileTap={joinSession.phase === 'idle' ? { scale: 0.95 } : {}}
+                whileHover={j.phase === 'idle' ? { scale: 1.03 } : {}}
+                whileTap={j.phase === 'idle' ? { scale: 0.95 } : {}}
                 onClick={handleJoin}
-                disabled={joinSession.phase !== 'idle' && joinSession.phase !== 'launched'}
+                disabled={j.phase !== 'idle' && j.phase !== 'launched'}
                 className={`relative overflow-hidden flex items-center gap-2 px-4 py-2.5 border rounded-xl font-bold transition-colors duration-200 min-w-[140px] justify-center ${
-                  joinSession.phase === 'launched'
+                  j.phase === 'launched'
                     ? 'border-[#00AF5C]/40 text-white'
-                    : joinSession.phase === 'error'
+                    : j.phase === 'error'
                       ? 'border-[var(--c-danger)]/40 text-white'
-                      : joinSession.phase === 'running'
+                      : j.phase === 'running'
                         ? 'border-[#00AF5C]/40 text-white'
                         : 'bg-[#00AF5C]/10 hover:bg-[#00AF5C]/20 border-[#00AF5C]/20 text-[#00AF5C]'
                 }`}
-                style={joinSession.phase !== 'idle' ? {
-                  background: joinSession.phase === 'error' ? '#7A2A2A'
-                    : joinSession.phase === 'launched' ? '#00AF5C'
+                style={j.phase !== 'idle' ? {
+                  background: j.phase === 'error' ? '#7A2A2A'
+                    : j.phase === 'launched' ? '#00AF5C'
                     : '#1E1E1E',
                 } : undefined}
               >
-                {joinSession.phase !== 'idle' && (
+                {j.phase !== 'idle' && (
                   <motion.div
                     initial={false}
-                    animate={{ width: `${joinSession.progress}%` }}
+                    animate={{ width: `${j.progress}%` }}
                     transition={{ ease: [0.22, 1, 0.36, 1], duration: 0.5 }}
                     className="absolute inset-y-0 left-0 z-0"
-                    style={{ background: joinSession.phase === 'error' ? '#FF5555' : '#00AF5C' }}
+                    style={{ background: j.phase === 'error' ? '#FF5555' : '#00AF5C' }}
                   />
                 )}
                 <span className="relative z-10 flex items-center gap-2">
-                  {joinSession.phase === 'launched' ? <Check size={16} />
-                    : joinSession.phase === 'error' ? <AlertCircle size={16} />
-                    : joinSession.phase === 'running' ? <Loader2 size={16} className="animate-spin" />
+                  {j.phase === 'launched' ? <Check size={16} />
+                    : j.phase === 'error' ? <AlertCircle size={16} />
+                    : j.phase === 'running' ? <Loader2 size={16} className="animate-spin" />
                     : <Play size={16} fill="currentColor" />}
                   <span>
-                    {joinSession.phase === 'launched' ? 'Playing'
-                      : joinSession.phase === 'error' ? 'Failed'
-                      : joinSession.phase === 'running' ? `${joinSession.progress}%`
+                    {j.phase === 'launched' ? 'Playing'
+                      : j.phase === 'error' ? 'Failed'
+                      : j.phase === 'running' ? `${j.progress}%`
                       : 'Play'}
                   </span>
                 </span>

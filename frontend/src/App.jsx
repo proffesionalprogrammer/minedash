@@ -305,6 +305,18 @@ function App() {
     onError: showError,
   });
 
+  // Separate session for the per-server "Play" (join) button in MainPanel.
+  // Lifted here for the same reason as launchSession: MainPanel unmounts when
+  // the user navigates away from a server, so a session living inside it would
+  // forget an in-progress download. Kept distinct from launchSession so a
+  // launch from the Launcher tab and a server join don't clobber each other.
+  const joinSession = useLaunchSession({
+    socket,
+    settings: launcherSettings,
+    onProfilesChanged: fetchInstalledProfiles,
+    onError: showError,
+  });
+
   // Modpack-install tracker — lifted so a 500-mod install survives the user
   // tab-switching away (and back) while it runs. ModrinthBrowser and
   // LauncherContent both register their installs here and read progress back
@@ -834,11 +846,10 @@ function App() {
                   server={selectedServer}
                   socket={socket}
                   onError={showError}
-                  settings={launcherSettings}
-                  onProfilesChanged={fetchInstalledProfiles}
                   onBack={() => setSelectedServer(null)}
                   modpackInstalls={modpackInstalls}
                   onOpenDetail={openDetail}
+                  joinSession={joinSession}
                 />
               </Suspense>
             </motion.div>

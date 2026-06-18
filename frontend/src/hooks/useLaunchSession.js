@@ -40,6 +40,12 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   // right card even after it unmounts/remounts on a tab switch — local card
   // state would otherwise forget which instance is running.
   const [instanceId, setInstanceId] = useState(null);
+  // The server this launch targets when it's a per-server "Play" join (body
+  // carried `{ joinServerId }`). Lifted with the rest of the session so the
+  // per-server Play button can tell whether the in-flight launch is *its own*
+  // after MainPanel unmounts/remounts on a navigation away and back — without
+  // it, every server's Play button would light up for any launch.
+  const [joinServerId, setJoinServerId] = useState(null);
   // In-app launch console. `logs` is the raw stdout/stderr stream from the game
   // JVM (capped); `consoleOpen` drives the LaunchConsole modal and is toggled
   // automatically per the user's console settings (show-on-launch / -crash,
@@ -75,6 +81,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     setPhase('idle'); setProgress(0); setStatusText('');
     setFileCount({ current: 0, total: 0 });
     setInstanceId(null);
+    setJoinServerId(null);
     if (handlerRef.current && launchIdRef.current && socket) {
       socket.off(`launcher_${launchIdRef.current}`, handlerRef.current);
     }
@@ -124,6 +131,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
     setStatusText('Preparing…');
     setFileCount({ current: 0, total: 0 });
     setInstanceId(body?.instanceId ?? null);
+    setJoinServerId(body?.joinServerId ?? null);
     setLogs([]);
     setConsoleOpen(false);
 
@@ -254,7 +262,7 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
   };
 
   return {
-    phase, progress, statusText, fileCount, instanceId, launch, cancel,
+    phase, progress, statusText, fileCount, instanceId, joinServerId, launch, cancel,
     logs, consoleOpen,
     openConsole: () => setConsoleOpen(true),
     closeConsole: () => setConsoleOpen(false),
