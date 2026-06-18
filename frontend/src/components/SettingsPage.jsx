@@ -6,7 +6,7 @@ import {
   AlertTriangle, RotateCcw, RefreshCw, FolderCog,
   Palette, Sun, Moon, Contrast,
   Gamepad2, Terminal, Braces, Maximize2, Plus, X, Trash2,
-  Wrench, Clock, SquareTerminal,
+  Wrench, Clock, SquareTerminal, Package,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSystemRam } from '../hooks/useSystemRam';
@@ -85,6 +85,7 @@ const DEFAULTS = {
   glfwPath: '',
   useSystemOpenal: false,
   openalPath: '',
+  removeClientMods: true,
 };
 
 const SECTIONS = [
@@ -882,6 +883,14 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                         Only show installed versions
                       </CheckRow>
                     </div>
+                  </Group>
+
+                  <Group icon={Package} title="Server modpacks"
+                    hint="When importing a modpack as a server, automatically remove mods recognised as client-only (Sodium, Iris, minimaps…) that would crash a dedicated server. Turn this off if a modpack's required mods are being dropped from the server (e.g. large packs like Pixelmon/Cobblemon).">
+                    <CheckRow checked={draft.removeClientMods !== false}
+                      onChange={(e) => commit({ ...draft, removeClientMods: e.target.checked })}>
+                      Remove client-only mods from server installs
+                    </CheckRow>
                   </Group>
 
                   <Group icon={Compass} title="Onboarding">

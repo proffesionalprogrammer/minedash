@@ -524,6 +524,11 @@ const DEFAULT_SETTINGS = {
   glfwPath: '',
   useSystemOpenal: false,
   openalPath: '',
+  // Server modpacks — when importing a modpack as a server, strip mods that are
+  // recognised as client-only (Sodium, Iris, minimaps…) so a dedicated server
+  // doesn't crash trying to load them. Turn off if a pack's required mods are
+  // being dropped from the server install.
+  removeClientMods: true,
 };
 
 // Keys an instance may override from the global launcher settings (Prism-style
@@ -1743,6 +1748,7 @@ function register(app) {
     if (typeof incoming.glfwPath === 'string') next.glfwPath = incoming.glfwPath.trim().slice(0, 1000);
     if (typeof incoming.useSystemOpenal === 'boolean') next.useSystemOpenal = incoming.useSystemOpenal;
     if (typeof incoming.openalPath === 'string') next.openalPath = incoming.openalPath.trim().slice(0, 1000);
+    if (typeof incoming.removeClientMods === 'boolean') next.removeClientMods = incoming.removeClientMods;
 
     await writeSettings(next);
     res.json(next);
@@ -4425,7 +4431,7 @@ function isBusy() {
 }
 
 module.exports = {
-  init, register, runLaunch, isBusy,
+  init, register, runLaunch, isBusy, readSettings,
   // Pure helpers exported for the launch-args snapshot test (backend/test/).
   buildElyByAgentArgs, assertAgentArgsGate, hyphenateUuid, offlineUuid,
 };

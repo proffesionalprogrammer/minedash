@@ -1599,6 +1599,13 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     // RAM (GB) from FormData; default 4 GB. Clamp to a sane range.
     const ramGB = Math.max(1, Math.min(32, parseInt(req.body?.ram, 10) || 4));
 
+    // Whether to apply the heuristic client-only mod filter. User-toggleable in
+    // Settings → General. Default on (matches historical behavior); turning it
+    // off installs every server-runnable mod the pack ships, which is the escape
+    // hatch for packs whose required mods were being wrongly stripped.
+    let removeClientMods = true;
+    try { removeClientMods = (await launcher.readSettings()).removeClientMods !== false; } catch {}
+
     // Parse the .mrpack (it's a zip)
     let zip;
     try {
@@ -1643,18 +1650,17 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     await fs.writeFile(path.join(serverPath, 'eula.txt'), 'eula=true\n');
     await fs.writeFile(path.join(serverPath, 'server.properties'), 'online-mode=false\nenforce-secure-profile=false\n');
 
-    // Download declared files. The previous filter only excluded the explicit
-    // `env.server === 'unsupported'` case, but a lot of packs in the wild
-    // either:
-    //   1. Mark client-only mods as env.server: 'optional' / 'required' by
-    //      mistake, so the unsupported-only check lets them through.
-    //   2. Ship pure client mods (Oculus, Iris, Sodium, Rubidium…) inside
-    //      `overrides/mods/` with no env metadata at all — see the override
-    //      extractor below for that branch.
-    // The rule here is: if a file's env shows it's client-required and the
-    // server doesn't require it, it's a client mod — skip it. Plus we also
-    // run filenames through `isClientOnlyModFilename` as a belt-and-braces
-    // catch for packs that lied about env entirely.
+    // Download declared files. Two layers decide what lands on the server:
+    //   1. env.server === 'unsupported' → always skipped (the server can't run
+    //      it). Never toggleable.
+    //   2. A filename deny-list (isClientOnlyModFilename) catches pure client
+    //      mods (Oculus, Iris, Sodium, Rubidium…) that packs ship with missing
+    //      or wrong env metadata. This layer is user-toggleable (removeClientMods)
+    //      and also runs over `overrides/mods/` in the extractor below.
+    // We deliberately DON'T strip mods just because env says client:required /
+    // server:optional — the server can run those, and stripping them silently
+    // dropped required mods from big packs (Pixelmon/Cobblemon server-optional
+    // deps), which is the bug this filter caused.
     const files = Array.isArray(index.files) ? index.files : [];
     const skippedClient = [];
     // Stash client-only files (with download URLs) so syncClientMods can later
@@ -1663,26 +1669,25 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
     const downloadable = files.filter(f => {
       if (!f || !Array.isArray(f.downloads) || f.downloads.length === 0) return false;
       const env = f.env || {};
+      // A mod the server literally cannot run. This is NOT toggleable — it would
+      // crash the server. Stash it (if the client needs it) for the launcher.
       if (env.server === 'unsupported') {
-        // env.server=unsupported with env.client=required means it's a real client mod.
         if (env.client === 'required') clientOnlyFiles.push(f);
         return false;
       }
-      // env.client === 'required' && env.server !== 'required' means the mod
-      // is client-side-required, not server-side-required → client-only.
-      if (env.client === 'required' && env.server !== 'required') {
-        skippedClient.push(f.path);
-        clientOnlyFiles.push(f);
-        return false;
-      }
-      // Filename heuristic for the cases where env is lying or absent. Only
-      // applies under mods/ — we don't want to skip a legitimately-named file
-      // in config/ or resourcepacks/.
-      const rel = String(f.path || '').replace(/\\/g, '/');
-      if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
-        skippedClient.push(f.path);
-        clientOnlyFiles.push(f);
-        return false;
+      // Heuristic client-only removal — user-toggleable (Settings → General).
+      // We deliberately do NOT strip mods just because env says client:required
+      // / server:optional — the server CAN run those, and stripping them is what
+      // silently broke large packs like Pixelmon/Cobblemon (their server-optional
+      // dependencies vanished). We only drop mods the pack NAMES like known
+      // client mods (Sodium, Iris, minimaps…), catching packs that lie about env.
+      if (removeClientMods) {
+        const rel = String(f.path || '').replace(/\\/g, '/');
+        if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
+          skippedClient.push(f.path);
+          clientOnlyFiles.push(f);
+          return false;
+        }
       }
       return true;
     });
@@ -1722,7 +1727,7 @@ app.post('/api/servers/from-modpack', mrpackUpload.single('mrpack'), async (req,
         const rel = entry.entryName.slice(root.length + 1);
         if (!rel) continue;
         const relNorm = rel.replace(/\\/g, '/');
-        if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
+        if (removeClientMods && relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
           skippedClient.push(entry.entryName);
           if (await stashClientModFromZipEntry(serverPath, entry, relNorm)) clientStashed++;
           continue;
@@ -4020,8 +4025,14 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
     emitServerModpack(sessionId, 'status', { message: 'Downloading mods…' });
     emitServerModpack(sessionId, 'progress', { task: 0, total });
 
-    // Same client-mod filtering rules as POST /api/servers/from-modpack —
-    // env-flag check first, filename deny-list as a belt-and-braces catch.
+    // Heuristic client-only mod filter — user-toggleable (Settings → General).
+    let removeClientMods = true;
+    try { removeClientMods = (await launcher.readSettings()).removeClientMods !== false; } catch {}
+
+    // Same client-mod filtering rules as POST /api/servers/from-modpack.
+    // env.server=unsupported is always skipped (the server can't run it); the
+    // filename deny-list is only applied when the toggle is on. We do NOT strip
+    // server-optional mods — that wrongly removed required mods from large packs.
     const stash = async (file, relPath) => {
       if (await stashClientModFromUrls(serverDir, relPath, file.downloads)) clientStashed++;
     };
@@ -4031,13 +4042,8 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
         if (env.client === 'required') await stash(file, file.path);
         tick(file.path); continue;
       }
-      if (env.client === 'required' && env.server !== 'required') {
-        skippedClient++;
-        await stash(file, file.path);
-        tick(file.path); continue;
-      }
       const rel = String(file.path || '').replace(/\\/g, '/');
-      if (rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
+      if (removeClientMods && rel.startsWith('mods/') && isClientOnlyModFilename(path.basename(rel))) {
         skippedClient++;
         await stash(file, file.path);
         tick(file.path); continue;
@@ -4069,7 +4075,7 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
       const relativePath = entry.entryName.replace(/^(overrides|server-overrides)\//, '');
       if (!relativePath) { tick(entry.entryName); continue; }
       const relNorm = relativePath.replace(/\\/g, '/');
-      if (relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
+      if (removeClientMods && relNorm.startsWith('mods/') && isClientOnlyModFilename(path.basename(relNorm))) {
         skippedClient++;
         if (await stashClientModFromZipEntry(serverDir, entry, relNorm)) clientStashed++;
         tick(entry.entryName); continue;
