@@ -8,6 +8,24 @@
 // out of the main bundle entirely.
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+
+// Modrinth bodies are Markdown that frequently embed raw HTML (centered
+// paragraphs, anchor links, image banners, sometimes <iframe> video embeds).
+// react-markdown ignores raw HTML by default, so without rehype-raw the tags
+// show up as literal text on screen. rehype-raw re-parses that HTML into the
+// tree; rehype-sanitize then runs LAST to strip anything dangerous (scripts,
+// iframes, event handlers, javascript: URLs) from this untrusted third-party
+// content while keeping the formatting authors actually use.
+const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    '*': [...(defaultSchema.attributes?.['*'] || []), 'style', 'align', 'className', 'id'],
+  },
+};
+const REHYPE_PLUGINS = [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]];
 
 const linkComponent = (props) => (
   <a
@@ -62,7 +80,7 @@ const MD_COMPONENTS_COMPACT = {
 
 export default function MarkdownBlock({ compact = false, children }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={compact ? MD_COMPONENTS_COMPACT : MD_COMPONENTS}>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={REHYPE_PLUGINS} components={compact ? MD_COMPONENTS_COMPACT : MD_COMPONENTS}>
       {children}
     </ReactMarkdown>
   );
