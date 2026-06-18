@@ -2,6 +2,20 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.3.1 — 2026-06-18
+
+### Added
+
+- **A switch to keep every mod when installing a modpack as a server.** Under **Settings → General → Server modpacks**, you can now turn off "Remove client-only mods from server installs." Leave it on (the default) and MineDash strips out client-only mods like Sodium or Iris that would crash a dedicated server; turn it off if a pack's required mods are being removed and you'd rather install everything the pack ships.
+
+### Fixed
+
+- **Installing a modpack as a server no longer drops mods it actually needs.** Big packs like Pixelmon and Cobblemon mark some required mods as merely "optional" on the server side, and MineDash was mistaking those for client-only mods and stripping them out — so the new server installed without them and could crash on start. MineDash now keeps every mod the server is able to run, and only removes the ones that genuinely can't run on a dedicated server.
+- **"Install as server" from the Browse tab no longer fails on large modpacks.** Installing a big pack used to fail with a "Failed to fetch" error because the whole download was forced through a single browser request. The download now runs entirely on the backend, so even multi-hundred-megabyte packs (Pixelmon's 400 MB+ main jar included) install reliably.
+- **A real progress percentage when installing a modpack as a server.** The Browse install popup now shows live progress with the exact percentage as each mod downloads, instead of a generic spinning bar that never told you how far along it was.
+
+---
+
 ## v1.3.0 — 2026-06-17
 
 ### Added
