@@ -10,6 +10,7 @@ import useOnline from './hooks/useOnline';
 import UpdateToast from './components/UpdateToast';
 import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
+import ChangelogHistoryModal from './components/ChangelogHistoryModal';
 import Tooltip from './components/Tooltip';
 import ConnectIndicator from './components/ConnectIndicator';
 import LaunchConsole from './components/LaunchConsole';
@@ -995,6 +996,7 @@ function App() {
         onGoToServers={handleGoToServers}
       />
       <WhatsNewModal />
+      <ChangelogHistoryModal />
 
       {/* First-run guided tour — auto-shows for new users, re-triggerable from Settings */}
       {showOnboarding && (

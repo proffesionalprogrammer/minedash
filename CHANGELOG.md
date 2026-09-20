@@ -2,6 +2,23 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.3.2 — 2026-09-20
+
+### Added
+
+- **Offline mode.** MineDash now notices when your PC has no internet and hides the parts that can't work without it, instead of filling them with "failed to connect" errors. The Browse tab disappears, the Browse/Modpacks/Data Packs tabs inside a server's Mods tab collapse to a short "browsing unavailable" note, and a Paper server's Plugins tab is hidden. An **Offline** chip next to the tabs explains why. Everything local keeps working exactly as before: your servers, the console, backups, scheduled tasks, installed mods and launcher instances. The tabs come back on their own within a few seconds of the connection returning.
+- **All release notes, any time.** **Settings → Updates → All release notes** opens a window listing every MineDash version ever released, newest first, with the one you're running marked "Current". Pick any version to read what changed in it.
+
+### Fixed
+
+- **Modpack servers no longer lose mods they need.** Installing a pack could strip out mods like Athena, Fusion or Simply Tooltips, and the server would then refuse to start, complaining about the very mods that were removed. Modrinth marks those as having "no server-side function", which MineDash was reading as "must not be installed" — but other mods in the pack list them as required dependencies, and Minecraft won't load without them. MineDash now reads each mod's own dependency list, and **never removes a mod that another installed mod requires**, whatever its author marked it as. A server that's already broken this way repairs itself the next time you start it: the missing mods are put back automatically before the server launches.
+- **"Remove client-only mods from server installs" now actually does what it says.** The setting was being ignored by the cleanup that ran on every server start, so client-mod removal happened whether it was on or off — and mods you had deliberately installed yourself kept disappearing. The setting is now respected everywhere, and anything you installed past the client-only warning is left alone for good.
+- **Mods the server depends on are labelled as such.** In the Mods tab, a mod another mod requires now shows a green **Required** badge instead of an amber "Client" one, and the "clean client-only mods" button skips them and tells you how many it kept.
+- **Missing mods are found on Modrinth far more reliably.** When a server crashed for a missing mod, MineDash often reported "Could not find the missing mods on Modrinth" for mods that are plainly there — and occasionally installed a completely different mod that happened to share a name. It now checks that a match is really a mod for your loader and Minecraft version, searches smarter (a mod ID like `simplytooltips` now finds "Simply Tooltips"), and verifies the downloaded file really is the mod that was missing before keeping it.
+- **A server's Play button keeps its download progress when you navigate away.** Starting a join from a server's page and then switching tabs made the button snap back to "Play" even though the download was still running in the background; it now shows the real progress when you come back, and progress for one server no longer appears on another server's button.
+
+---
+
 ## v1.3.1 — 2026-06-18
 
 ### Added

@@ -6,7 +6,7 @@ import {
   AlertTriangle, RotateCcw, RefreshCw, FolderCog,
   Palette, Sun, Moon, Contrast,
   Gamepad2, Terminal, Braces, Maximize2, Plus, X, Trash2,
-  Wrench, Clock, SquareTerminal, Package,
+  Wrench, Clock, SquareTerminal, Package, History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSystemRam } from '../hooks/useSystemRam';
@@ -931,15 +931,20 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                       <span className="text-sm font-bold text-[var(--c-text-primary)]">MineDash {versionLabel || '(current)'}</span>
                     </div>
                   </Group>
-                  {window.electronAPI?.getAppVersion && (
-                    <Group icon={Sparkles} title="Release notes">
+                  <Group icon={Sparkles} title="Release notes">
+                    {window.electronAPI?.getAppVersion && (
                       <button
                         onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-changelog'))}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 mb-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
                         <Sparkles size={14} className="text-[#00AF5C]" /> What's new in this version
                       </button>
-                    </Group>
-                  )}
+                    )}
+                    <button
+                      onClick={() => window.dispatchEvent(new CustomEvent('minedash-show-all-changelogs'))}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] hover:border-[#00AF5C]/40 rounded-xl text-xs font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] transition-colors">
+                      <History size={14} className="text-[#00AF5C]" /> All release notes
+                    </button>
+                  </Group>
                 </>
               )}
 
