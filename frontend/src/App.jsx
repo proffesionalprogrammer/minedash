@@ -6,13 +6,14 @@ import PlaySection from './components/PlaySection';
 import AccountMenu from './components/AccountMenu';
 import { useLaunchSession } from './hooks/useLaunchSession';
 import { useModpackInstalls } from './hooks/useModpackInstalls';
+import useOnline from './hooks/useOnline';
 import UpdateToast from './components/UpdateToast';
 import BrowseInstallToast from './components/BrowseInstallToast';
 import WhatsNewModal from './components/WhatsNewModal';
 import Tooltip from './components/Tooltip';
 import ConnectIndicator from './components/ConnectIndicator';
 import LaunchConsole from './components/LaunchConsole';
-import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings } from 'lucide-react';
+import { AlertCircle, X, Gamepad2, Server, Compass, Boxes, Settings, WifiOff } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 
 // Heavy views and modals are code-split — only the Play view (the default
@@ -61,6 +62,12 @@ const TABS = {
 // active one is filtered out at render time and the rest keep their position.
 const TAB_ORDER = ['play', 'browse', 'instances', 'servers'];
 
+// Views that are nothing but a Modrinth front-end. With no connection they can
+// only render error states, so they're hidden outright rather than left as a
+// tab that greets you with "failed to fetch". Everything else — your servers,
+// instances, backups, console — works fully offline.
+const ONLINE_ONLY_TABS = new Set(['browse']);
+
 // Shared spring for the header's layout animation. The active title/subtitle
 // block changes width between views; this drives both its resize and the slide
 // of the divider + pill row so everything moves together rather than snapping.
@@ -103,8 +110,9 @@ function RollingTitle({ text, viewKey }) {
   );
 }
 
-function AppHeader({ view, onChange, accountMenuProps }) {
+function AppHeader({ view, onChange, accountMenuProps, online = true }) {
   const active = TABS[view];
+  const visibleTabs = TAB_ORDER.filter(key => online || !ONLINE_ONLY_TABS.has(key));
   const ActiveIcon = active.icon;
   const settingsActive = view === 'settings';
 
@@ -160,7 +168,7 @@ function AppHeader({ view, onChange, accountMenuProps }) {
             nothing reshuffles when you switch views. `layout="position"` lets the
             whole row glide when the title block to its left changes width. */}
         <motion.div layout="position" transition={NAV_SPRING} className="flex items-center gap-2">
-          {TAB_ORDER.map(key => {
+          {visibleTabs.map(key => {
             const t = TABS[key];
             const Icon = t.icon;
             const isActive = key === view;
@@ -197,6 +205,22 @@ function AppHeader({ view, onChange, accountMenuProps }) {
               </motion.button>
             );
           })}
+          {/* Says why Browse vanished, so a missing tab reads as deliberate. */}
+          <AnimatePresence>
+            {!online && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                title="No internet connection — Modrinth browsing is unavailable. Your servers and instances still work."
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold bg-[var(--c-surface-2)] border border-[var(--c-border)] text-[var(--c-text-muted)]"
+              >
+                <WifiOff size={14} />
+                <span className="hidden md:inline">Offline</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
         </motion.div>
       </div>
       </LayoutGroup>
@@ -226,7 +250,13 @@ function AppHeader({ view, onChange, accountMenuProps }) {
 function App() {
   const [servers, setServers] = useState([]);
   const [selectedServer, setSelectedServer] = useState(null);
-  const [view, setView] = useState('play'); // 'play' | 'servers'
+  const [selectedView, setView] = useState('play'); // 'play' | 'servers'
+  // Real connectivity (a backend probe of Modrinth/Hangar/Mojang, not just
+  // navigator.onLine). Drives which internet-only views are offered.
+  const online = useOnline(socket);
+  // If the connection drops while an internet-only view is open, fall back to
+  // Play rather than leaving the user staring at a panel that can't load.
+  const view = !online && ONLINE_ONLY_TABS.has(selectedView) ? 'play' : selectedView;
   const [playInitialServerId] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
@@ -741,7 +771,7 @@ function App() {
   return (
     <div className="flex flex-col h-full bg-[var(--c-base)] text-[var(--c-text-primary)] font-sans selection:bg-[#00AF5C]/20">
       <TitleBar />
-      <AppHeader view={view} onChange={setView} accountMenuProps={accountMenuProps} />
+      <AppHeader view={view} onChange={setView} accountMenuProps={accountMenuProps} online={online} />
 
       <main className="flex-1 flex flex-col overflow-hidden bg-[var(--c-base)] z-10 relative">
         <AnimatePresence mode="wait">
@@ -845,6 +875,7 @@ function App() {
                 <MainPanel
                   server={selectedServer}
                   socket={socket}
+                  online={online}
                   onError={showError}
                   onBack={() => setSelectedServer(null)}
                   modpackInstalls={modpackInstalls}

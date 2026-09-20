@@ -25,7 +25,7 @@ function pushHistory(prev, sample) {
   return next;
 }
 
-function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDetail, joinSession }) {
+function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDetail, joinSession, online = true }) {
   const handleJoin = () => joinSession.launch({ joinServerId: server.id });
   // The lifted join session is shared across every server. Only treat it as
   // *this* server's launch when its target matches — otherwise a download
@@ -41,7 +41,7 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
     : { phase: 'idle', progress: 0, statusText: '', fileCount: { current: 0, total: 0 }, logs: [], consoleOpen: false };
   const launcherSupported = ['vanilla', 'fabric', 'forge', 'neoforge'].includes(server.type);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('console');
+  const [selectedTab, setActiveTab] = useState('console');
   const [activityEvents, setActivityEvents] = useState([]);
   const [showSettings, setShowSettings] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -250,8 +250,10 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
     { key: 'console', label: 'Overview' },
     { key: 'players', label: 'Players' },
     { key: 'activity', label: 'Activity' },
-    // Vanilla has no mod/plugin support — hide the tab entirely
-    ...(!isVanilla ? [{ key: 'mods', label: contentTabLabel }] : []),
+    // Vanilla has no mod/plugin support — hide the tab entirely. The Paper
+    // "Plugins" tab is a pure Hangar browser with nothing to show offline, so
+    // it's hidden too; the Mods tab keeps working (installed mods are local).
+    ...(!isVanilla && !(isPaper && !online) ? [{ key: 'mods', label: contentTabLabel }] : []),
     // Live world map (BlueMap) needs a loader/plugin platform — hidden on vanilla
     ...(!isVanilla ? [{ key: 'map', label: 'Map' }] : []),
     { key: 'backups', label: 'Backups' },
@@ -259,6 +261,11 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
     { key: 'network', label: 'Network' },
     { key: 'options', label: 'Options' },
   ];
+
+  // A tab can disappear underneath the user — losing the connection hides the
+  // Paper "Plugins" tab. Derive the visible tab so the panel falls back to
+  // Overview instead of rendering nothing.
+  const activeTab = tabs.some(t => t.key === selectedTab) ? selectedTab : 'console';
 
   // Listen for tab-switch requests emitted by the crash banner "Fix it" button
   React.useEffect(() => {
@@ -671,10 +678,10 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
             {activeTab === 'players' && <PlayersViewer serverId={server.id} socket={socket} onError={onError} />}
             {activeTab === 'activity' && <ActivityTimeline events={activityEvents} />}
             {activeTab === 'mods' && isPaper && (
-              <PluginsViewer serverId={server.id} serverVersion={server.version} onError={onError} />
+              <PluginsViewer serverId={server.id} serverVersion={server.version} onError={onError} online={online} />
             )}
             {activeTab === 'mods' && !isPaper && !isVanilla && (
-              <ModsViewer serverId={server.id} serverVersion={server.version} serverType={server.type} socket={socket} onError={onError} modpackInstalls={modpackInstalls} onOpenDetail={onOpenDetail} />
+              <ModsViewer serverId={server.id} serverVersion={server.version} serverType={server.type} socket={socket} onError={onError} modpackInstalls={modpackInstalls} onOpenDetail={onOpenDetail} online={online} />
             )}
             {activeTab === 'map' && !isVanilla && (
               <MapViewer serverId={server.id} server={server} socket={socket} onError={onError} />

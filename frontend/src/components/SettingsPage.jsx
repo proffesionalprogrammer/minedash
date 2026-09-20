@@ -886,7 +886,7 @@ export default function SettingsPage({ settings, onChange, onError, accountProps
                   </Group>
 
                   <Group icon={Package} title="Server modpacks"
-                    hint="When importing a modpack as a server, automatically remove mods recognised as client-only (Sodium, Iris, minimaps…) that would crash a dedicated server. Turn this off if a modpack's required mods are being dropped from the server (e.g. large packs like Pixelmon/Cobblemon).">
+                    hint="When importing a modpack as a server, move mods recognised as client-only (Sodium, Iris, minimaps…) out of the server's mods folder — they'd crash a dedicated server, and they're kept for the launcher. A mod that another installed mod lists as a required dependency is never moved, whatever its author marked it as, so the server can still start. Turn this off to install every mod a pack ships.">
                     <CheckRow checked={draft.removeClientMods !== false}
                       onChange={(e) => commit({ ...draft, removeClientMods: e.target.checked })}>
                       Remove client-only mods from server installs

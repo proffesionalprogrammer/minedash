@@ -604,6 +604,14 @@ async function readSettings() {
     return { ...DEFAULT_SETTINGS, ...d };
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
+// Sync twin of readSettings. index.js needs the removeClientMods flag inside
+// the synchronous startProcess path, where awaiting would defer the JVM spawn.
+function readSettingsSync() {
+  try {
+    return { ...DEFAULT_SETTINGS, ...fs.readJsonSync(settingsFile()) };
+  } catch { return { ...DEFAULT_SETTINGS }; }
+}
+
 async function writeSettings(s) {
   await fs.ensureDir(DATA_DIR);
   await fs.writeJson(settingsFile(), s, { spaces: 2 });
@@ -4431,7 +4439,7 @@ function isBusy() {
 }
 
 module.exports = {
-  init, register, runLaunch, isBusy, readSettings,
+  init, register, runLaunch, isBusy, readSettings, readSettingsSync,
   // Pure helpers exported for the launch-args snapshot test (backend/test/).
   buildElyByAgentArgs, assertAgentArgsGate, hyphenateUuid, offlineUuid,
 };

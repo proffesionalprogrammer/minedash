@@ -323,6 +323,15 @@ function getJavaPath() {
 // servers and launcher instances draw from the same DATA_DIR/runtimes/.
 const javaPool = require('./java-pool');
 javaPool.init(RUNTIMES_DIR);
+
+// Reads what each jar in a mods/ folder declares (mod IDs + mandatory deps) so
+// nothing that another installed mod requires can be stripped as "client-only".
+// See backend/mod-deps.js for why Modrinth's server_side flag isn't enough.
+const modDeps = require('./mod-deps');
+
+// Tracks whether this machine can actually reach Modrinth/Hangar/Mojang, so the
+// UI can hide the panels that need them instead of filling with fetch errors.
+const connectivity = require('./connectivity');
 const {
   requiredJavaMajor,
   findManagedJava,
@@ -379,6 +388,16 @@ function spawnEnvForServer(id) {
 
 // Total physical RAM on this machine, so the frontend RAM sliders can size
 // their max to the user's actual hardware instead of a hardcoded cap.
+// Offline mode: the renderer asks once on boot and then follows the
+// `network_status` socket event. `recheck=1` forces an immediate probe, which
+// the UI uses when the browser reports the interface came back.
+app.get('/api/connectivity', async (req, res) => {
+  if (req.query.recheck) {
+    try { await connectivity.check(); } catch (_) {}
+  }
+  res.json(connectivity.getStatus());
+});
+
 app.get('/api/system/ram', (req, res) => {
   const totalBytes = os.totalmem();
   res.json({
@@ -1449,6 +1468,62 @@ function clientModsStashDir(serverDir) {
   return path.join(serverDir, '.minedash-client-mods');
 }
 
+// Jars in mods/ that another installed mod declares as a mandatory dependency.
+// NOTHING may strip these: Forge/NeoForge and Fabric validate mandatory deps on
+// a dedicated server, so removing one turns "a client mod is in my mods folder"
+// into "the server won't boot at all". Modrinth marking a mod server_side:
+// unsupported does not exempt it — Athena, Fusion and friends are flagged that
+// way and are still hard deps of the server mods that ship alongside them.
+function protectedModFilesSafe(modsDir, loader) {
+  try {
+    return modDeps.protectedModFiles(modsDir, loader);
+  } catch (e) {
+    console.warn('[mod-deps] dependency scan failed, keeping every mod:', e.message);
+    // Fail safe: an unreadable mods folder must never widen what we delete.
+    try { return new Set(fs.readdirSync(modsDir)); } catch (_) { return new Set(); }
+  }
+}
+
+// Pull back any jar we stashed as "client-only" that the installed server mods
+// actually require. Runs after a modpack install and before every start, so a
+// pack imported by an older build self-heals on the next launch.
+// Synchronous on purpose — startProcess must not yield before spawning.
+// Returns the list of restored filenames.
+function restoreRequiredStashedMods(serverPath, loader) {
+  const modsDir = path.join(serverPath, 'mods');
+  const stashDir = clientModsStashDir(serverPath);
+  if (!fs.existsSync(modsDir) || !fs.existsSync(stashDir)) return [];
+
+  const restored = [];
+  // Re-scan after each restore: a restored library can itself pull in another
+  // stashed dependency, so loop until the missing set stops shrinking.
+  for (let pass = 0; pass < 5; pass++) {
+    let missing;
+    try { missing = modDeps.missingModIds(modsDir, loader); } catch (_) { break; }
+    if (!missing.length) break;
+    const wanted = new Set(missing.map(m => m.id));
+
+    let stashed = [];
+    try { stashed = fs.readdirSync(stashDir).filter(f => /\.jar$/i.test(f)); } catch (_) { break; }
+
+    let movedThisPass = 0;
+    for (const f of stashed) {
+      let info;
+      try { info = modDeps.readJarModInfo(path.join(stashDir, f), loader); } catch (_) { continue; }
+      if (!info.ids.some(id => wanted.has(id))) continue;
+      try {
+        fs.moveSync(path.join(stashDir, f), path.join(modsDir, f), { overwrite: true });
+        restored.push(f);
+        movedThisPass++;
+      } catch (e) {
+        console.warn(`[mod-deps] couldn't restore required mod ${f}:`, e.message);
+      }
+    }
+    if (!movedThisPass) break;
+  }
+  return restored;
+}
+
 // Try every mirror in `urls[]` and save to <serverDir>/.minedash-client-mods/<basename>.
 // Swallows errors — a missing client-only mod isn't fatal to a server import.
 async function stashClientModFromUrls(serverDir, relPath, urls) {
@@ -1659,7 +1734,13 @@ async function installModpackAsServer({ buffer, name, ramGB, sessionId = null, i
       // A mod the server literally cannot run. This is NOT toggleable — it would
       // crash the server. Stash it (if the client needs it) for the launcher.
       if (env.server === 'unsupported') {
-        if (env.client === 'required') clientOnlyFiles.push(f);
+        // Stash it unconditionally: the launcher may want it for the client,
+        // and — more importantly — the post-install reconciliation pass pulls
+        // it back into mods/ if a server mod turns out to hard-require it.
+        // Modrinth flags plenty of mandatory libraries (Athena, Fusion, Simply
+        // Tooltips…) as server:unsupported, and a NeoForge server won't boot
+        // when a declared dependency is absent.
+        clientOnlyFiles.push(f);
         return false;
       }
       // Heuristic client-only removal — user-toggleable (Settings → General).
@@ -1761,6 +1842,13 @@ async function installModpackAsServer({ buffer, name, ramGB, sessionId = null, i
     // its mods despite being cancelled.
     if (isCancelled()) { await fs.remove(serverPath).catch(() => {}); return null; }
 
+    // Put back anything the client-only filters removed that the pack's server
+    // mods actually declare as a mandatory dependency. Without this a pack like
+    // Slime Adventures installs "successfully" and then dies on first start with
+    // "Missing or unsupported mandatory dependencies: athena, fusion, ...".
+    emit('status', { message: 'Checking mod dependencies…' });
+    const restoredRequired = restoreRequiredStashedMods(serverPath, detected.type);
+
     emit('status', { message: 'Creating server…' });
     const newServer = {
       id,
@@ -1793,9 +1881,11 @@ async function installModpackAsServer({ buffer, name, ramGB, sessionId = null, i
       // (Oculus, Iris, Sodium…) — surfaced so the user sees "we did this for
       // you" rather than wondering why some files didn't show up.
       failed,
-      skippedClientOnly: skippedClient,
+      skippedClientOnly: skippedClient.filter(p => !restoredRequired.includes(path.basename(String(p).replace(/\\/g, '/')))),
       // How many of those skipped mods we stashed for client-side install.
       clientModsStashed: clientStashed,
+      // Client-flagged mods we put back because a server mod requires them.
+      restoredRequired,
     };
     emit('done', { server: newServer, summary });
     return { server: newServer, summary };
@@ -1961,6 +2051,111 @@ function pickBestModrinthVersion(versions) {
   return sorted[0];
 }
 
+// A mod's in-game ID is rarely its Modrinth slug. `athena` is a Paper *plugin*
+// on Modrinth while the mod packs depend on is `athena-ctm`; `fusion` is an
+// unrelated mod while the one packs depend on is `fusion-connected-textures`;
+// `simplytooltips` 404s and Modrinth's search can't match the run-together form
+// at all. So: generate query variants, never trust a bare slug hit, and verify
+// the jar we downloaded really declares the ID we were asked for.
+
+// 'simplytooltips' -> ['simplytooltips', 'simply tooltips', 'simply-tooltips'].
+// Modrinth's search tokenizes on words, so a split form is what actually
+// matches a project titled "Simply Tooltips".
+function modIdQueryVariants(modId) {
+  const base = String(modId).toLowerCase();
+  const variants = new Set([base]);
+  const spaced = base.replace(/[-_]+/g, ' ').trim();
+  if (spaced !== base) { variants.add(spaced); variants.add(spaced.replace(/ +/g, '-')); }
+
+  // Split a run-together id on known word boundaries. We can't segment
+  // arbitrary text, so use a dictionary of words that actually show up in mod
+  // names — enough to turn simplytooltips into "simply tooltips".
+  const WORDS = [
+    'simply', 'simple', 'just', 'enough', 'tooltips', 'tooltip', 'better', 'extra', 'more',
+    'mod', 'menu', 'lib', 'library', 'core', 'api', 'utils', 'util', 'tweaks', 'craft',
+    'items', 'item', 'blocks', 'block', 'world', 'gen', 'client', 'server', 'config',
+    'inventory', 'storage', 'farmers', 'delight', 'create', 'sodium', 'fabric', 'forge',
+  ];
+  const segment = (str) => {
+    if (!str) return [];
+    for (const w of WORDS) {
+      if (!str.startsWith(w)) continue;
+      const rest = segment(str.slice(w.length));
+      if (rest !== null) return [w, ...rest];
+    }
+    return null;
+  };
+  const parts = segment(base);
+  if (parts && parts.length > 1) {
+    variants.add(parts.join(' '));
+    variants.add(parts.join('-'));
+  }
+  return [...variants];
+}
+
+// Does this Modrinth project plausibly answer the request? Slugs collide across
+// project types and loaders (see athena / fusion above), so a candidate must at
+// least be a mod that runs on our loader.
+function projectMatchesTarget(project, loader, gameVersion) {
+  if (!project) return false;
+  if (project.project_type && project.project_type !== 'mod') return false;
+  const loaders = project.loaders || [];
+  if (loader && Array.isArray(loaders) && loaders.length > 0 && !loaders.includes(loader)) return false;
+  const gvs = project.game_versions || [];
+  if (gameVersion && Array.isArray(gvs) && gvs.length > 0 && !gvs.includes(gameVersion)) return false;
+  return true;
+}
+
+// Collect candidate projects for one missing mod ID, best guess first.
+async function findModrinthCandidates(modId, loader, gameVersion) {
+  const candidates = [];
+  const seen = new Set();
+  const push = (p, score) => {
+    if (!p || !p.id || seen.has(p.id)) return;
+    seen.add(p.id);
+    candidates.push({ project: p, score });
+  };
+
+  // The slug IS sometimes right — but only counts when it's a mod for our
+  // loader. Skipping this check is what made 'athena' resolve to a Paper plugin
+  // and stop the search dead ("Could not find the missing mods on Modrinth").
+  try {
+    const r = await fetch(`${MODRINTH_API}/project/${encodeURIComponent(modId)}`, { headers: MODRINTH_HEADERS });
+    if (r.ok) {
+      const p = await r.json();
+      if (projectMatchesTarget(p, loader, gameVersion)) push(p, 100);
+    }
+  } catch (_) {}
+
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const target = norm(modId);
+
+  for (const query of modIdQueryVariants(modId)) {
+    const facets = [['project_type:mod']];
+    if (gameVersion) facets.push([`versions:${gameVersion}`]);
+    if (loader) facets.push([`categories:${loader}`]);
+    const params = new URLSearchParams({ query, limit: '10', facets: JSON.stringify(facets) });
+    try {
+      const r = await fetch(`${MODRINTH_API}/search?${params}`, { headers: MODRINTH_HEADERS });
+      if (!r.ok) continue;
+      const data = await r.json();
+      for (const h of data.hits || []) {
+        const slug = norm(h.slug);
+        const title = norm(h.title);
+        let score = 0;
+        if (slug === target || title === target) score = 90;
+        else if (slug.startsWith(target) || target.startsWith(slug)) score = 70;   // athena -> athena-ctm
+        else if (title.startsWith(target) || target.startsWith(title)) score = 65;  // simplytooltips -> Simply Tooltips
+        else if (slug.includes(target) || title.includes(target)) score = 40;
+        else continue;
+        push({ id: h.project_id, slug: h.slug, title: h.title, icon_url: h.icon_url }, score);
+      }
+    } catch (_) {}
+  }
+
+  return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
 // Search Modrinth for a mod by its in-game mod ID and install the best compatible version.
 async function findAndInstallMissingDeps(missingModIds, serverConfig, serverPath, appendLog) {
   const modsPath = path.join(serverPath, 'mods');
@@ -1978,74 +2173,76 @@ async function findAndInstallMissingDeps(missingModIds, serverConfig, serverPath
   for (const modId of missingModIds) {
     const lookupId = MOD_ID_REMAP[modId] || modId;
 
-    // Skip if already present (check metadata projectId, metadata keys, and filenames)
-    const alreadyInMeta = Object.values(meta).some(m =>
-      m.projectId === lookupId || (m.title || '').toLowerCase() === lookupId
-    ) || Object.keys(meta).some(k => k.toLowerCase().replace(/[-_]/g, '').includes(lookupId.replace(/[-_]/g, '')));
-    if (alreadyInMeta) continue;
-
-    try {
-      const files = await fs.readdir(modsPath);
-      if (files.some(f => f.toLowerCase().replace(/[-_]/g, '').includes(lookupId.replace(/[-_]/g, '')))) continue;
-    } catch (_) {}
+    // Already satisfied? Ask the jars themselves rather than guessing from
+    // filenames — the old substring test matched 'fusion' against 'confusion.jar'
+    // and skipped a mod that was genuinely missing.
+    let providedIds = new Set();
+    try { providedIds = modDeps.scanModsDir(modsPath, loader).provided; } catch (_) {}
+    if (providedIds.has(modId) || providedIds.has(lookupId)) continue;
 
     appendLog(`[MineDash] Searching Modrinth for missing mod '${lookupId}'...\n`);
 
     try {
-      // Strategy 1: exact slug lookup
-      let project = null;
-      const slugRes = await fetch(`${MODRINTH_API}/project/${lookupId}`, { headers: MODRINTH_HEADERS });
-      if (slugRes.ok) project = await slugRes.json();
-
-      // Strategy 2: search by name and pick the closest slug match
-      if (!project) {
-        const facets = [['project_type:mod']];
-        if (gameVersion) facets.push([`versions:${gameVersion}`]);
-        if (loader) facets.push([`categories:${loader}`]);
-        const params = new URLSearchParams({ query: lookupId, limit: '5', facets: JSON.stringify(facets) });
-        const sRes = await fetch(`${MODRINTH_API}/search?${params}`, { headers: MODRINTH_HEADERS });
-        if (sRes.ok) {
-          const data = await sRes.json();
-          const hit = (data.hits || []).find(h =>
-            h.slug === lookupId || h.slug.includes(lookupId) || lookupId.includes(h.slug)
-          ) || data.hits?.[0];
-          if (hit) project = { id: hit.project_id, icon_url: hit.icon_url, title: hit.title };
-        }
-      }
-
-      if (!project) { appendLog(`[MineDash] Could not find '${lookupId}' on Modrinth.\n`); continue; }
-
-      // Fetch compatible versions
-      const vParams = new URLSearchParams();
-      if (gameVersion) vParams.set('game_versions', JSON.stringify([gameVersion]));
-      if (loader) vParams.set('loaders', JSON.stringify([loader]));
-      const vRes = await fetch(`${MODRINTH_API}/project/${project.id}/version?${vParams}`, { headers: MODRINTH_HEADERS });
-      if (!vRes.ok) { appendLog(`[MineDash] No compatible version found for '${lookupId}'.\n`); continue; }
-      const versions = await vRes.json();
-      if (!Array.isArray(versions) || versions.length === 0) {
-        appendLog(`[MineDash] No compatible version of '${lookupId}' for ${loader} ${gameVersion}.\n`);
+      const candidates = await findModrinthCandidates(lookupId, loader, gameVersion);
+      if (candidates.length === 0) {
+        appendLog(`[MineDash] Could not find '${lookupId}' on Modrinth.\n`);
         continue;
       }
 
-      const best = pickBestModrinthVersion(versions);
-      if (!best) continue;
-      const file = best.files.find(f => f.primary) || best.files[0];
-      if (!file) continue;
+      let success = null;
+      for (const { project } of candidates) {
+        const vParams = new URLSearchParams();
+        if (gameVersion) vParams.set('game_versions', JSON.stringify([gameVersion]));
+        if (loader) vParams.set('loaders', JSON.stringify([loader]));
+        const vRes = await fetch(`${MODRINTH_API}/project/${project.id}/version?${vParams}`, { headers: MODRINTH_HEADERS });
+        if (!vRes.ok) continue;
+        const versions = await vRes.json();
+        if (!Array.isArray(versions) || versions.length === 0) continue;
 
-      const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
-      if (!dlRes.ok) { appendLog(`[MineDash] Download failed for '${lookupId}'.\n`); continue; }
+        const best = pickBestModrinthVersion(versions);
+        if (!best) continue;
+        const file = best.files.find(f => f.primary) || best.files[0];
+        if (!file) continue;
 
-      await fs.writeFile(path.join(modsPath, file.filename), Buffer.from(await dlRes.arrayBuffer()));
-      meta[file.filename] = { iconUrl: project.icon_url || null, title: project.title || lookupId, projectId: project.id };
-      installed.push({ filename: file.filename, title: project.title || lookupId });
-      appendLog(`[MineDash] ✓ Auto-installed: ${project.title || lookupId} (${file.filename})\n`);
+        const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+        if (!dlRes.ok) continue;
+
+        const destPath = path.join(modsPath, file.filename);
+        await fs.writeFile(destPath, Buffer.from(await dlRes.arrayBuffer()));
+
+        // The decisive check: does this jar actually provide the mod ID the
+        // server is missing? Two unrelated projects are both called "Fusion";
+        // installing the wrong one leaves the server just as broken while
+        // reporting success.
+        let jarIds = [];
+        try { jarIds = modDeps.readJarModInfo(destPath, loader).ids; } catch (_) {}
+        if (jarIds.length > 0 && !jarIds.includes(modId) && !jarIds.includes(lookupId)) {
+          await fs.remove(destPath).catch(() => {});
+          continue;
+        }
+
+        meta[file.filename] = {
+          iconUrl: project.icon_url || null,
+          title: project.title || lookupId,
+          projectId: project.id,
+        };
+        installed.push({ filename: file.filename, title: project.title || lookupId });
+        appendLog(`[MineDash] \u2713 Auto-installed: ${project.title || lookupId} (${file.filename})\n`);
+        success = { project, best };
+        break;
+      }
+
+      if (!success) {
+        appendLog(`[MineDash] No compatible '${lookupId}' for ${loader || 'this loader'} ${gameVersion || ''} on Modrinth.\n`);
+        continue;
+      }
 
       // Recurse into this dep's own required deps
-      const subDeps = (best.dependencies || [])
+      const subDeps = (success.best.dependencies || [])
         .filter(d => d.dependency_type === 'required' && d.project_id)
         .map(d => d.project_id);
       if (subDeps.length > 0) {
-        const sub = await resolveAndInstallDeps(subDeps, gameVersion, loader, modsPath, meta, new Set([project.id]));
+        const sub = await resolveAndInstallDeps(subDeps, gameVersion, loader, modsPath, meta, new Set([success.project.id]));
         installed.push(...sub);
       }
     } catch (err) {
@@ -2082,53 +2279,78 @@ function startProcess(id, serverConfig, serverPath) {
     players: []
   };
 
-  // Migrate any leftover client-only mod jars out of the mods folder into the
-  // per-server stash. Runs every start so servers imported before the
-  // deny-list was updated self-heal, and so jars dropped into mods/ by hand
-  // (e.g. via the file browser) don't crash the JVM. Vanilla has no mods/.
+  // Reconcile the mods folder before the JVM sees it. Vanilla has no mods/.
   //
-  // Two passes: (1) the filename deny-list catches well-known offenders like
-  // Oculus/Sodium even without any Modrinth lookup, and (2) if we already
-  // have Modrinth metadata cached for a jar (server_side: unsupported), move
-  // that one too — covers arbitrary client-only mods that aren't in the
-  // hardcoded list.
+  // Two halves, in this order:
+  //   1. RESTORE — pull back any jar a previous build stashed as "client-only"
+  //      that the installed server mods actually declare as a mandatory
+  //      dependency. Forge/NeoForge validate those on a dedicated server, so a
+  //      wrongly-stashed library (Athena, Fusion, …) means the server refuses
+  //      to boot. This is what makes packs imported by older builds self-heal.
+  //   2. MOVE OUT — only when the user has left "Remove client-only mods" on
+  //      (Settings → General). A mod something else requires is NEVER moved,
+  //      whatever Modrinth's server_side flag says, and neither is a mod the
+  //      user force-installed on purpose.
   if (serverConfig.type !== 'vanilla') {
     try {
       const modsDir = path.join(serverPath, 'mods');
       if (fs.existsSync(modsDir)) {
-        const stashDir = path.join(serverPath, '.minedash-client-mods');
-        // Cached metadata — may be empty for fresh installs; that's fine,
-        // we'll still get pass 1 coverage and the next mods-tab visit will
-        // populate it for the next start.
-        let cachedMeta = {};
-        try {
-          const metaPath = path.join(modsDir, MOD_META_FILE);
-          if (fs.existsSync(metaPath)) {
-            cachedMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-          }
-        } catch (_) {}
-
-        const moved = [];
-        for (const f of fs.readdirSync(modsDir)) {
-          if (!f.endsWith('.jar')) continue;
-          const baseKey = f.replace(/\.disabled$/, '');
-          const m = cachedMeta[baseKey] || {};
-          const isClientByMeta =
-            m.serverSide === 'unsupported' ||
-            (m.clientSide === 'required' && m.serverSide !== 'required' && m.serverSide !== 'optional');
-          if (!isClientByMeta && !isClientOnlyModFilename(f)) continue;
-          try {
-            fs.mkdirSync(stashDir, { recursive: true });
-            fs.renameSync(path.join(modsDir, f), path.join(stashDir, f));
-            moved.push(f);
-          } catch (e) {
-            console.warn(`[client-mods cleanup] couldn't move ${f}:`, e.message);
-          }
-        }
-        if (moved.length) {
-          const line = `[MineDash] Moved ${moved.length} client-only mod(s) out of mods/ to keep the dedicated server from crashing: ${moved.join(', ')}\n`;
+        const restored = restoreRequiredStashedMods(serverPath, serverConfig.type);
+        if (restored.length) {
+          const line = `[MineDash] Restored ${restored.length} required mod(s) the client-only filter had removed: ${restored.join(', ')}\n`;
           activeLogs[id].push(line);
           io.emit(`console_${id}`, line);
+        }
+
+        let removeClientMods = true;
+        try { removeClientMods = launcher.readSettingsSync().removeClientMods !== false; } catch (_) {}
+
+        if (removeClientMods) {
+          const stashDir = clientModsStashDir(serverPath);
+          // Cached metadata — may be empty for fresh installs; that's fine,
+          // the filename deny-list still applies and the next mods-tab visit
+          // populates it for the next start.
+          let cachedMeta = {};
+          try {
+            const metaPath = path.join(modsDir, MOD_META_FILE);
+            if (fs.existsSync(metaPath)) {
+              cachedMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+            }
+          } catch (_) {}
+
+          const protectedFiles = protectedModFilesSafe(modsDir, serverConfig.type);
+          const moved = [];
+          const keptRequired = [];
+          for (const f of fs.readdirSync(modsDir)) {
+            if (!f.endsWith('.jar')) continue;
+            const baseKey = f.replace(/\.disabled$/, '');
+            const m = cachedMeta[baseKey] || {};
+            // The user ticked "install anyway" on the client-only warning —
+            // that's an explicit decision, so leave the jar alone.
+            if (m.userForced) continue;
+            const isClientByMeta =
+              m.serverSide === 'unsupported' ||
+              (m.clientSide === 'required' && m.serverSide !== 'required' && m.serverSide !== 'optional');
+            if (!isClientByMeta && !isClientOnlyModFilename(f)) continue;
+            if (protectedFiles.has(f)) { keptRequired.push(f); continue; }
+            try {
+              fs.mkdirSync(stashDir, { recursive: true });
+              fs.renameSync(path.join(modsDir, f), path.join(stashDir, f));
+              moved.push(f);
+            } catch (e) {
+              console.warn(`[client-mods cleanup] couldn't move ${f}:`, e.message);
+            }
+          }
+          if (keptRequired.length) {
+            const line = `[MineDash] Kept ${keptRequired.length} client-side mod(s) another mod depends on: ${keptRequired.join(', ')}\n`;
+            activeLogs[id].push(line);
+            io.emit(`console_${id}`, line);
+          }
+          if (moved.length) {
+            const line = `[MineDash] Moved ${moved.length} client-only mod(s) out of mods/ to keep the dedicated server from crashing: ${moved.join(', ')}\n`;
+            activeLogs[id].push(line);
+            io.emit(`console_${id}`, line);
+          }
         }
       }
     } catch (e) {
@@ -2844,7 +3066,7 @@ async function enrichModMetadata(modsPath, meta, jarFiles) {
 // Returns { clientOnly, wrongVersion, wrongLoader }. Each flag is set only when we have enough
 // data to be confident — a mod with no Modrinth match doesn't get flagged as wrong-version
 // just because we don't know its game_versions.
-function computeModIssues(filename, meta, serverMcVersion, serverLoader) {
+function computeModIssues(filename, meta, serverMcVersion, serverLoader, protectedFiles) {
   const baseName = filename.replace(/\.disabled$/, '');
   const m = meta || {};
   let clientOnly = false;
@@ -2854,6 +3076,13 @@ function computeModIssues(filename, meta, serverMcVersion, serverLoader) {
   if (m.clientSide === 'required' && m.serverSide !== 'required' && m.serverSide !== 'optional') clientOnly = true;
   // Fall back to the well-known filename deny-list (Oculus, Sodium, Iris, …).
   if (!clientOnly && isClientOnlyModFilename(baseName)) clientOnly = true;
+
+  // ...but a jar another installed mod declares as a mandatory dependency is
+  // NOT removable, whatever Modrinth says about its side. Athena, Fusion and
+  // Simply Tooltips are all server_side:unsupported and all hard deps of the
+  // mods that ship with them; dropping them is what breaks the server.
+  const requiredByOther = !!(protectedFiles && protectedFiles.has(filename));
+  if (requiredByOther) clientOnly = false;
 
   // Wrong-version / wrong-loader checks only when Modrinth gave us version info.
   let wrongVersion = false;
@@ -2868,7 +3097,7 @@ function computeModIssues(filename, meta, serverMcVersion, serverLoader) {
     if (realLoaders.length > 0 && !realLoaders.includes(serverLoader)) wrongLoader = true;
   }
 
-  return { clientOnly, wrongVersion, wrongLoader };
+  return { clientOnly, wrongVersion, wrongLoader, requiredByOther };
 }
 
 // Mods Endpoints
@@ -2892,12 +3121,16 @@ app.get('/api/servers/:id/mods', async (req, res) => {
     const loaderMap = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
     const serverLoader = loaderMap[cfg?.type] || null;
 
+    // Which jars other installed mods hard-require — those can't be flagged
+    // as removable client-only mods without breaking the server.
+    const protectedFiles = protectedModFilesSafe(modsPath, serverLoader);
+
     const mods = jarFiles.map(f => {
       const stats = fs.statSync(path.join(modsPath, f));
       const isDisabled = f.endsWith('.disabled');
       const baseKey = isDisabled ? f.replace(/\.disabled$/, '') : f;
       const m = meta[baseKey] || {};
-      const issues = computeModIssues(f, m, serverMcVersion, serverLoader);
+      const issues = computeModIssues(f, m, serverMcVersion, serverLoader, protectedFiles);
       return {
         name: f,
         displayName: m.title || (isDisabled ? f.replace('.disabled', '') : f),
@@ -2908,6 +3141,7 @@ app.get('/api/servers/:id/mods', async (req, res) => {
         clientOnly: issues.clientOnly,
         wrongVersion: issues.wrongVersion,
         wrongLoader: issues.wrongLoader,
+        requiredByOther: issues.requiredByOther,
       };
     });
     res.json(mods);
@@ -3041,12 +3275,16 @@ app.post('/api/servers/:id/mods/clean-client-only', async (req, res) => {
     const loaderMap = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
     const serverLoader = loaderMap[cfg?.type] || null;
     const stashDir = clientModsStashDir(serverPath);
+    // Mods other mods depend on are never "cleanable" — see computeModIssues.
+    const protectedFiles = protectedModFilesSafe(modsPath, serverLoader);
 
     const moved = [];
+    const kept = [];
     for (const f of files) {
       const baseKey = f.replace(/\.disabled$/, '');
       const m = meta[baseKey] || {};
-      const issues = computeModIssues(f, m, cfg?.version || null, serverLoader);
+      const issues = computeModIssues(f, m, cfg?.version || null, serverLoader, protectedFiles);
+      if (issues.requiredByOther) { kept.push(f); continue; }
       if (!issues.clientOnly) continue;
       try {
         await fs.ensureDir(stashDir);
@@ -3056,7 +3294,7 @@ app.post('/api/servers/:id/mods/clean-client-only', async (req, res) => {
         console.warn(`[clean-client-only] couldn't move ${f}:`, e.message);
       }
     }
-    res.json({ moved });
+    res.json({ moved, kept });
   } catch (err) {
     console.error('[clean-client-only] failed:', err);
     res.status(500).json({ error: err.message || 'Failed to clean client-only mods' });
@@ -3769,10 +4007,15 @@ app.get('/api/modrinth/search', async (req, res) => {
 
     const response = await fetch(`${MODRINTH_API}/search?${params}`, { headers: MODRINTH_HEADERS });
     const data = await response.json();
+    connectivity.noteUpstreamSuccess();
     res.json(data);
   } catch (error) {
     console.error('Modrinth search error:', error);
-    res.status(500).json({ error: 'Failed to search Modrinth' });
+    connectivity.noteUpstreamFailure(error);
+    res.status(connectivity.isOnline() ? 500 : 503).json({
+      error: connectivity.isOnline() ? 'Failed to search Modrinth' : 'No internet connection',
+      offline: !connectivity.isOnline(),
+    });
   }
 });
 
@@ -3922,19 +4165,40 @@ app.post('/api/servers/:serverId/mods/install-modrinth', async (req, res) => {
 
   if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
 
-  // Block client-only mods unless explicitly overridden. NeoForge/Forge dedicated servers
-  // crash during mod construction the moment a client-only mod touches a client-only class
-  // (e.g. net.minecraft.client.gui.screens.Screen), so a "client-only on a server" mistake
-  // takes down the entire server, not just the offending mod.
-  if (serverSide === 'unsupported' && !force) {
-    return res.status(409).json({
-      error: `${title || filename} is marked client-only by its author. Installing it on a dedicated server will likely crash on startup.`,
-      clientOnly: true,
-    });
-  }
-
   const modsPath = path.join(INSTANCES_DIR, serverId, 'mods');
   const destPath = path.join(modsPath, filename);
+
+  // Warn about client-only mods unless explicitly overridden. NeoForge/Forge dedicated
+  // servers crash during mod construction the moment a client-only mod touches a
+  // client-only class (e.g. net.minecraft.client.gui.screens.Screen), so a "client-only
+  // on a server" mistake takes down the entire server, not just the offending mod.
+  //
+  // Exception: if an installed mod declares this one as a mandatory dependency, the
+  // server needs it *more* than it fears it — Modrinth flags plenty of hard deps
+  // (Athena, Fusion, …) as server_side: unsupported. Warning there would be telling
+  // the user not to install the mod their server is refusing to boot without.
+  if (serverSide === 'unsupported' && !force) {
+    let neededByInstalled = false;
+    try {
+      const missing = modDeps.missingModIds(modsPath, loader).map(x => x.id);
+      // Match on the Modrinth slug/project id and on the title — we don't have
+      // the jar yet, so this is the best evidence available before download.
+      const candidates = [projectId, title, filename]
+        .filter(Boolean)
+        .map(x => String(x).toLowerCase().replace(/[^a-z0-9]/g, ''));
+      neededByInstalled = missing.some(id => {
+        const norm = id.replace(/[^a-z0-9]/g, '');
+        return candidates.some(c => c === norm || c.startsWith(norm) || norm.startsWith(c));
+      });
+    } catch (_) { /* dependency scan is advisory only */ }
+
+    if (!neededByInstalled) {
+      return res.status(409).json({
+        error: `${title || filename} is marked client-only by its author. Installing it on a dedicated server will likely crash on startup.`,
+        clientOnly: true,
+      });
+    }
+  }
 
   try {
     await fs.ensureDir(modsPath);
@@ -3947,7 +4211,14 @@ app.post('/api/servers/:serverId/mods/install-modrinth', async (req, res) => {
 
     // Persist metadata and resolve required dependencies
     const meta = await readModMetadata(modsPath);
-    meta[filename] = { iconUrl: iconUrl || null, title: title || null, projectId: projectId || null };
+    meta[filename] = {
+      iconUrl: iconUrl || null,
+      title: title || null,
+      projectId: projectId || null,
+      // The user clicked through the client-only warning. Record that so no
+      // later cleanup pass quietly undoes their decision on the next start.
+      ...(force ? { userForced: true } : {}),
+    };
 
     let depsInstalled = [];
     if (Array.isArray(dependencies) && dependencies.length > 0) {
@@ -4101,7 +4372,10 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
     for (const file of eligible) {
       const env = file.env || {};
       if (env.server === 'unsupported') {
-        if (env.client === 'required') await stash(file, file.path);
+        // Always stashed, never dropped: the reconciliation pass below puts it
+        // back if a server mod hard-requires it (Modrinth marks many mandatory
+        // libraries server:unsupported).
+        await stash(file, file.path);
         tick(file.path); continue;
       }
       const rel = String(file.path || '').replace(/\\/g, '/');
@@ -4162,14 +4436,29 @@ async function runServerModpackInstall({ sessionId, serverId, url, filename }) {
       tick(entry.entryName);
     }
 
+    // Put back anything the client-only filters removed that the pack's server
+    // mods declare as a mandatory dependency — otherwise the install "succeeds"
+    // and the server then refuses to boot on a missing dependency.
+    emitServerModpack(sessionId, 'status', { message: 'Checking mod dependencies…' });
+    let serverLoaderType = null;
+    try {
+      serverLoaderType = (await getServers()).find(x => x.id === serverId)?.type || null;
+    } catch (_) {}
+    const restoredRequired = restoreRequiredStashedMods(serverDir, serverLoaderType);
+    if (restoredRequired.length) {
+      skippedClient = Math.max(0, skippedClient - restoredRequired.length);
+      clientStashed = Math.max(0, clientStashed - restoredRequired.length);
+    }
+
     await fs.remove(tempPath).catch(() => {});
     emitServerModpack(sessionId, 'done', {
-      installed,
+      installed: installed + restoredRequired.length,
       failed,
       failedFiles,
       total: files.length,
       skippedClientOnly: skippedClient,
       clientModsStashed: clientStashed,
+      restoredRequired,
     });
   } catch (error) {
     console.error('Modpack install error:', error);
@@ -4267,10 +4556,15 @@ app.get('/api/hangar/search', async (req, res) => {
     if (category) params.set('category', category);
 
     const response = await axios.get(`${HANGAR_API}/projects?${params}`, { headers: HANGAR_HEADERS, timeout: 15000 });
+    connectivity.noteUpstreamSuccess();
     res.json(response.data);
   } catch (err) {
     console.error('Hangar search error:', err.message);
-    res.status(500).json({ error: `Failed to search Hangar: ${err.message}` });
+    connectivity.noteUpstreamFailure(err);
+    res.status(connectivity.isOnline() ? 500 : 503).json({
+      error: connectivity.isOnline() ? `Failed to search Hangar: ${err.message}` : 'No internet connection',
+      offline: !connectivity.isOnline(),
+    });
   }
 });
 
@@ -4880,6 +5174,10 @@ const PORT = Number(process.env.MINEDASH_PORT) || 3001;
 // not curl. The renderer and Electron always talk to 127.0.0.1:3001, and the
 // LAN-facing features (BlueMap's webserver, the Connect P2P tunnel) listen on
 // their own ports, so loopback-only is invisible to them.
+// Start watching connectivity. Emits `network_status` to every client whenever
+// the machine goes offline or comes back.
+connectivity.init((event, payload) => io.emit(event, payload));
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Backend running on http://127.0.0.1:${PORT}`);
 });

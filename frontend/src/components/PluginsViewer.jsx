@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Download, Star, Loader2, Check, AlertCircle, ChevronLeft, ChevronRight, Package } from 'lucide-react';
+import { Search, Download, Star, Loader2, Check, AlertCircle, ChevronLeft, ChevronRight, Package, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const HANGAR_CATEGORIES = [
@@ -24,7 +24,7 @@ function fmtDate(d) {
   return Math.floor(days / 365) + ' years ago';
 }
 
-export default function PluginsViewer({ serverId, serverVersion }) {
+export default function PluginsViewer({ serverId, serverVersion, online = true }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -162,6 +162,19 @@ export default function PluginsViewer({ serverId, serverVersion }) {
   };
 
   const totalPages = Math.ceil(totalCount / LIMIT);
+
+  if (!online) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center px-6">
+        <WifiOff size={32} className="text-[var(--c-text-muted)] mb-3" />
+        <p className="font-bold text-[var(--c-text-primary)]">No internet connection</p>
+        <p className="text-sm text-[var(--c-text-secondary)] mt-1 max-w-sm">
+          Browsing Hangar needs a connection. Your server, its console, and the plugins
+          already installed all keep working.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full relative">

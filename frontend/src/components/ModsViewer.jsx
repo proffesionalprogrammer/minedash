@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, Database, Check, CheckSquare, Square, ToggleLeft, ToggleRight, Loader2, AlertTriangle, Monitor, Wrench } from 'lucide-react';
+import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, Database, Check, CheckSquare, Square, ToggleLeft, ToggleRight, Loader2, AlertTriangle, Monitor, Wrench, Link2, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModrinthBrowser from './ModrinthBrowser';
 import ModalPortal from './ModalPortal';
 import Tooltip from './Tooltip';
 
-function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modpackInstalls, onOpenDetail }) {
-  const [viewMode, setViewMode] = useState('installed');
+function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modpackInstalls, onOpenDetail, online = true }) {
+  const [selectedViewMode, setViewMode] = useState('installed');
+  // Browse / Modpacks / Data Packs all need Modrinth. If the connection drops
+  // while one is open, fall back to the installed list instead of a dead panel.
+  const viewMode = online ? selectedViewMode : 'installed';
   const [mods, setMods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -301,6 +304,10 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
   const canEnableSelected = filteredMods.some(m => selected.has(m.name) && !m.enabled);
   const canDisableSelected = filteredMods.some(m => selected.has(m.name) && m.enabled);
   const clientOnlyCount = mods.filter(m => m.clientOnly).length;
+  // Client-side mods another mod hard-requires. The backend refuses to strip
+  // these (removing one stops the server booting), so say so rather than
+  // letting the banner imply every client mod is about to be moved out.
+  const requiredCount = mods.filter(m => m.requiredByOther).length;
   const wrongVersionCount = mods.filter(m => (m.wrongVersion || m.wrongLoader) && !m.clientOnly).length;
 
   return (
@@ -435,6 +442,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
               {mods.length}
             </span>
           </button>
+          {online && <>
           <button onClick={() => { setViewMode('browse'); exitMultiSelect(); }}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
               viewMode === 'browse'
@@ -462,6 +470,15 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
             <Database size={16} />
             Data Packs
           </button>
+          </>}
+          {/* Offline: the installed list still works — everything it needs is
+              already on disk — so only the Modrinth-backed tabs go away. */}
+          {!online && (
+            <span className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-[var(--c-text-muted)]">
+              <WifiOff size={14} />
+              Offline — browsing unavailable
+            </span>
+          )}
         </div>
 
         {viewMode === 'installed' && (
@@ -537,7 +554,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                   )}
                 </p>
                 <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
-                  {clientOnlyCount > 0 && 'Client-only mods will be moved to the client stash.'}
+                  {clientOnlyCount > 0 && `Client-only mods will be moved to the client stash${requiredCount > 0 ? `; the ${requiredCount} other mod${requiredCount !== 1 ? 's' : ''} depend on stay` : ''}.`}
                   {clientOnlyCount > 0 && wrongVersionCount > 0 && ' '}
                   {wrongVersionCount > 0 && 'Wrong-version mods will be replaced with a compatible build from Modrinth.'}
                 </p>
@@ -679,6 +696,13 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <h4 className="font-bold text-[var(--c-text-primary)] truncate">{mod.displayName || mod.name}</h4>
+                            {mod.requiredByOther && (
+                              <Tooltip content="Another installed mod lists this as a required dependency — the server won't start without it" className="flex-shrink-0">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[#00AF5C]/15 text-[#00AF5C] border border-[#00AF5C]/30 rounded-md">
+                                  <Link2 size={10} /> Required
+                                </span>
+                              </Tooltip>
+                            )}
                             {mod.clientOnly && (
                               <Tooltip content="Client-only — will crash a dedicated server" className="flex-shrink-0">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
