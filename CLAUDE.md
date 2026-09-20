@@ -129,9 +129,28 @@ Why: `minecraft-launcher-core` uses the legacy `request` library and exposes no 
 
 `installModpackIntoProfile()` records the **full list of relative paths** it writes (mods + overrides) into the per-modpack manifest entry at `.minedash-modpacks.json → record[filename].files`. The DELETE handler at `/api/launcher/profiles/:loader/:version/content/modpack/:filename` reads that list, removes every tracked path (with `safeJoin` protection), walks up pruning empty directories, then clears the manifest entry. Without the file list there's no way to tell a modpack mod from a manually-installed one — preserve `files` if you change the install path, otherwise Delete becomes a no-op or has to nuke the whole profile.
 
+### Client-only mods vs. required dependencies (`backend/mod-deps.js`)
+
+**Invariant: nothing may remove a mod that another installed mod declares as a mandatory dependency.** Forge/NeoForge and Fabric validate mandatory deps on a *dedicated server*, so stripping one turns "a client mod is in my mods folder" into "the server won't boot at all". Modrinth's `server_side: unsupported` means "has no server-side function", **not** "must not be installed" — Athena (`athena-ctm`), Fusion (`fusion-connected-textures`) and Simply Tooltips are all flagged that way and all hard deps of the server mods that ship beside them. Removing them is what broke Slimes Adventure servers (v1.3.2 fix).
+
+`backend/mod-deps.js` reads what each jar declares — `fabric.mod.json`, `quilt.mod.json`, `META-INF/[neoforge.]mods.toml` (a hand-rolled mini-TOML reader; real files write `[[mods]] #mandatory`, so comments are stripped outside quotes), plus jar-in-jar (`META-INF/jarjar/*.jar`, depth 1) for bundled mods that satisfy a dep with no file of their own. It exports `scanModsDir`, `protectedModFiles`, `missingModIds`, `readJarModInfo`, cached on jar mtime+size.
+
+**Always pass the loader.** A "universal" jar ships metadata for every loader at once and only the running loader's dependencies apply — without the loader argument, Moog's Structures appears to require `quilt_resource_loader` on a Fabric server. `index.js` passes `serverConfig.type` / `cfg.type` everywhere.
+
+Four places strip mods, and all four consult it (`protectedModFilesSafe`, which fails *safe* — an unreadable folder protects everything):
+
+1. `startProcess`'s pre-spawn pass — also gated on the `removeClientMods` setting (it used to ignore it, which is why the toggle looked broken), and skips jars whose metadata carries `userForced: true` (the user clicked through the client-only warning in `install-modrinth`).
+2. `computeModIssues` → the Mods tab. Sets `requiredByOther`, which suppresses `clientOnly` and renders a green **Required** badge.
+3. `POST /mods/clean-client-only` — returns `kept[]` alongside `moved[]`.
+4. Both modpack importers (`installModpackAsServer`, `runServerModpackInstall`).
+
+`restoreRequiredStashedMods(serverPath, loader)` is the repair half: it pulls jars back out of `.minedash-client-mods/` when the installed mods require them, looping until the missing set stops shrinking. It runs **before every server start** (so packs installed by older builds self-heal) and after both modpack installs. It is deliberately **synchronous** — `startProcess` must not yield before spawning, which is also why `launcher.readSettingsSync()` exists.
+
 ### Dependency auto-installer
 
 When a Fabric/Forge server crashes with a missing mod error, `hasDependencyCrash()` detects it and `parseMissingModIds()` extracts the mod IDs. The backend then searches Modrinth and installs them automatically before restarting. This runs in the `exit` handler of `startProcess` and is deliberately checked *before* the plain-English crash banner logic so the two systems don't conflict.
+
+**A mod ID is not a Modrinth slug**, and `findAndInstallMissingDeps` must not assume it is. `/project/athena` is a Paper *plugin*; `/project/fusion` is an unrelated mod; `simplytooltips` 404s and Modrinth's search can't match the run-together form. So: a slug hit is only trusted when `projectMatchesTarget()` confirms project type + loader + game version; `modIdQueryVariants()` generates search forms (including a dictionary word-split — `simplytooltips` → `simply tooltips`); `findModrinthCandidates()` ranks them; and each candidate's downloaded jar is verified with `readJarModInfo()` to actually declare the missing ID — deleted and skipped if not. Don't "simplify" this back to a bare slug fetch.
 
 ### Scheduled tasks engine
 
@@ -139,7 +158,7 @@ Per-server tasks live on the server config as `scheduledTasks: []` (each: `{ id,
 
 ### Modpack import (`POST /api/servers/from-modpack`)
 
-Accepts a `.mrpack` (multipart upload). Parses `modrinth.index.json`, auto-detects loader (Fabric/Forge/NeoForge via `dependencies` keys; Quilt is explicitly unsupported), downloads every server-relevant file (skips `env.server === 'unsupported'`), and extracts `overrides/` + `server-overrides/` on top. The downloader (`downloadFromAny`) streams to disk, sends a real User-Agent, follows redirects, and tries every URL in `f.downloads[]` before giving up. Path traversal is blocked via `safeJoin`. Failed downloads are returned per-file in the summary so the UI can show what didn't download.
+Accepts a `.mrpack` (multipart upload). Parses `modrinth.index.json`, auto-detects loader (Fabric/Forge/NeoForge via `dependencies` keys; Quilt is explicitly unsupported), downloads every server-relevant file (`env.server === 'unsupported'` goes to the client stash rather than being dropped, so the dependency reconciliation above can pull it back), and extracts `overrides/` + `server-overrides/` on top. The downloader (`downloadFromAny`) streams to disk, sends a real User-Agent, follows redirects, and tries every URL in `f.downloads[]` before giving up. Path traversal is blocked via `safeJoin`. Failed downloads are returned per-file in the summary so the UI can show what didn't download.
 
 ### Server clone (`POST /api/servers/:id/clone`)
 
@@ -148,6 +167,18 @@ Copies `instances/<source>/` to `instances/<newId>/`, skipping `logs/`, `crash-r
 ### Mod icon resolution
 
 `GET /api/servers/:id/mods` lazily backfills missing icons by streaming each jar through SHA1 and querying Modrinth's `/v2/version_file/{sha1}?algorithm=sha1` endpoint. Results (including misses, marked `lookedUp: true`) are cached in `.minedash-mods.json` so subsequent loads are instant. This means mods installed via `.mrpack`, drag-drop, dependency auto-installer, or manual file copy all get icons — anything Modrinth knows about gets identified.
+
+### Offline mode
+
+`backend/connectivity.js` decides whether this machine can actually reach the hosts MineDash proxies (DNS probe of Modrinth/Hangar/Mojang — cheapest signal that exercises the network; one host answering is enough). It probes every 60s while online, every 10s while offline, dedups concurrent probes through a single in-flight promise, and emits the global socket event `network_status { online, checkedAt }` on every change. `GET /api/connectivity[?recheck=1]` is the initial read. Proxy routes call `noteUpstreamSuccess()` / `noteUpstreamFailure(err)` so an outage is caught on the first failed request instead of up to a probe interval later; `noteUpstreamFailure` only reacts to network-level error codes — a 404 from a reachable host is not "offline".
+
+The renderer reads it through `frontend/src/hooks/useOnline.js`, which merges the backend verdict with the browser's `online`/`offline` events. **`navigator.onLine` alone is not enough** — an interface with no route to the internet still reports "online", which is exactly the case that filled every browse panel with "Failed to fetch".
+
+**Convention for new UI: anything that is purely a front-end for an external API must hide itself when offline**, rather than rendering an error. `ONLINE_ONLY_TABS` in `App.jsx` covers top-level views (currently `browse`); `MainPanel` drops a Paper server's Hangar-only Plugins tab; `ModsViewer` drops its Browse/Modpacks/Data Packs sub-tabs but keeps the Installed list (local files work offline). Gate by **deriving** the effective view (`const view = !online && ONLINE_ONLY_TABS.has(selectedView) ? 'play' : selectedView`) rather than correcting state in an effect — the repo's ESLint flags `set-state-in-effect`.
+
+### Changelog / release notes
+
+`CHANGELOG.md` is copied into the bundle by the frontend's `dev`/`build` scripts, so both views fetch it from the app's own origin. Parsing lives in `frontend/src/lib/changelog.js` (`fetchChangelog`, `extractSection`, `parseChangelog`) and rendering in `ChangelogMarkdown.jsx` — a deliberately tiny markdown subset (`###`, `- `, `**bold**`) matching what the changelog actually uses; don't pull in react-markdown for it. Two consumers: `WhatsNewModal` (one version, auto-shown once after an update, needs `electronAPI.getAppVersion`) and `ChangelogHistoryModal` (every version, opened from **Settings → Updates → All release notes** via the `minedash-show-all-changelogs` window event; works in dev too since it only needs the file).
 
 ### Pinned backups
 
@@ -232,6 +263,7 @@ These are non-obvious gotchas worth knowing before writing new components:
 
 ## What NOT to add
 
+- **Don't add a mod-removal path that skips `mod-deps.js`.** Any new code that moves, deletes or hides a jar in a server's `mods/` must check `protectedModFilesSafe()` first — see the invariant above. This has broken users' servers once already.
 - **Don't add new fonts.** System sans is the look.
 - **Don't introduce a global state library.** Prop drilling + socket events is the convention.
 - **Don't use Tailwind's named color shades** (`bg-green-500`, `border-gray-700`). Use the brand hex values listed above.
