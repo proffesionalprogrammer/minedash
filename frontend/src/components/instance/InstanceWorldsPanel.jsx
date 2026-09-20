@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Globe, Loader2, Trash2, Copy, FileDown, Check, X, Play, Pencil,
-  ImageOff, KeyRound, Database, Plus, RefreshCw,
+  ImageOff, KeyRound, Database, Plus, RefreshCw, Upload,
 } from 'lucide-react';
 import Tooltip from '../Tooltip';
 
@@ -112,10 +112,9 @@ export default function InstanceWorldsPanel({ inst, onError, onJoinWorld }) {
     try { await fetch(`${base}/worlds/${encodeURIComponent(name)}/open-datapacks`, { method: 'POST' }); }
     catch (err) { onError?.(err.message); }
   };
-  const handleImport = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
+  const importZip = async (file) => {
     if (!file) return;
+    if (!/\.zip$/i.test(file.name)) { onError?.('World imports must be .zip files.'); return; }
     setImporting(true);
     try {
       const fd = new FormData();
@@ -128,8 +127,49 @@ export default function InstanceWorldsPanel({ inst, onError, onJoinWorld }) {
     setImporting(false);
   };
 
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    await importZip(file);
+  };
+
+  // ── Drag-and-drop ───────────────────────────────────────────────────────────
+  // Matches the Mods / Resource Packs / Shaders panels, which have accepted
+  // drops since they were built — Worlds was the odd one out. Counter rather
+  // than a boolean so the overlay doesn't flicker as the cursor crosses child
+  // elements.
+  const [dragDepth, setDragDepth] = useState(0);
+  const dragActive = dragDepth > 0 && !importing;
+  const handleDragEnter = (e) => {
+    if (importing || !e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault(); setDragDepth(d => d + 1);
+  };
+  const handleDragOver = (e) => {
+    if (importing || !e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+  };
+  const handleDragLeave = (e) => { e.preventDefault(); setDragDepth(d => Math.max(0, d - 1)); };
+  const handleDrop = async (e) => {
+    if (importing) return;
+    e.preventDefault(); setDragDepth(0);
+    await importZip(e.dataTransfer?.files?.[0]);
+  };
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col relative"
+      onDragEnter={handleDragEnter} onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      <AnimatePresence>
+        {dragActive && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}
+            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#00AF5C]/10 backdrop-blur-sm border-2 border-dashed border-[#00AF5C] rounded-2xl pointer-events-none">
+            <Upload size={36} className="text-[#00AF5C] mb-2" />
+            <p className="text-sm font-bold text-white">Drop a world .zip</p>
+            <p className="text-xs text-[var(--c-text-secondary)] mt-1">It'll be added to this instance's saves</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <input type="file" ref={fileRef} accept=".zip" className="hidden" onChange={handleImport} />
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div className="flex items-center gap-2.5 min-w-0">

@@ -12,6 +12,8 @@ import NetworkPanel from './NetworkPanel';
 import MapViewer from './MapViewer';
 import ActivityTimeline from './ActivityTimeline';
 import ScheduleViewer from './ScheduleViewer';
+import WorldsViewer from './WorldsViewer';
+import FilesViewer from './FilesViewer';
 import ModalPortal from './ModalPortal';
 import LaunchConsole from './LaunchConsole';
 import StatCard from './main/StatCard';
@@ -256,7 +258,10 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
     ...(!isVanilla && !(isPaper && !online) ? [{ key: 'mods', label: contentTabLabel }] : []),
     // Live world map (BlueMap) needs a loader/plugin platform — hidden on vanilla
     ...(!isVanilla ? [{ key: 'map', label: 'Map' }] : []),
+    // Worlds and Files are purely local — they work offline on every server type.
+    { key: 'worlds', label: 'Worlds' },
     { key: 'backups', label: 'Backups' },
+    { key: 'files', label: 'Files' },
     { key: 'schedule', label: 'Schedule' },
     { key: 'network', label: 'Network' },
     { key: 'options', label: 'Options' },
@@ -686,7 +691,9 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
             {activeTab === 'map' && !isVanilla && (
               <MapViewer serverId={server.id} server={server} socket={socket} onError={onError} />
             )}
+            {activeTab === 'worlds' && <WorldsViewer serverId={server.id} onError={onError} />}
             {activeTab === 'backups' && <BackupsViewer serverId={server.id} server={server} onError={onError} />}
+            {activeTab === 'files' && <FilesViewer serverId={server.id} onError={onError} />}
             {activeTab === 'schedule' && <ScheduleViewer serverId={server.id} onError={onError} />}
             {activeTab === 'network' && <NetworkPanel serverId={server.id} server={server} socket={socket} />}
             {activeTab === 'options' && <OptionsViewer server={server} onError={onError} />}

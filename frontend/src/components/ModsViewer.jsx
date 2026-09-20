@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, Database, Check, CheckSquare, Square, ToggleLeft, ToggleRight, Loader2, AlertTriangle, Monitor, Wrench, Link2, WifiOff } from 'lucide-react';
+import { Package, Trash2, Search, Upload, Download, Globe, FolderOpen, Layers, Database, Check, CheckSquare, Square, ToggleLeft, ToggleRight, Loader2, AlertTriangle, Monitor, Wrench, Link2, WifiOff, ArrowUpCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ModrinthBrowser from './ModrinthBrowser';
 import ModalPortal from './ModalPortal';
@@ -27,6 +27,14 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
   const [cleanResult, setCleanResult] = useState(null); // { moved: string[] } | null
   const [repairResult, setRepairResult] = useState(null); // { repaired, failed } | null
 
+  // Mod updates. `updates` is null until a check has run, so the panel can tell
+  // "no updates found" apart from "never looked" — otherwise a freshly-opened
+  // tab would claim everything is up to date without having checked.
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updates, setUpdates] = useState(null);       // [{ filename, versionId, … }] | null
+  const [updatingSet, setUpdatingSet] = useState(new Set()); // filenames currently being applied
+  const [updateError, setUpdateError] = useState(null);
+
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -48,6 +56,62 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
   const exitMultiSelect = () => {
     setMultiSelect(false);
     setSelected(new Set());
+  };
+
+  // ── Mod updates ─────────────────────────────────────────────────────────────
+  // Asks Modrinth, by file hash, for the newest build of each installed mod that
+  // matches this server's loader and MC version. Jars Modrinth doesn't know
+  // (CurseForge-only mods, hand-built ones) simply don't come back.
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    setUpdateError(null);
+    try {
+      const res = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/check-updates`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Update check failed');
+      setUpdates(data.updates || []);
+    } catch (err) {
+      setUpdates(null);
+      setUpdateError(err.message);
+      onError?.(err.message);
+    }
+    setCheckingUpdates(false);
+  };
+
+  // `list` is either the whole update set ("Update all") or a single entry.
+  const applyUpdates = async (list) => {
+    if (!list || list.length === 0) return;
+    const names = new Set(list.map(u => u.filename));
+    setUpdatingSet(prev => new Set([...prev, ...names]));
+    setUpdateError(null);
+    try {
+      const res = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: list.map(u => ({ filename: u.filename, versionId: u.versionId })) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Update failed');
+      if (data.failed?.length > 0) {
+        const f = data.failed[0];
+        const msg = `${f.filename}: ${f.reason}${data.failed.length > 1 ? ` (+${data.failed.length - 1} more)` : ''}`;
+        setUpdateError(msg);
+        onError?.(msg);
+      }
+      // Drop everything that actually updated; anything that failed stays in
+      // the list so it can be retried without re-running the whole check.
+      const done = new Set((data.updated || []).map(u => u.from));
+      setUpdates(prev => (prev || []).filter(u => !done.has(u.filename)));
+      await fetchMods();
+    } catch (err) {
+      setUpdateError(err.message);
+      onError?.(err.message);
+    }
+    setUpdatingSet(prev => {
+      const next = new Set(prev);
+      for (const n of names) next.delete(n);
+      return next;
+    });
   };
 
   const fetchMods = async () => {
@@ -499,6 +563,21 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
               ))}
             </div>
             <input type="file" ref={fileInputRef} className="hidden" multiple accept=".jar,.zip" onChange={handleFileSelect} />
+            {/* Update checking needs Modrinth, so it hides offline alongside the
+                other network-backed controls. */}
+            {online && (
+              <Tooltip
+                content={mods.length === 0 ? 'No mods installed' : 'Check Modrinth for newer builds of your mods'}
+                align="end">
+                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  onClick={handleCheckUpdates}
+                  disabled={checkingUpdates || mods.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] text-[var(--c-text-primary)] border border-[var(--c-border)] rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                  {checkingUpdates ? <Loader2 size={16} className="animate-spin" /> : <ArrowUpCircle size={16} />}
+                  <span>{checkingUpdates ? 'Checking...' : 'Check updates'}</span>
+                </motion.button>
+              </Tooltip>
+            )}
             <Tooltip content={mods.length === 0 ? 'No mods to export' : 'Download all mods as a ZIP'} align="end">
               <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                 onClick={handleExportZip}
@@ -533,6 +612,85 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
         </div>
       ) : (
         <>
+          {/* Update results. Shown only after a check has actually run, so the
+              "everything's current" line is a real answer rather than a guess. */}
+          <AnimatePresence>
+            {updates !== null && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className={`mx-4 mt-3 p-3 rounded-2xl border ${
+                  updates.length > 0
+                    ? 'bg-[#00AF5C]/10 border-[#00AF5C]/30'
+                    : 'bg-[var(--c-surface-2)] border-[var(--c-border)]'
+                }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl flex-shrink-0 ${updates.length > 0 ? 'bg-[#00AF5C]/15' : 'bg-[var(--c-border)]'}`}>
+                    {updates.length > 0
+                      ? <ArrowUpCircle size={18} className="text-[#00AF5C]" />
+                      : <Check size={18} className="text-[var(--c-text-secondary)]" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-white">
+                      {updates.length > 0
+                        ? `${updates.length} mod${updates.length !== 1 ? 's have' : ' has'} a newer build`
+                        : 'Every mod Modrinth knows about is up to date'}
+                    </p>
+                    <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
+                      {updates.length > 0
+                        ? 'Updating replaces the jar with the newest build for this server\'s loader and version. Stop the server first.'
+                        : 'Mods that aren\'t on Modrinth can\'t be checked automatically.'}
+                    </p>
+                  </div>
+                  {updates.length > 0 && (
+                    <motion.button whileTap={{ scale: 0.97 }}
+                      onClick={() => applyUpdates(updates)}
+                      disabled={updatingSet.size > 0}
+                      className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                      {updatingSet.size > 0 ? <Loader2 size={16} className="animate-spin" /> : <ArrowUpCircle size={16} />}
+                      <span>Update all</span>
+                    </motion.button>
+                  )}
+                  <button onClick={() => { setUpdates(null); setUpdateError(null); }}
+                    className="flex-shrink-0 p-1.5 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] transition-colors">
+                    <X size={14} />
+                  </button>
+                </div>
+
+                {updates.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-[#00AF5C]/20 space-y-1">
+                    {updates.map(u => (
+                      <div key={u.filename} className="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-[#00AF5C]/5 transition-colors">
+                        {u.iconUrl
+                          ? <img src={u.iconUrl} alt="" className="w-6 h-6 rounded-lg object-cover flex-shrink-0" />
+                          : <div className="w-6 h-6 rounded-lg bg-[var(--c-border)] flex items-center justify-center flex-shrink-0">
+                              <Package size={12} className="text-[var(--c-text-muted)]" />
+                            </div>}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">
+                            {u.title}
+                            {!u.enabled && (
+                              <span className="ml-2 text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)]">Disabled</span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-[var(--c-text-muted)] font-mono truncate">→ {u.versionNumber}</p>
+                        </div>
+                        <button onClick={() => applyUpdates([u])}
+                          disabled={updatingSet.has(u.filename) || updatingSet.size > 0}
+                          className="flex-shrink-0 px-3 py-1.5 text-xs font-bold rounded-xl bg-[#00AF5C]/10 hover:bg-[#00AF5C]/20 text-[#00AF5C] border border-[#00AF5C]/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                          {updatingSet.has(u.filename) ? <Loader2 size={13} className="animate-spin" /> : 'Update'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {updateError && (
+                  <p className="mt-2 text-xs font-bold text-[var(--c-danger)]">{updateError}</p>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Issues banner — only when there's something to act on */}
           {(clientOnlyCount > 0 || wrongVersionCount > 0) && (
             <motion.div

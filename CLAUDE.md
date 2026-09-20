@@ -94,7 +94,7 @@ Key patterns:
 - `paper` → "Plugins" tab → `PluginsViewer` (Hangar)
 - `fabric` / `forge` / `neoforge` → "Mods" tab → `ModsViewer` + `ModrinthBrowser`
 
-Tab order: `console`, `players`, `activity`, `mods` (conditional), `backups`, `schedule`, `network`, `options`.
+Tab order: `console`, `players`, `activity`, `mods` (conditional), `map` (non-vanilla), `worlds`, `backups`, `files`, `schedule`, `network`, `options`. `worlds` and `files` are purely local, so they stay visible offline on every server type.
 
 The crash banner in `ConsoleViewer` communicates tab-switches to `MainPanel` via `window.dispatchEvent(new CustomEvent('minedash-switch-tab', { detail: { tab } }))`.
 
@@ -115,7 +115,7 @@ The crash banner in `ConsoleViewer` communicates tab-switches to `MainPanel` via
 
 ### Server types and their directories
 
-Each server lives in `instances/<id>/`. Paper servers additionally get a `plugins/` subdirectory. Vanilla servers have no mods or plugins tab. Mod/plugin metadata is stored in `.minedash-mods.json` / `.minedash-plugins.json` inside the mods or plugins folder.
+Each server lives in `instances/<id>/`. Paper servers additionally get a `plugins/` subdirectory. Vanilla servers have no mods or plugins tab. Mod/plugin metadata is stored in `.mod-metadata.json` (the `MOD_META_FILE` constant) / `.minedash-plugins.json` inside the mods or plugins folder.
 
 ### Launcher worker subprocess
 
@@ -152,6 +152,43 @@ When a Fabric/Forge server crashes with a missing mod error, `hasDependencyCrash
 
 **A mod ID is not a Modrinth slug**, and `findAndInstallMissingDeps` must not assume it is. `/project/athena` is a Paper *plugin*; `/project/fusion` is an unrelated mod; `simplytooltips` 404s and Modrinth's search can't match the run-together form. So: a slug hit is only trusted when `projectMatchesTarget()` confirms project type + loader + game version; `modIdQueryVariants()` generates search forms (including a dictionary word-split — `simplytooltips` → `simply tooltips`); `findModrinthCandidates()` ranks them; and each candidate's downloaded jar is verified with `readJarModInfo()` to actually declare the missing ID — deleted and skipped if not. Don't "simplify" this back to a bare slug fetch.
 
+### Server worlds (`backend/server-worlds.js`)
+
+A dedicated server keeps its saves as **top-level folders inside `instances/<id>/`** (not in a `saves/` folder like a client), and `level-name` in `server.properties` decides which one loads. So "switch world" is a pointer move, not a copy — every world stays on disk until it's explicitly deleted, and `POST /worlds/:name/activate` just rewrites that one property line.
+
+The module exists as its own file rather than more routes in `index.js` because of the **dimension-layout problem**, which is the thing that makes custom maps painful on a server:
+
+```
+vanilla / fabric / forge / neoforge   world/region, world/DIM-1/region, world/DIM1/region
+Bukkit family (paper)                 world/region, world_nether/DIM-1/region, world_the_end/DIM1/region
+```
+
+Almost every downloadable map ships the **vanilla** layout. Drop one into a Paper server untouched and the overworld loads while the Nether and End silently regenerate — the classic "my custom map lost its nether" bug. `applyLayout()` converts in **both directions** on import and on activate, so a map works on whatever server you put it on. `level.dat` is copied into each split folder because Bukkit expects one per world folder.
+
+Consequences to preserve if you touch this:
+
+- **`listWorlds()` filters out dimension siblings.** `<name>_nether` / `<name>_the_end` hold a `level.dat` too, so they'd otherwise list as separate worlds. They're dropped only when a real world named `<name>` exists — a standalone folder that merely ends in `_nether` still lists.
+- **Every mutation moves the whole set.** `worldParts()` returns the world plus its siblings; rename/duplicate/delete/export all iterate it, and rename follows `level-name` if it renamed the active world.
+- **Mutations refuse while the server runs** (`requireStopped`) — the JVM holds these files open, and on Windows the move just fails.
+- **Deleting the active world is refused.** Switch first; otherwise the server boots and silently generates a fresh world under the same name.
+- Zip extraction walks entries by hand with a zip-slip guard rather than using `extractAllTo`.
+
+### Server file manager (`backend/server-files.js`)
+
+Browse/edit/upload/download anything under `instances/<id>/`. Every other panel is a curated view of specific files; this is the escape hatch for the long tail (`ops.json`, a mod's `config/` TOML, a plugin's own yml).
+
+- **Paths travel as `?path=` query strings, deliberately.** A file path contains slashes, which Express would split across params — and `index.js`'s global `app.param` guard rejects any `:filename` holding a separator. `resolvePath()` is the single place traversal is checked; `withPath()` turns a rejection into a 400.
+- **The editor is extension-gated** (`TEXT_EXTENSIONS`) and capped at `MAX_EDIT_BYTES` (2 MB). Bigger or unknown files are download-only — the editor POSTs the whole buffer back on save.
+- **Saves are write-temp-then-rename**, so an interrupted write can't leave a half-truncated `server.properties` (= a server that won't boot).
+- The route-level `express.json({ limit: '8mb' })` matters: the global `express.json()` is at the 100 KB default, which a chunky Create/GregTech config blows straight past.
+- MineDash's own bookkeeping files are hidden from listings (`HIDDEN_ENTRIES`). `.minedash-client-mods/` is deliberately **not** hidden — it's useful to see what got stashed.
+
+### Mod updates for servers
+
+`POST /api/servers/:id/mods/check-updates` + `POST /api/servers/:id/mods/update` — the server-side equivalent of the launcher's `content/check-updates` / `update-mods` pair, which servers had been missing (they only had `repair-versions`, which fixes jars that are outright *wrong* for the loader/MC version but leaves a correct-but-stale mod alone).
+
+Matching is done by Modrinth's `/version_files/update` endpoint: every jar's SHA1 plus the loader and game version, answered with the newest compatible version per project. Jars Modrinth doesn't recognise (CurseForge-only, hand-built) are simply absent — there's no basis to offer an update for them. Disabled jars are included and keep their `.disabled` suffix through the swap. The update route **refuses while the server is running** and writes the new jar *before* removing the old one, so an interrupted update leaves two copies (loud) rather than none (a server silently missing a mod others require).
+
 ### Scheduled tasks engine
 
 Per-server tasks live on the server config as `scheduledTasks: []` (each: `{ id, name, type: 'backup'|'restart'|'command', command?, schedule: { days[], hour, minute }, enabled }`). A single global ticker (`startScheduleEngine`) aligns to the top of every minute and checks every server's tasks. `taskLastFireKey` (`YYYY-M-D-H-M` per task ID) dedups within the same minute. When cloning a server, scheduled task IDs are regenerated so fire-tracking doesn't conflate the source and clone.
@@ -166,7 +203,7 @@ Copies `instances/<source>/` to `instances/<newId>/`, skipping `logs/`, `crash-r
 
 ### Mod icon resolution
 
-`GET /api/servers/:id/mods` lazily backfills missing icons by streaming each jar through SHA1 and querying Modrinth's `/v2/version_file/{sha1}?algorithm=sha1` endpoint. Results (including misses, marked `lookedUp: true`) are cached in `.minedash-mods.json` so subsequent loads are instant. This means mods installed via `.mrpack`, drag-drop, dependency auto-installer, or manual file copy all get icons — anything Modrinth knows about gets identified.
+`GET /api/servers/:id/mods` lazily backfills missing icons by streaming each jar through SHA1 and querying Modrinth's `/v2/version_file/{sha1}?algorithm=sha1` endpoint. Results (including misses, marked `lookedUp: true`) are cached in `.mod-metadata.json` so subsequent loads are instant. This means mods installed via `.mrpack`, drag-drop, dependency auto-installer, or manual file copy all get icons — anything Modrinth knows about gets identified.
 
 ### Offline mode
 

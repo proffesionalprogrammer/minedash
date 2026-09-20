@@ -3395,6 +3395,174 @@ app.post('/api/servers/:id/mods/repair-versions', async (req, res) => {
   }
 });
 
+// ─── Mod updates (servers) ────────────────────────────────────────────────────
+// The launcher has had per-mod update checking since v1.3.0; servers only had
+// "repair versions", which replaces jars that are outright wrong for the loader
+// or MC version but leaves a correct-but-stale mod alone. These two routes are
+// the server-side equivalent of the launcher's check-updates / update-mods pair.
+//
+// Modrinth's /version_files/update endpoint does the matching: give it every
+// jar's SHA1 plus the loader and game version, and it answers with the newest
+// compatible version of whatever project each hash belongs to. Jars it doesn't
+// recognise (CurseForge-only mods, hand-built jars) are simply absent from the
+// response, which is right — we have no basis to offer an update for those.
+
+// Run async tasks with a concurrency cap. Hashing every jar of a 300-mod pack
+// at once would thrash the disk and blow through the open-file limit.
+async function runModTasks(tasks, limit) {
+  const queue = [...tasks];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const task = queue.shift();
+      if (task) await task();
+    }
+  });
+  await Promise.all(workers);
+}
+
+app.post('/api/servers/:id/mods/check-updates', async (req, res) => {
+  const { id } = req.params;
+  const modsPath = path.join(INSTANCES_DIR, id, 'mods');
+
+  const servers = await getServers();
+  const cfg = servers.find(s => s.id === id);
+  if (!cfg) return res.status(404).json({ error: 'Server not found' });
+
+  const loaderMap = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
+  const serverLoader = loaderMap[cfg.type];
+  const gameVersion = cfg.version;
+  if (!serverLoader || !gameVersion) {
+    return res.status(400).json({ error: 'This server has no mod loader — there are no mods to update.' });
+  }
+  if (!await fs.pathExists(modsPath)) return res.json({ updates: [], checked: 0 });
+
+  // Disabled jars are included: someone who turned a mod off still wants to
+  // know an update exists, and the update keeps the .disabled suffix.
+  const files = (await fs.readdir(modsPath)).filter(f => /\.jar(\.disabled)?$/i.test(f) && !f.startsWith('.'));
+  if (files.length === 0) return res.json({ updates: [], checked: 0 });
+
+  const meta = await readModMetadata(modsPath);
+
+  // Modrinth answers keyed by hash, so keep the reverse map. Two byte-identical
+  // jars under different names collide here and the last one wins — harmless,
+  // since they're the same mod and the loser surfaces on the next check.
+  const hashToFile = new Map();
+  await runModTasks(files.map(f => async () => {
+    try { hashToFile.set(await fileSha1(path.join(modsPath, f)), f); } catch {}
+  }), 8);
+  if (hashToFile.size === 0) return res.json({ updates: [], checked: 0 });
+
+  let latest;
+  try {
+    const r = await fetch(`${MODRINTH_API}/version_files/update`, {
+      method: 'POST',
+      headers: { ...MODRINTH_HEADERS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hashes: Array.from(hashToFile.keys()),
+        algorithm: 'sha1',
+        loaders: [serverLoader],
+        game_versions: [gameVersion],
+      }),
+    });
+    connectivity.noteUpstreamSuccess();
+    if (!r.ok) return res.status(502).json({ error: `Modrinth update lookup failed (${r.status})` });
+    latest = await r.json();
+  } catch (err) {
+    connectivity.noteUpstreamFailure(err);
+    return res.status(502).json({ error: `Modrinth unreachable: ${err.message}` });
+  }
+
+  const updates = [];
+  for (const [sha1, ver] of Object.entries(latest || {})) {
+    const filename = hashToFile.get(sha1);
+    if (!filename || !ver) continue;
+    const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
+    // Modrinth echoes the installed version back when it's already the newest.
+    if (!file || file.hashes?.sha1 === sha1) continue;
+    const baseKey = filename.replace(/\.disabled$/, '');
+    const m = meta[baseKey] || {};
+    updates.push({
+      filename,
+      title: m.title || baseKey,
+      iconUrl: m.iconUrl || null,
+      enabled: !filename.endsWith('.disabled'),
+      projectId: ver.project_id,
+      versionId: ver.id,
+      versionNumber: ver.version_number,
+      newFilename: file.filename,
+      datePublished: ver.date_published,
+    });
+  }
+  updates.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  res.json({ updates, checked: hashToFile.size });
+});
+
+// Apply updates found above. Body: { updates: [{ filename, versionId }] }.
+// Refuses while the server runs — swapping a jar out from under a live JVM
+// leaves the running server on the old code and, on Windows, usually fails
+// outright because the file is locked.
+app.post('/api/servers/:id/mods/update', async (req, res) => {
+  const { id } = req.params;
+  if (activeProcesses[id]) {
+    return res.status(409).json({ error: 'Stop the server before updating mods.' });
+  }
+  const requested = Array.isArray(req.body?.updates) ? req.body.updates : [];
+  if (requested.length === 0) return res.status(400).json({ error: 'No updates supplied' });
+
+  const modsPath = path.join(INSTANCES_DIR, id, 'mods');
+  if (!await fs.pathExists(modsPath)) return res.status(404).json({ error: 'This server has no mods folder' });
+  const meta = await readModMetadata(modsPath);
+
+  const updated = [];
+  const failed = [];
+  for (const u of requested) {
+    // basename() so a crafted "filename" can't reach outside mods/.
+    const oldName = typeof u?.filename === 'string' ? path.basename(u.filename) : '';
+    const versionId = typeof u?.versionId === 'string' ? u.versionId : '';
+    if (!oldName || !versionId || !/^[\w-]+$/.test(versionId)) {
+      failed.push({ filename: oldName || '(unknown)', reason: 'Invalid update entry' });
+      continue;
+    }
+    const wasDisabled = oldName.endsWith('.disabled');
+    const oldBase = oldName.replace(/\.disabled$/, '');
+    try {
+      const vRes = await fetch(`${MODRINTH_API}/version/${versionId}`, { headers: MODRINTH_HEADERS });
+      if (!vRes.ok) { failed.push({ filename: oldName, reason: `Version lookup failed (${vRes.status})` }); continue; }
+      const ver = await vRes.json();
+      const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
+      if (!file?.url) { failed.push({ filename: oldName, reason: 'No downloadable file in version' }); continue; }
+
+      const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
+      if (!dlRes.ok) { failed.push({ filename: oldName, reason: `Download failed (${dlRes.status})` }); continue; }
+      const buf = Buffer.from(await dlRes.arrayBuffer());
+
+      const newBase = path.basename(file.filename);
+      const newName = wasDisabled ? `${newBase}.disabled` : newBase;
+      // Write the new jar before removing the old one. An interrupted update
+      // then leaves two copies (the loader complains loudly) rather than none
+      // — which would silently boot a server missing a mod other mods require.
+      await fs.writeFile(path.join(modsPath, newName), buf);
+      if (newName !== oldName) await fs.remove(path.join(modsPath, oldName)).catch(() => {});
+
+      const m = meta[oldBase] || {};
+      if (newBase !== oldBase) delete meta[oldBase];
+      meta[newBase] = {
+        ...m,
+        projectId: ver.project_id || m.projectId || null,
+        gameVersions: ver.game_versions || [],
+        loaders: ver.loaders || [],
+        lookedUp: true,
+      };
+      updated.push({ from: oldName, to: newName, title: m.title || newBase, versionNumber: ver.version_number });
+    } catch (err) {
+      failed.push({ filename: oldName, reason: err.message });
+    }
+  }
+
+  if (updated.length > 0) await writeModMetadata(modsPath, meta);
+  res.json({ updated, failed });
+});
+
 // Multer's .array('modFile', 50) accepts multiple files appended under the
 // same field name (what FormData does when you append more than once). A
 // single-file call still works — req.files becomes a 1-element array. The
@@ -5143,6 +5311,21 @@ launcher.register(app);
 const connect = require('./connect');
 connect.init({ io, getServerPort });
 connect.register(app);
+
+// ─── Server worlds (custom maps, world switching) and the file manager ────────
+// Both are pure route modules over instances/<id>/ — extracted rather than
+// added to this file because it is already 5k lines, and because the world
+// module carries real logic (the vanilla ⇄ Bukkit dimension-layout conversion
+// that makes a downloaded map work on the server you put it on).
+const serverIsRunning = (serverId) => !!activeProcesses[serverId];
+
+const serverWorlds = require('./server-worlds');
+serverWorlds.init({ INSTANCES_DIR, getServers, isRunning: serverIsRunning, io });
+serverWorlds.register(app);
+
+const serverFiles = require('./server-files');
+serverFiles.init({ INSTANCES_DIR, getServers, isRunning: serverIsRunning });
+serverFiles.register(app);
 
 // ─── JSON error handler ──────────────────────────────────────────────────────
 // Terminal error middleware (must be registered after every route). Catches

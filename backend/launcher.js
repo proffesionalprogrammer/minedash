@@ -1578,6 +1578,58 @@ function register(app) {
     res.json({ ok: true });
   });
 
+  // Drop images into an instance's screenshots folder. Completes the pattern —
+  // every other content panel in the instance rail accepts a drag-drop, and
+  // without this the Screenshots grid is the one read-only panel. Useful for
+  // putting a shot you edited (or one a friend sent) back beside the originals.
+  const screenshotUpload = multer({
+    dest: path.join(require('os').tmpdir(), 'minedash-screenshot-uploads'),
+    limits: { fileSize: 64 * 1024 * 1024 },
+  });
+  app.post('/api/launcher/instances/:id/screenshots', screenshotUpload.array('file', 50), async (req, res) => {
+    const files = req.files || [];
+    const cleanup = async () => { for (const f of files) await fs.remove(f.path).catch(() => {}); };
+    const inst = await getInstance(req.params.id);
+    if (!inst) { await cleanup(); return res.status(404).json({ error: 'Instance not found' }); }
+    if (files.length === 0) return res.status(400).json({ error: 'No file uploaded' });
+
+    const dir = path.join(instanceDir(inst.id), 'screenshots');
+    await fs.ensureDir(dir);
+
+    const uploaded = [];
+    const failed = [];
+    for (const f of files) {
+      const name = path.basename(f.originalname || '');
+      // The grid only renders these, so anything else would upload into a
+      // folder where it is invisible.
+      if (!/\.(png|jpe?g)$/i.test(name)) {
+        failed.push({ filename: name || '(unnamed)', reason: 'Screenshots must be .png or .jpg' });
+        await fs.remove(f.path).catch(() => {});
+        continue;
+      }
+      const dest = safeChildPath(dir, name);
+      if (!dest) {
+        failed.push({ filename: name, reason: 'Invalid filename' });
+        await fs.remove(f.path).catch(() => {});
+        continue;
+      }
+      // Don't clobber an existing shot — Minecraft's own names are timestamps,
+      // so a collision means two different images, not a re-upload.
+      let target = dest;
+      const ext = path.extname(name);
+      const stem = name.slice(0, name.length - ext.length);
+      for (let n = 2; await fs.pathExists(target); n++) target = path.join(dir, `${stem} (${n})${ext}`);
+      try {
+        await fs.move(f.path, target);
+        uploaded.push(path.basename(target));
+      } catch (err) {
+        failed.push({ filename: name, reason: err.message });
+        await fs.remove(f.path).catch(() => {});
+      }
+    }
+    res.status(failed.length > 0 && uploaded.length > 0 ? 207 : 200).json({ uploaded, failed });
+  });
+
   // ── Instance export (.mrpack) ────────────────────────────────────
   // Packages an instance in the Modrinth modpack format so it can be shared
   // and re-imported (by MineDash, Prism, ATLauncher, …). Content files that
