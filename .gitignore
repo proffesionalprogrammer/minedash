@@ -79,3 +79,9 @@ backend/runtimes/
 # (the backend/ folder in dev). Regenerable from authlib-injector.js, which
 # also pins a known-good fallback — don't commit the binary.
 backend/authlib-injector/
+
+# ─── Screenshot drop-box ─────────────────────────────────────────────────
+# Scratch folder the user drops images into to show Claude (the Claude Code
+# CLI can't take a pasted image). Never repo content — bug captures, UI
+# screenshots, whatever the current conversation needs.
+screenshots/
