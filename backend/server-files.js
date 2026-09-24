@@ -60,9 +60,18 @@ const MAX_EDIT_BYTES = 2 * 1024 * 1024;
 function isTextFile(name, sizeBytes) {
   if (sizeBytes > MAX_EDIT_BYTES) return false;
   const lower = name.toLowerCase();
-  if (TEXT_EXTENSIONS.has(path.extname(lower))) return true;
-  // Extension-less files Minecraft/Java servers actually ship.
-  return ['eula.txt', 'ops.json', 'usercache.json', 'banned-players.json'].includes(lower);
+  // path.extname() treats a leading dot as part of the name, so dotfiles like
+  // .gitignore / .env are matched on the whole name instead.
+  return TEXT_EXTENSIONS.has(path.extname(lower)) || TEXT_EXTENSIONS.has(lower);
+}
+
+// Windows and macOS filesystems are case-insensitive, so "Config" and "config"
+// are the same entry there — a case-only rename must not read as a collision.
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+function samePath(a, b) {
+  const ra = path.resolve(a);
+  const rb = path.resolve(b);
+  return CASE_INSENSITIVE_FS ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
 }
 
 // The one traversal check. `rel` is whatever the client sent; the result is
@@ -135,13 +144,18 @@ function register(app) {
   };
 
   // Wrap a handler so a traversal rejection becomes a 400 rather than a 500.
+  // Also drops any multer temp files if the request is rejected before the
+  // handler runs — otherwise an upload to a bad path leaks them in os.tmpdir().
   const withPath = (handler) => async (req, res) => {
+    const dropUploads = async () => {
+      for (const f of req.files || []) await fs.remove(f.path).catch(() => {});
+    };
     const ctx = await resolve(req, res);
-    if (!ctx) return;
+    if (!ctx) { await dropUploads(); return; }
     let target;
     const rel = req.query.path ?? req.body?.path ?? '';
     try { target = resolvePath(ctx.serverPath, rel); }
-    catch (err) { return res.status(400).json({ error: err.message }); }
+    catch (err) { await dropUploads(); return res.status(400).json({ error: err.message }); }
     return handler(req, res, { ...ctx, target, rel });
   };
 
@@ -170,7 +184,17 @@ function register(app) {
         error: `That file is ${(stat.size / (1024 * 1024)).toFixed(1)} MB — too big to edit here. Download it instead.`,
       });
     }
-    const content = await fs.readFile(target, 'utf8');
+    if (!isTextFile(path.basename(target), stat.size)) {
+      return res.status(415).json({ error: "That file type can't be edited here. Download it instead." });
+    }
+    const raw = await fs.readFile(target);
+    const content = raw.toString('utf8');
+    // A lossy decode (Latin-1 lang file, a binary with a .txt name) would come
+    // back full of U+FFFD, and saving it would write those over the original
+    // bytes. Refuse up front instead.
+    if (!Buffer.from(content, 'utf8').equals(raw)) {
+      return res.status(415).json({ error: "That file isn't UTF-8 text, so editing it here would corrupt it. Download it instead." });
+    }
     res.json({
       path: toRelative(serverPath, target),
       content,
@@ -190,6 +214,9 @@ function register(app) {
     try { stat = await fs.stat(target); }
     catch { return res.status(404).json({ error: 'File not found' }); }
     if (stat.isDirectory()) return res.status(400).json({ error: 'That is a folder' });
+    if (!isTextFile(path.basename(target), 0)) {
+      return res.status(415).json({ error: "That file type can't be edited here." });
+    }
 
     const tmp = path.join(path.dirname(target), `.${path.basename(target)}.minedash-tmp`);
     try {
@@ -224,7 +251,9 @@ function register(app) {
     const archive = archiver('zip', { zlib: { level: 6 } });
     archive.on('error', (err) => { try { res.destroy(err); } catch {} });
     archive.on('warning', () => {});
-    archive.glob('**/*', { cwd: target, ignore: ['session.lock'], dot: true });
+    // session.lock sits inside each world folder, not just at the root; a running
+    // server holds an OS lock on it and reading it would abort the whole zip.
+    archive.glob('**/*', { cwd: target, ignore: ['session.lock', '**/session.lock'], dot: true });
     archive.pipe(res);
     archive.finalize();
   }));
@@ -289,7 +318,11 @@ function register(app) {
     if (!await fs.pathExists(target)) return res.status(404).json({ error: 'Path not found' });
 
     const dest = path.join(path.dirname(target), newName);
-    if (await fs.pathExists(dest)) return res.status(409).json({ error: `"${newName}" already exists.` });
+    // On a case-insensitive filesystem "Config" -> "config" finds itself here;
+    // that's a rename, not a collision.
+    if (!samePath(dest, target) && await fs.pathExists(dest)) {
+      return res.status(409).json({ error: `"${newName}" already exists.` });
+    }
     try { await fs.move(target, dest); }
     catch (err) { return res.status(500).json({ error: `Rename failed: ${err.message}` }); }
     res.json({ ok: true, path: toRelative(serverPath, dest) });
@@ -321,13 +354,17 @@ function register(app) {
     let extracted = 0;
     try {
       const zip = new AdmZip(target);
+      // Same zip-slip guard as the world importer: adm-zip only sanitises
+      // inside its own extractAllTo, and this walks the entries by hand. Every
+      // entry is checked before anything is written, so one bad path can't
+      // leave a half-extracted archive behind.
+      const planned = [];
       for (const entry of zip.getEntries()) {
-        // Same zip-slip guard as the world importer: adm-zip only sanitises
-        // inside its own extractAllTo, and this walks the entries by hand.
         const rel = path.normalize(entry.entryName.replace(/\\/g, '/')).replace(/^([\\/]+)/, '');
-        let abs;
-        try { abs = resolvePath(destDir, rel); }
+        try { planned.push({ entry, abs: resolvePath(destDir, rel) }); }
         catch { return res.status(400).json({ error: `Refusing unsafe path in zip: ${entry.entryName}` }); }
+      }
+      for (const { entry, abs } of planned) {
         if (entry.isDirectory) { await fs.ensureDir(abs); continue; }
         await fs.ensureDir(path.dirname(abs));
         await fs.writeFile(abs, entry.getData());

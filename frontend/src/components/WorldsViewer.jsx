@@ -33,7 +33,7 @@ function fmtDate(ms) {
 // map's dimension layout to whatever the server actually reads (see
 // backend/server-worlds.js — vanilla nests DIM-1/DIM1 inside the world folder,
 // Paper wants them in <world>_nether / <world>_the_end siblings).
-function WorldsViewer({ serverId, onError }) {
+function WorldsViewer({ serverId, serverStatus, onError }) {
   const [data, setData] = useState(null);       // { worlds, active, layout, running } | null while loading
   const [busy, setBusy] = useState(null);        // world name with an action in flight
   const [importing, setImporting] = useState(false);
@@ -59,8 +59,10 @@ function WorldsViewer({ serverId, onError }) {
     }
   }, [base, onError]);
 
+  // Re-read on start/stop too: `running` gates every mutation button, and a
+  // value fetched once at mount goes stale the moment the server changes state.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount; setState lands asynchronously in the promise
-  useEffect(() => { fetchWorlds(); }, [fetchWorlds]);
+  useEffect(() => { fetchWorlds(); }, [fetchWorlds, serverStatus]);
 
   // One wrapper for every per-world mutation: they all take a world name, set
   // the busy flag, surface an error the same way, and re-read the list after.
@@ -80,13 +82,19 @@ function WorldsViewer({ serverId, onError }) {
     return d;
   };
 
+  // The backend never deletes a dimension when both layouts hold a copy (that
+  // copy is usually a hand-built Nether) — it reports the conflict instead.
+  const conflictText = (conflicts) => conflicts?.length
+    ? ` Heads up: this world has two copies of its ${conflicts.join(' and ')} — the server will use the one in its own layout. Check the Files tab if that's the wrong one.`
+    : '';
+
   const handleActivate = (name) => act(name, async () => {
     const d = await post(`${base}/worlds/${encodeURIComponent(name)}/activate`);
     setNotice({
-      kind: 'ok',
-      text: d.converted?.length
+      kind: d.conflicts?.length ? 'warn' : 'ok',
+      text: (d.converted?.length
         ? `Now loading "${name}" — its ${d.converted.join(' and ')} were moved into the layout this server reads.`
-        : `The server will load "${name}" the next time it starts.`,
+        : `The server will load "${name}" the next time it starts.`) + conflictText(d.conflicts),
     });
   });
 
@@ -99,13 +107,20 @@ function WorldsViewer({ serverId, onError }) {
     setPendingDelete(null);
   });
 
+  // Enter commits, then the input's blur fires too (when focus moves, or as it
+  // unmounts); Escape cancels, then blur fires. This ref makes sure only the
+  // first of those decides, so Escape can't commit and Enter can't send the
+  // rename twice (the second one 404s against the old name).
+  const renameSettled = useRef(false);
+  const startRename = (name) => { renameSettled.current = false; setRenaming(name); setRenameValue(name); };
+  const cancelRename = () => { renameSettled.current = true; setRenaming(null); };
   const commitRename = (name) => {
+    if (renameSettled.current) return;
+    renameSettled.current = true;
     const next = renameValue.trim();
-    if (!next || next === name) { setRenaming(null); return; }
-    return act(name, async () => {
-      await post(`${base}/worlds/${encodeURIComponent(name)}/rename`, { newName: next });
-      setRenaming(null);
-    });
+    setRenaming(null);
+    if (!next || next === name) return;
+    return act(name, () => post(`${base}/worlds/${encodeURIComponent(name)}/rename`, { newName: next }));
   };
 
   const handleCopySeed = async (w) => {
@@ -136,7 +151,7 @@ function WorldsViewer({ serverId, onError }) {
         bits.push(`converted its ${d.converted.join(' and ')} to the ${d.layout === 'bukkit' ? 'Paper' : 'vanilla'} layout`);
       }
       if (d.activated) bits.push('and set it as the world the server loads');
-      setNotice({ kind: 'ok', text: bits.join(', ') + '.' });
+      setNotice({ kind: d.conflicts?.length ? 'warn' : 'ok', text: bits.join(', ') + '.' + conflictText(d.conflicts) });
       await fetchWorlds();
     } catch (err) { onError?.(err.message); }
     setImporting(false);
@@ -272,8 +287,12 @@ function WorldsViewer({ serverId, onError }) {
       <AnimatePresence>
         {notice && (
           <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="mx-4 mt-3 p-3 bg-[#00AF5C]/10 border border-[#00AF5C]/30 rounded-2xl flex items-center gap-3">
-            <div className="p-2 bg-[#00AF5C]/15 rounded-xl flex-shrink-0"><Check size={18} className="text-[#00AF5C]" /></div>
+            className={`mx-4 mt-3 p-3 rounded-2xl flex items-center gap-3 border ${
+              notice.kind === 'warn' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-[#00AF5C]/10 border-[#00AF5C]/30'
+            }`}>
+            {notice.kind === 'warn'
+              ? <div className="p-2 bg-amber-500/15 rounded-xl flex-shrink-0"><AlertTriangle size={18} className="text-amber-400" /></div>
+              : <div className="p-2 bg-[#00AF5C]/15 rounded-xl flex-shrink-0"><Check size={18} className="text-[#00AF5C]" /></div>}
             <p className="text-sm font-bold text-white flex-1 min-w-0">{notice.text}</p>
             <button onClick={() => setNotice(null)} className="p-1.5 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] transition-colors">
               <X size={14} />
@@ -322,7 +341,7 @@ function WorldsViewer({ serverId, onError }) {
                         onChange={(e) => setRenameValue(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') commitRename(w.name);
-                          else if (e.key === 'Escape') setRenaming(null);
+                          else if (e.key === 'Escape') cancelRename();
                         }}
                         onBlur={() => commitRename(w.name)}
                         className="w-full max-w-xs bg-[var(--c-base)] border border-[#00AF5C] rounded-lg px-2.5 py-1.5 text-sm font-bold text-[var(--c-text-primary)] outline-none" />
@@ -387,7 +406,7 @@ function WorldsViewer({ serverId, onError }) {
                       </a>
                     </Tooltip>
                     <Tooltip content={running ? 'Stop the server first' : 'Rename'} side="bottom" align="end">
-                      <button onClick={() => { setRenaming(w.name); setRenameValue(w.name); }} disabled={isBusy || running}
+                      <button onClick={() => startRename(w.name)} disabled={isBusy || running}
                         className="p-2 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-base)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                         <Pencil size={14} />
                       </button>

@@ -194,6 +194,18 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
+  // The window only ever shows the app itself. Anything else trying to take it
+  // over — a file dropped outside a drop zone, a stray link without
+  // target=_blank — would replace the UI with no way back (the window is
+  // frameless). Backend URLs stay allowed: some exports are started with
+  // `window.location.href = http://localhost:3001/...` and arrive as downloads.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const current = mainWindow.webContents.getURL().split('#')[0];
+    if (url.split('#')[0] === current || url.startsWith('http://localhost:3001/')) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url) && !/^https?:\/\/localhost[:/]/i.test(url)) shell.openExternal(url);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

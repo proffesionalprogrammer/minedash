@@ -47,7 +47,7 @@ function entryIcon(entry) {
 // Paths are relative to the instance folder and travel as `?path=` query
 // strings; the backend (backend/server-files.js) funnels every one through a
 // single traversal check.
-function FilesViewer({ serverId, onError }) {
+function FilesViewer({ serverId, serverStatus, onError }) {
   const [cwd, setCwd] = useState('');
   const [data, setData] = useState(null);       // { entries, running } | null while loading
   const [filter, setFilter] = useState('');
@@ -65,15 +65,21 @@ function FilesViewer({ serverId, onError }) {
   const [confirmClose, setConfirmClose] = useState(false);
 
   const fileRef = useRef(null);
+  const fetchSeq = useRef(0);
   const base = `http://localhost:3001/api/servers/${serverId}`;
 
   const fetchDir = useCallback(async (dir) => {
+    // Only the newest request may land. Clicking quickly through folders can
+    // resolve out of order, and a stale listing for the previous folder would
+    // leave `loading` stuck on (its path never matches cwd).
+    const seq = ++fetchSeq.current;
     try {
       const r = await fetch(`${base}/files?path=${encodeURIComponent(dir)}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed to read folder');
-      setData(d);
+      if (seq === fetchSeq.current) setData(d);
     } catch (err) {
+      if (seq !== fetchSeq.current) return;
       onError?.(err.message);
       setData({ path: dir, entries: [], running: false });
     }
@@ -81,9 +87,10 @@ function FilesViewer({ serverId, onError }) {
 
   // The listing carries the path it's for, so "still loading" is derived by
   // comparing it to the folder we want rather than blanking state in an effect
-  // (which the repo's ESLint flags as set-state-in-effect).
+  // (which the repo's ESLint flags as set-state-in-effect). serverStatus is a
+  // dependency so the "server is running" banner follows a start/stop.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-navigate; setState lands asynchronously in the promise
-  useEffect(() => { fetchDir(cwd); }, [cwd, fetchDir]);
+  useEffect(() => { fetchDir(cwd); }, [cwd, fetchDir, serverStatus]);
   const loading = data === null || data.path !== cwd;
 
   const refresh = () => fetchDir(cwd);
@@ -111,20 +118,28 @@ function FilesViewer({ serverId, onError }) {
     setBusy(entry.path);
     try {
       const d = await req(`${base}/files/content?path=${encodeURIComponent(entry.path)}`);
-      setEditor({ path: entry.path, name: entry.name, content: d.content, original: d.content, saving: false });
+      // A <textarea> hands back every line ending as \n, so a CRLF file would be
+      // silently converted on save — and .bat files (Forge's run.bat) misbehave
+      // with LF-only endings. Edit in LF, put the CRs back when saving.
+      const crlf = d.content.includes('\r\n');
+      const content = crlf ? d.content.replace(/\r\n/g, '\n') : d.content;
+      setEditor({ path: entry.path, name: entry.name, content, original: content, crlf, saving: false });
     } catch (err) { onError?.(err.message); }
     setBusy(null);
   };
 
   const saveEditor = async () => {
-    if (!editor) return;
+    if (!editor || editor.saving) return;
+    // Snapshot what's being written: typing while the request is in flight must
+    // leave the editor dirty, not be marked saved.
+    const saved = editor.content;
     setEditor(e => ({ ...e, saving: true }));
     try {
       await req(`${base}/files/content?path=${encodeURIComponent(editor.path)}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editor.content }),
+        body: JSON.stringify({ content: editor.crlf ? saved.replace(/\n/g, '\r\n') : saved }),
       });
-      setEditor(e => ({ ...e, original: e.content, saving: false }));
+      setEditor(e => ({ ...e, original: saved, saving: false }));
       await refresh();
     } catch (err) {
       onError?.(err.message);

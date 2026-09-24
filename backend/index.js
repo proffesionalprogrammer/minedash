@@ -328,6 +328,7 @@ javaPool.init(RUNTIMES_DIR);
 // nothing that another installed mod requires can be stripped as "client-only".
 // See backend/mod-deps.js for why Modrinth's server_side flag isn't enough.
 const modDeps = require('./mod-deps');
+const { findModUpdates } = require('./modrinth-updates');
 
 // Tracks whether this machine can actually reach Modrinth/Hangar/Mojang, so the
 // UI can hide the panels that need them instead of filling with fetch errors.
@@ -3452,33 +3453,28 @@ app.post('/api/servers/:id/mods/check-updates', async (req, res) => {
   }), 8);
   if (hashToFile.size === 0) return res.json({ updates: [], checked: 0 });
 
-  let latest;
+  // Only strictly newer releases come back — see modrinth-updates.js for why
+  // the raw endpoint answer can be a downgrade.
+  let found;
   try {
-    const r = await fetch(`${MODRINTH_API}/version_files/update`, {
-      method: 'POST',
-      headers: { ...MODRINTH_HEADERS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hashes: Array.from(hashToFile.keys()),
-        algorithm: 'sha1',
-        loaders: [serverLoader],
-        game_versions: [gameVersion],
-      }),
+    found = await findModUpdates({
+      api: MODRINTH_API, headers: MODRINTH_HEADERS,
+      hashes: Array.from(hashToFile.keys()), loader: serverLoader, gameVersion,
     });
     connectivity.noteUpstreamSuccess();
-    if (!r.ok) return res.status(502).json({ error: `Modrinth update lookup failed (${r.status})` });
-    latest = await r.json();
   } catch (err) {
+    if (err.status) {
+      connectivity.noteUpstreamSuccess();
+      return res.status(502).json({ error: err.message });
+    }
     connectivity.noteUpstreamFailure(err);
     return res.status(502).json({ error: `Modrinth unreachable: ${err.message}` });
   }
 
   const updates = [];
-  for (const [sha1, ver] of Object.entries(latest || {})) {
+  for (const [sha1, { version: ver, file }] of Object.entries(found)) {
     const filename = hashToFile.get(sha1);
-    if (!filename || !ver) continue;
-    const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
-    // Modrinth echoes the installed version back when it's already the newest.
-    if (!file || file.hashes?.sha1 === sha1) continue;
+    if (!filename) continue;
     const baseKey = filename.replace(/\.disabled$/, '');
     const m = meta[baseKey] || {};
     updates.push({
@@ -3525,6 +3521,12 @@ app.post('/api/servers/:id/mods/update', async (req, res) => {
     }
     const wasDisabled = oldName.endsWith('.disabled');
     const oldBase = oldName.replace(/\.disabled$/, '');
+    // A stale list (updated in another tab, or deleted since the check) would
+    // otherwise drop a fresh jar in beside nothing — or beside the new one.
+    if (!await fs.pathExists(path.join(modsPath, oldName))) {
+      failed.push({ filename: oldName, reason: 'No longer installed — run the check again' });
+      continue;
+    }
     try {
       const vRes = await fetch(`${MODRINTH_API}/version/${versionId}`, { headers: MODRINTH_HEADERS });
       if (!vRes.ok) { failed.push({ filename: oldName, reason: `Version lookup failed (${vRes.status})` }); continue; }
@@ -3535,13 +3537,24 @@ app.post('/api/servers/:id/mods/update', async (req, res) => {
       const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
       if (!dlRes.ok) { failed.push({ filename: oldName, reason: `Download failed (${dlRes.status})` }); continue; }
       const buf = Buffer.from(await dlRes.arrayBuffer());
+      // A truncated or mangled download would otherwise replace a working jar
+      // with one the loader can't open. Modrinth publishes the hash; use it.
+      const expected = file.hashes?.sha1;
+      if (expected && crypto.createHash('sha1').update(buf).digest('hex') !== expected) {
+        failed.push({ filename: oldName, reason: 'Downloaded file failed its checksum — try again' });
+        continue;
+      }
 
       const newBase = path.basename(file.filename);
       const newName = wasDisabled ? `${newBase}.disabled` : newBase;
       // Write the new jar before removing the old one. An interrupted update
       // then leaves two copies (the loader complains loudly) rather than none
       // — which would silently boot a server missing a mod other mods require.
-      await fs.writeFile(path.join(modsPath, newName), buf);
+      // Written under a temp name first: when the filename doesn't change
+      // between versions, a direct write would truncate the old jar in place.
+      const tmpPath = path.join(modsPath, `.${newName}.minedash-tmp`);
+      await fs.writeFile(tmpPath, buf);
+      await fs.move(tmpPath, path.join(modsPath, newName), { overwrite: true });
       if (newName !== oldName) await fs.remove(path.join(modsPath, oldName)).catch(() => {});
 
       const m = meta[oldBase] || {};

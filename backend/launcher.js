@@ -41,6 +41,7 @@ const javaPool = require('./java-pool');
 // Tiny dependency-free NBT reader used to surface a world's seed / game mode /
 // last-played from its level.dat (Worlds panel). See backend/nbt-lite.js.
 const nbtLite = require('./nbt-lite');
+const { findModUpdates } = require('./modrinth-updates');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
@@ -2281,30 +2282,22 @@ function register(app) {
     }), 8);
     if (hashToFile.size === 0) return res.json({ updates: [], checked: 0 });
 
-    let latest;
+    // Only strictly newer releases come back — see modrinth-updates.js for why
+    // the raw endpoint answer can be a downgrade.
+    let found;
     try {
-      const r = await fetch(`${MODRINTH_API}/version_files/update`, {
-        method: 'POST',
-        headers: { ...MODRINTH_HEADERS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hashes: Array.from(hashToFile.keys()),
-          algorithm: 'sha1',
-          loaders: [loader],
-          game_versions: [version],
-        }),
+      found = await findModUpdates({
+        api: MODRINTH_API, headers: MODRINTH_HEADERS,
+        hashes: Array.from(hashToFile.keys()), loader, gameVersion: version,
       });
-      if (!r.ok) return res.status(502).json({ error: `Modrinth update lookup failed (${r.status})` });
-      latest = await r.json();
     } catch (err) {
-      return res.status(502).json({ error: `Modrinth unreachable: ${err.message}` });
+      return res.status(502).json({ error: err.status ? err.message : `Modrinth unreachable: ${err.message}` });
     }
 
     const updates = [];
-    for (const [sha1, ver] of Object.entries(latest || {})) {
+    for (const [sha1, { version: ver, file }] of Object.entries(found)) {
       const filename = hashToFile.get(sha1);
-      if (!filename || !ver) continue;
-      const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
-      if (!file || file.hashes?.sha1 === sha1) continue; // already on the latest
+      if (!filename) continue;
       const m = meta[filename] || {};
       updates.push({
         filename,

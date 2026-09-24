@@ -85,16 +85,45 @@ async function dirSizeBytes(dir) {
   return total;
 }
 
+// Windows (and default macOS) filesystems are case-insensitive: level-name=World
+// loads the folder "world". Name comparisons that guard destructive actions
+// (is this the active world?) have to agree with the filesystem, or deleting
+// "world" slips past the "can't delete the active world" check.
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+function sameWorldName(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  return CASE_INSENSITIVE_FS ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 // ── server.properties: read/patch a single key ────────────────────────────────
 // Deliberately line-based rather than a full parse-and-rewrite: the file carries
 // user comments and ordering we have no business reshuffling just to change
 // level-name.
+//
+// server.properties is a java.util.Properties file. Minecraft before ~1.20.2
+// reads it as ISO-8859-1, so a raw UTF-8 "Château" comes back as "ChÃ¢teau" —
+// a different folder, and the server silently generates a fresh world. \uXXXX
+// escapes read correctly on every version, and Minecraft writes them itself
+// when it re-saves the file, so both directions have to handle them.
+function decodePropValue(v) {
+  return v.replace(/\\u([0-9a-fA-F]{4})|\\(.)/g, (_, hex, ch) => {
+    if (hex) return String.fromCharCode(parseInt(hex, 16));
+    return { t: '\t', n: '\n', r: '\r', f: '\f' }[ch] ?? ch;
+  });
+}
+function encodePropValue(v) {
+  return v
+    .replace(/\\/g, '\\\\')
+    .replace(/^\s/, (c) => `\\${c}`) // Properties strips leading whitespace from values
+    .replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 async function readLevelName(serverPath) {
   try {
     const raw = await fs.readFile(path.join(serverPath, 'server.properties'), 'utf8');
-    const m = raw.match(/^level-name\s*=\s*(.*)$/m);
+    const m = raw.match(/^level-name\s*[=:]\s*(.*)$/m);
     if (m) {
-      const v = m[1].trim();
+      const v = decodePropValue(m[1].trim());
       if (v) return v;
     }
   } catch {}
@@ -103,21 +132,23 @@ async function readLevelName(serverPath) {
 
 async function writeLevelName(serverPath, name) {
   const propPath = path.join(serverPath, 'server.properties');
+  const line = `level-name=${encodePropValue(name)}`;
   let lines = [];
   try {
     lines = (await fs.readFile(propPath, 'utf8')).split('\n');
   } catch {
     // No properties file yet (server never started). Create a minimal one —
     // Minecraft fills in every other default on first boot.
-    await fs.writeFile(propPath, `level-name=${name}\n`);
+    await fs.writeFile(propPath, `${line}\n`);
     return;
   }
   let found = false;
-  const out = lines.map((line) => {
-    if (/^level-name\s*=/.test(line)) { found = true; return `level-name=${name}`; }
-    return line;
+  const out = lines.map((l) => {
+    // Keep the line's own CR so a CRLF file doesn't end up with one LF line.
+    if (/^level-name\s*[=:]/.test(l)) { found = true; return l.endsWith('\r') ? `${line}\r` : line; }
+    return l;
   });
-  if (!found) out.push(`level-name=${name}`);
+  if (!found) out.push(line);
   await fs.writeFile(propPath, out.join('\n'));
 }
 
@@ -125,56 +156,65 @@ async function writeLevelName(serverPath, name) {
 // Both directions are move-based and idempotent: a world already in the target
 // layout comes out untouched. level.dat is *copied* into each split folder
 // because Bukkit expects one per world folder; the overworld keeps the original.
+//
+// When BOTH layouts hold a copy of a dimension, neither is deleted. The usual
+// way that happens is exactly the bug this module exists for: a map unzipped
+// by hand into a Paper server, which then booted and generated a *fresh*
+// world_nether beside the map's real world/DIM-1. We can't tell which copy the
+// user wants, and guessing wrong destroys a hand-built Nether — so both stay on
+// disk (the server ignores the one it doesn't read) and the conflict is
+// reported back so the UI can say so.
 
 async function toBukkitLayout(serverPath, name) {
   const worldDir = path.join(serverPath, name);
   const levelDat = path.join(worldDir, 'level.dat');
-  const moved = [];
+  const converted = [];
+  const conflicts = [];
   for (const [dim, suffix] of [[NETHER_DIM, NETHER_SUFFIX], [END_DIM, END_SUFFIX]]) {
+    const label = suffix === NETHER_SUFFIX ? 'nether' : 'end';
     const src = path.join(worldDir, dim);
     if (!(await fs.pathExists(src))) continue;
     const sibling = path.join(serverPath, `${name}${suffix}`);
-    // A sibling already holding this dimension means the map shipped both
-    // layouts (rare, but it happens with repacked maps) — trust the sibling and
-    // drop the nested copy rather than merging two region sets.
-    if (await fs.pathExists(path.join(sibling, dim))) {
-      await fs.remove(src).catch(() => {});
-      continue;
-    }
+    if (await fs.pathExists(path.join(sibling, dim))) { conflicts.push(label); continue; }
     await fs.ensureDir(sibling);
-    await fs.move(src, path.join(sibling, dim), { overwrite: true });
+    await fs.move(src, path.join(sibling, dim));
     if (await fs.pathExists(levelDat)) {
       await fs.copy(levelDat, path.join(sibling, 'level.dat'), { overwrite: true }).catch(() => {});
     }
-    moved.push(suffix === NETHER_SUFFIX ? 'nether' : 'end');
+    converted.push(label);
   }
-  return moved;
+  return { converted, conflicts };
 }
+
+// What Bukkit keeps at the top of a dimension sibling besides the DIM folder.
+// Once the dimension has moved out, a sibling holding only these is removed;
+// one holding anything else is left alone rather than guessed at.
+const SIBLING_BOOKKEEPING = new Set(['level.dat', 'level.dat_old', 'uid.dat', 'session.lock', 'paper-world.yml']);
 
 async function toVanillaLayout(serverPath, name) {
   const worldDir = path.join(serverPath, name);
-  const moved = [];
+  const converted = [];
+  const conflicts = [];
   for (const [dim, suffix] of [[NETHER_DIM, NETHER_SUFFIX], [END_DIM, END_SUFFIX]]) {
+    const label = suffix === NETHER_SUFFIX ? 'nether' : 'end';
     const sibling = path.join(serverPath, `${name}${suffix}`);
     const src = path.join(sibling, dim);
     if (!(await fs.pathExists(src))) continue;
     const dest = path.join(worldDir, dim);
-    if (await fs.pathExists(dest)) {
-      await fs.remove(sibling).catch(() => {});
-      continue;
-    }
+    if (await fs.pathExists(dest)) { conflicts.push(label); continue; }
     await fs.ensureDir(worldDir);
-    await fs.move(src, dest, { overwrite: true });
-    await fs.remove(sibling).catch(() => {});
-    moved.push(suffix === NETHER_SUFFIX ? 'nether' : 'end');
+    await fs.move(src, dest);
+    converted.push(label);
+    const leftovers = await fs.readdir(sibling).catch(() => []);
+    if (leftovers.every(f => SIBLING_BOOKKEEPING.has(f))) await fs.remove(sibling).catch(() => {});
   }
-  return moved;
+  return { converted, conflicts };
 }
 
 async function applyLayout(serverPath, name, serverType) {
-  return usesBukkitLayout(serverType)
-    ? { layout: 'bukkit', converted: await toBukkitLayout(serverPath, name) }
-    : { layout: 'vanilla', converted: await toVanillaLayout(serverPath, name) };
+  const bukkit = usesBukkitLayout(serverType);
+  const result = bukkit ? await toBukkitLayout(serverPath, name) : await toVanillaLayout(serverPath, name);
+  return { layout: bukkit ? 'bukkit' : 'vanilla', ...result };
 }
 
 // Every folder that belongs to `name` — the world itself plus any Bukkit
@@ -270,33 +310,59 @@ async function extractZip(zipPath, destDir) {
   }
 }
 
-// Find the world root inside an extracted zip: either the extract dir itself
-// (level.dat at the zip root) or a single subfolder holding one. Maps are
-// packaged both ways and the second is more common.
+// Find the world root inside an extracted zip: the extract dir itself (level.dat
+// at the zip root) or the shallowest folder holding one. Maps are packaged
+// every which way — "Map/level.dat" is most common, but "Map v1.2/Map/level.dat"
+// (a readme beside the world) is common enough that one level isn't enough.
+const WORLD_SEARCH_DEPTH = 3;
 async function findWorldRoot(extractDir, fallbackName) {
   if (await fs.pathExists(path.join(extractDir, 'level.dat'))) {
     return { root: extractDir, baseName: fallbackName };
   }
-  let entries = [];
-  try { entries = await fs.readdir(extractDir); } catch { return null; }
-  for (const entry of entries) {
-    const sub = path.join(extractDir, entry);
-    try {
-      if ((await fs.stat(sub)).isDirectory() && await fs.pathExists(path.join(sub, 'level.dat'))) {
-        return { root: sub, baseName: entry };
+  let level = [extractDir];
+  for (let depth = 1; depth <= WORLD_SEARCH_DEPTH && level.length; depth++) {
+    const next = [];
+    const hits = [];
+    for (const dir of level) {
+      let entries = [];
+      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { continue; }
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name === '__MACOSX') continue;
+        const sub = path.join(dir, e.name);
+        if (await fs.pathExists(path.join(sub, 'level.dat'))) hits.push({ root: sub, baseName: e.name });
+        else next.push(sub);
       }
-    } catch {}
+    }
+    // A Bukkit-layout map has level.dat in world_nether / world_the_end too;
+    // the overworld is the one that isn't a dimension sibling.
+    const main = hits.find(h => !h.baseName.endsWith(NETHER_SUFFIX) && !h.baseName.endsWith(END_SUFFIX));
+    if (main || hits[0]) return main || hits[0];
+    level = next;
   }
   return null;
 }
 
 function sanitizeWorldName(raw) {
-  return (raw || 'world').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+$/, '').slice(0, 100) || 'world';
+  return (raw || 'world')
+    .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, '_') // control chars would inject lines into server.properties
+    .slice(0, 100)
+    .replace(/^[\s.]+/, '')                      // a leading dot hides the folder from listWorlds
+    .replace(/[\s.]+$/, '')                      // Windows silently drops trailing dots/spaces
+    || 'world';
+}
+
+// A name is free only if its dimension siblings are free too — otherwise a
+// stray "<name>_nether" from an older world gets adopted (or merged into).
+async function nameTaken(serverPath, name) {
+  for (const suffix of ['', NETHER_SUFFIX, END_SUFFIX]) {
+    if (await fs.pathExists(path.join(serverPath, `${name}${suffix}`))) return true;
+  }
+  return false;
 }
 
 async function uniqueWorldName(serverPath, base) {
   let target = base;
-  for (let n = 2; await fs.pathExists(path.join(serverPath, target)); n++) target = `${base} (${n})`;
+  for (let n = 2; await nameTaken(serverPath, target); n++) target = `${base} (${n})`;
   return target;
 }
 
@@ -325,7 +391,7 @@ function register(app) {
     const worlds = await listWorlds(ctx.serverPath);
     const active = await readLevelName(ctx.serverPath);
     res.json({
-      worlds: worlds.map(w => ({ ...w, active: w.name === active })),
+      worlds: worlds.map(w => ({ ...w, active: sameWorldName(w.name, active) })),
       active,
       layout: usesBukkitLayout(ctx.cfg.type) ? 'bukkit' : 'vanilla',
       running: isRunning(req.params.id),
@@ -353,9 +419,9 @@ function register(app) {
     if (!dir || !await fs.pathExists(path.join(dir, 'level.dat'))) {
       return res.status(404).json({ error: 'World not found' });
     }
-    const { converted } = await applyLayout(ctx.serverPath, req.params.name, ctx.cfg.type);
+    const { converted, conflicts } = await applyLayout(ctx.serverPath, req.params.name, ctx.cfg.type);
     await writeLevelName(ctx.serverPath, req.params.name);
-    res.json({ ok: true, active: req.params.name, converted });
+    res.json({ ok: true, active: req.params.name, converted, conflicts });
   });
 
   // Import a map .zip. `activate=1` switches the server to it immediately,
@@ -392,13 +458,14 @@ function register(app) {
       // world root, which are siblings of `found.root` too — carry them over
       // before converting, otherwise the nether/end are left in the temp dir.
       for (const suffix of [NETHER_SUFFIX, END_SUFFIX]) {
+        if (found.root === tmpExtract) break; // level.dat at the zip root: no siblings possible
         const src = path.join(path.dirname(found.root), `${found.baseName}${suffix}`);
         if (await fs.pathExists(src)) {
           await fs.move(src, path.join(ctx.serverPath, `${target}${suffix}`), { overwrite: true }).catch(() => {});
         }
       }
 
-      const { layout, converted } = await applyLayout(ctx.serverPath, target, ctx.cfg.type);
+      const { layout, converted, conflicts } = await applyLayout(ctx.serverPath, target, ctx.cfg.type);
 
       let activated = false;
       if (req.query.activate === '1' || req.body?.activate === '1') {
@@ -406,7 +473,7 @@ function register(app) {
         activated = true;
       }
       if (io) io.emit('server_worlds_changed', { serverId: req.params.id });
-      res.json({ ok: true, name: target, layout, converted, activated });
+      res.json({ ok: true, name: target, layout, converted, conflicts, activated });
     } catch (err) {
       res.status(500).json({ error: `Import failed: ${err.message}` });
     } finally {
@@ -430,19 +497,29 @@ function register(app) {
     const newName = sanitizeWorldName(raw);
     if (!safeChild(ctx.serverPath, newName)) return res.status(400).json({ error: 'Invalid world name' });
     if (newName === req.params.name) return res.json({ ok: true, name: newName });
-    if (await fs.pathExists(path.join(ctx.serverPath, newName))) {
+    // A case-only rename ("world" -> "World") finds itself on a case-insensitive
+    // filesystem; that's not a collision. Otherwise every destination part must
+    // be free up front — discovering a taken "<new>_nether" halfway through
+    // would leave the world split across two names.
+    if (!sameWorldName(newName, req.params.name) && await nameTaken(ctx.serverPath, newName)) {
       return res.status(409).json({ error: `A world named "${newName}" already exists.` });
     }
 
     const parts = await worldParts(ctx.serverPath, req.params.name);
+    const done = [];
     try {
       for (const p of parts) {
-        await fs.move(p.dir, path.join(ctx.serverPath, `${newName}${p.suffix}`), { overwrite: false });
+        const dest = path.join(ctx.serverPath, `${newName}${p.suffix}`);
+        await fs.move(p.dir, dest);
+        done.push({ from: p.dir, to: dest });
       }
     } catch (err) {
+      // Put back whatever already moved, so the world stays in one piece under
+      // its old name (which level-name still points at).
+      for (const m of done.reverse()) await fs.move(m.to, m.from).catch(() => {});
       return res.status(500).json({ error: `Rename failed: ${err.message}` });
     }
-    if (await readLevelName(ctx.serverPath) === req.params.name) {
+    if (sameWorldName(await readLevelName(ctx.serverPath), req.params.name)) {
       await writeLevelName(ctx.serverPath, newName);
     }
     res.json({ ok: true, name: newName });
@@ -473,7 +550,7 @@ function register(app) {
     if (!ctx) return;
     const dir = safeChild(ctx.serverPath, req.params.name);
     if (!dir || !await fs.pathExists(dir)) return res.status(404).json({ error: 'World not found' });
-    if (await readLevelName(ctx.serverPath) === req.params.name) {
+    if (sameWorldName(await readLevelName(ctx.serverPath), req.params.name)) {
       return res.status(409).json({
         error: 'That world is the one the server loads. Switch to another world first, then delete it.',
       });
