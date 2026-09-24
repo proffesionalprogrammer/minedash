@@ -11,12 +11,17 @@
 // So before anything removes a jar as "client-only", we ask this module whether
 // some other installed mod requires it. Required mods are never stripped.
 //
-// Used by backend/index.js only. Zero new npm deps — adm-zip is already a root
+// It also reads versions, version ranges and `breaks` (analyzeJars), so an
+// update can be checked against the rest of the folder before it lands — see
+// mod-compat.js. Used by index.js, launcher.js and mod-compat.js.
+//
+// Zero new npm deps — adm-zip is already a root
 // dependency (see CLAUDE.md: backend deps must live in the ROOT package.json).
 
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
+const { satisfies, describePredicate } = require('./mod-versions');
 
 // Mod IDs provided by the platform itself — never "missing", never installable.
 const BUILTIN_MOD_IDS = new Set([
@@ -114,32 +119,94 @@ function isMandatoryForgeDep(dep) {
   return dep.mandatory === true || dep.mandatory === 'true';
 }
 
+// Each reader returns the same shape for its loader:
+//   { flavor, ids, versions: {id: version}, deps: [{ id, range, kind, side }] }
+// kind: 'required' | 'breaks'. `range` is the loader's own predicate (a Fabric
+// SemVer predicate or a Maven range — see mod-versions.js). `side` is only set
+// by mods.toml ('CLIENT' / 'SERVER' / 'BOTH').
 function readFabricJson(text) {
   const json = JSON.parse(text);
   const ids = [];
+  const versions = {};
+  const version = json.version != null ? String(json.version) : null;
   if (json.id) ids.push(String(json.id).toLowerCase());
   for (const p of json.provides || []) ids.push(String(p).toLowerCase());
-  const requires = Object.keys(json.depends || {}).map(k => k.toLowerCase());
-  return { ids, requires };
+  for (const id of ids) if (version) versions[id] = version;
+  const deps = [];
+  for (const [k, range] of Object.entries(json.depends || {})) deps.push({ id: k.toLowerCase(), range, kind: 'required' });
+  for (const [k, range] of Object.entries(json.breaks || {})) deps.push({ id: k.toLowerCase(), range, kind: 'breaks' });
+  return { flavor: 'fabric', ids, versions, deps };
 }
 
 function readQuiltJson(text) {
   const json = JSON.parse(text);
   const ql = json.quilt_loader || {};
   const ids = [];
+  const versions = {};
+  const version = ql.version != null ? String(ql.version) : null;
   if (ql.id) ids.push(String(ql.id).toLowerCase());
   for (const p of ql.provides || []) {
-    ids.push(String(typeof p === 'string' ? p : p.id || '').toLowerCase());
+    const pid = String(typeof p === 'string' ? p : p.id || '').toLowerCase();
+    if (!pid) continue;
+    ids.push(pid);
+    if (typeof p === 'object' && p.version) versions[pid] = String(p.version);
   }
-  const requires = [];
+  for (const id of ids) if (version && !versions[id]) versions[id] = version;
+  const deps = [];
   for (const d of ql.depends || []) {
-    if (typeof d === 'string') { requires.push(d.toLowerCase()); continue; }
-    if (d && d.id && !d.optional) requires.push(String(d.id).toLowerCase());
+    if (typeof d === 'string') { deps.push({ id: d.toLowerCase(), range: null, kind: 'required' }); continue; }
+    if (d && d.id && !d.optional) deps.push({ id: String(d.id).toLowerCase(), range: d.versions ?? null, kind: 'required' });
   }
-  return { ids: ids.filter(Boolean), requires };
+  for (const d of ql.breaks || []) {
+    if (typeof d === 'string') { deps.push({ id: d.toLowerCase(), range: null, kind: 'breaks' }); continue; }
+    if (d && d.id) deps.push({ id: String(d.id).toLowerCase(), range: d.versions ?? null, kind: 'breaks' });
+  }
+  return { flavor: 'quilt', ids: ids.filter(Boolean), versions, deps };
 }
 
-// Pull ids/requires out of an already-open zip, keeping each loader's metadata
+// mods.toml writes `version = "${file.jarVersion}"`, which the loader fills in
+// from the jar manifest's Implementation-Version.
+function manifestVersion(zip) {
+  const e = zip.getEntry('META-INF/MANIFEST.MF');
+  if (!e) return null;
+  try {
+    const m = /^Implementation-Version:\s*(.+)$/mi.exec(e.getData().toString('utf8'));
+    return m ? m[1].trim() : null;
+  } catch (_) { return null; }
+}
+
+function readModsToml(text, zip) {
+  const toml = parseModsToml(text);
+  const ids = [];
+  const versions = {};
+  for (const mod of toml.mods) {
+    if (!mod.modId) continue;
+    const id = String(mod.modId).toLowerCase();
+    ids.push(id);
+    let v = mod.version != null ? String(mod.version) : null;
+    if (v && /\$\{file\.jarVersion\}/.test(v)) v = manifestVersion(zip);
+    if (v && !/\$\{/.test(v)) versions[id] = v;
+  }
+  const own = new Set(ids);
+  const deps = [];
+  for (const [owner, list] of Object.entries(toml.dependencies)) {
+    // Only honour dependency blocks belonging to a mod this jar actually
+    // ships (or the wildcard form), so a stale block can't invent deps.
+    if (owner !== '*' && !own.has(owner.toLowerCase())) continue;
+    for (const dep of list) {
+      if (!dep.modId) continue;
+      const side = typeof dep.side === 'string' ? dep.side.toUpperCase() : 'BOTH';
+      const type = typeof dep.type === 'string' ? dep.type.toLowerCase() : null;
+      const base = { id: String(dep.modId).toLowerCase(), range: dep.versionRange ?? null, side };
+      // NeoForge 1.20.2+ spells "these can't coexist" as type = "incompatible".
+      if (type === 'incompatible') deps.push({ ...base, kind: 'breaks' });
+      else if (isMandatoryForgeDep(dep)) deps.push({ ...base, kind: 'required' });
+    }
+  }
+  return { flavor: 'forge', ids, versions, deps };
+}
+
+// Pull metadata out of an already-open zip, keeping each loader's file
 // separate. A "universal" jar ships fabric.mod.json AND quilt.mod.json AND
 // META-INF/mods.toml at once; only the running loader's file applies, so
 // merging them invents dependencies (Moog's Structures appears to need
@@ -147,6 +214,7 @@ function readQuiltJson(text) {
 // jar-in-jar recursion.
 function readFromZip(zip, depth) {
   const ids = new Set();
+  const nestedVersions = {};
   const perLoader = { fabric: null, quilt: null, forge: null };
 
   const tryEntry = (name, fn) => {
@@ -155,44 +223,20 @@ function readFromZip(zip, depth) {
     try { return fn(e.getData().toString('utf8')); } catch (_) { return null; }
   };
 
-  const fabric = tryEntry('fabric.mod.json', readFabricJson);
-  if (fabric) perLoader.fabric = fabric;
-  const quilt = tryEntry('quilt.mod.json', readQuiltJson);
-  if (quilt) perLoader.quilt = quilt;
-
-  for (const tomlName of ['META-INF/neoforge.mods.toml', 'META-INF/mods.toml']) {
-    const entry = zip.getEntry(tomlName);
-    if (!entry) continue;
-    const res = { ids: [], requires: [] };
-    try {
-      const toml = parseModsToml(entry.getData().toString('utf8'));
-      const own = new Set();
-      for (const mod of toml.mods) if (mod.modId) own.add(String(mod.modId).toLowerCase());
-      res.ids = [...own];
-      for (const [owner, deps] of Object.entries(toml.dependencies)) {
-        // Only honour dependency blocks belonging to a mod this jar actually
-        // ships (or the wildcard form), so a stale block can't invent deps.
-        if (owner !== '*' && !own.has(owner.toLowerCase())) continue;
-        for (const dep of deps) {
-          if (!dep.modId) continue;
-          // side = "CLIENT" deps are not validated on a dedicated server.
-          if (typeof dep.side === 'string' && dep.side.toUpperCase() === 'CLIENT') continue;
-          if (!isMandatoryForgeDep(dep)) continue;
-          res.requires.push(String(dep.modId).toLowerCase());
-        }
-      }
-    } catch (_) { continue; }
-    // neoforge.mods.toml wins when both exist — it's the newer of the two and
-    // the one a NeoForge server reads.
-    if (!perLoader.forge) perLoader.forge = res;
-  }
+  perLoader.fabric = tryEntry('fabric.mod.json', readFabricJson);
+  perLoader.quilt = tryEntry('quilt.mod.json', readQuiltJson);
+  // neoforge.mods.toml wins when both exist — it's the newer of the two and
+  // the one a NeoForge server reads.
+  perLoader.forge = tryEntry('META-INF/neoforge.mods.toml', (t) => readModsToml(t, zip))
+    || tryEntry('META-INF/mods.toml', (t) => readModsToml(t, zip));
 
   for (const res of Object.values(perLoader)) {
     if (res) for (const i of res.ids) ids.add(i);
   }
 
   // Jar-in-jar: a bundled nested mod satisfies a dependency without a separate
-  // file on disk, so its ids count as provided. Depth 1 covers real-world packs.
+  // file on disk, so its ids (and versions) count as provided. Depth 1 covers
+  // real-world packs.
   if (depth < 1) {
     for (const entry of zip.getEntries()) {
       if (entry.isDirectory) continue;
@@ -201,13 +245,16 @@ function readFromZip(zip, depth) {
       try {
         const nested = readFromZip(new AdmZip(entry.getData()), depth + 1);
         for (const i of nested.ids) ids.add(i);
+        for (const res of Object.values(nested.perLoader)) {
+          if (res) for (const [id, v] of Object.entries(res.versions)) nestedVersions[id] = nestedVersions[id] || v;
+        }
         // Nested requirements are the nested mod's problem and are usually
         // satisfied by the parent; don't propagate them as top-level needs.
       } catch (_) { /* ignore */ }
     }
   }
 
-  return { ids: [...ids], perLoader };
+  return { ids: [...ids], perLoader, nestedVersions };
 }
 
 // The metadata that actually applies on `loader`, falling back through related
@@ -220,36 +267,63 @@ const LOADER_PREFERENCE = {
   neoforge: ['forge'],
 };
 
-function requiresForLoader(perLoader, loader) {
+function metaForLoader(perLoader, loader) {
   const order = LOADER_PREFERENCE[loader] || ['fabric', 'quilt', 'forge'];
-  for (const key of order) {
-    if (perLoader[key]) return perLoader[key].requires || [];
-  }
-  return [];
+  for (const key of order) if (perLoader[key]) return perLoader[key];
+  return null;
 }
 
 /**
- * Read a jar's declared mod IDs and the dependencies that are mandatory on
- * `loader` ('fabric' | 'quilt' | 'forge' | 'neoforge'; omit to take whatever
- * metadata the jar ships first).
- * Returns { ids: string[], requires: string[] } — empty arrays for a jar we
- * can't parse (never throws; an unreadable jar must not break a server start).
+ * Read a jar's declared mod IDs and what it needs on `loader` ('fabric' |
+ * 'quilt' | 'forge' | 'neoforge'; omit to take whatever metadata the jar ships
+ * first). `side` is 'server' (default — a dedicated server skips mods.toml
+ * deps marked side = "CLIENT") or 'client' (a launcher instance, where those
+ * deps apply).
+ *
+ * Returns {
+ *   ids: string[], requires: string[],            // the original contract
+ *   flavor: 'fabric'|'quilt'|'forge'|null,        // dialect of the ranges below
+ *   versions: { id: version },                    // incl. jar-in-jar mods
+ *   ranges: { id: predicate },                    // version limits on requires
+ *   breaks: { id: predicate },                    // mods it refuses to run beside
+ * }
+ * Empty for a jar we can't parse — never throws; an unreadable jar must not
+ * break a server start.
  */
-function readJarModInfo(jarPath, loader) {
+function readJarModInfo(jarPath, loader, { side = 'server' } = {}) {
+  const empty = { ids: [], requires: [], flavor: null, versions: {}, ranges: {}, breaks: {} };
   let stat;
-  try { stat = fs.statSync(jarPath); } catch (_) { return { ids: [], requires: [] }; }
+  try { stat = fs.statSync(jarPath); } catch (_) { return empty; }
 
   let raw;
   const hit = jarCache.get(jarPath);
   if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) {
     raw = hit.raw;
   } else {
-    raw = { ids: [], perLoader: {} };
+    raw = { ids: [], perLoader: {}, nestedVersions: {} };
     try { raw = readFromZip(new AdmZip(jarPath), 0); } catch (_) { /* not a readable zip */ }
     jarCache.set(jarPath, { mtimeMs: stat.mtimeMs, size: stat.size, raw });
   }
 
-  return { ids: raw.ids, requires: requiresForLoader(raw.perLoader, loader) };
+  const meta = metaForLoader(raw.perLoader, loader);
+  const out = { ...empty, ids: raw.ids, versions: { ...raw.nestedVersions } };
+  if (!meta) return out;
+  out.flavor = meta.flavor;
+  Object.assign(out.versions, meta.versions);
+  const requires = new Set();
+  for (const d of meta.deps) {
+    // A dedicated server doesn't validate client-side mods.toml deps.
+    if (side === 'server' && d.side === 'CLIENT') continue;
+    if (side === 'client' && d.side === 'SERVER') continue;
+    if (d.kind === 'required') {
+      requires.add(d.id);
+      if (d.range != null) out.ranges[d.id] = d.range;
+    } else {
+      out.breaks[d.id] = d.range;
+    }
+  }
+  out.requires = [...requires];
+  return out;
 }
 
 const isJar = (f) => /\.jar(\.disabled)?$/i.test(f);
@@ -355,7 +429,105 @@ function idsLostByReplacing(modsDir, loader, oldName, newJarPath) {
     .filter(x => x.requiredBy.length > 0);
 }
 
+// ── Whole-set analysis ────────────────────────────────────────────────────────
+// Presence alone isn't enough: Fabric refuses to start when a present mod is
+// the wrong version (Iris needs Sodium 0.8.x) or when one mod declares it
+// breaks another (Sodium 0.8.14 breaks Iris <= 1.10.7). This checks a set of
+// jars the way the loader will, so an update can be vetted *before* it lands
+// and a crash can be traced to the jar that caused it.
+
+const isAnyRange = (r) => r == null || r === '*' || (Array.isArray(r) && r.length === 1 && r[0] === '*');
+
+/**
+ * Loader-level problems in a set of *enabled* jars. `entries` is
+ * [{ file, path }] — `path` may point anywhere (a temp download standing in for
+ * the jar it would replace). Returns [{
+ *   type: 'missing' | 'version' | 'breaks',
+ *   key,                       // stable across filename changes: type|byId|id
+ *   by, byId, byVersion,       // the jar that declares the requirement / break
+ *   id, range,                 // the mod it's about and the declared predicate
+ *   haveFile, have,            // what's installed for `id` (not for 'missing')
+ * }]
+ */
+function analyzeJars(entries, loader, { side = 'server' } = {}) {
+  const jars = entries.map(e => ({ ...e, info: readJarModInfo(e.path, loader, { side }) }));
+  const provided = new Map(); // id -> { file, version }
+  for (const j of jars) {
+    for (const id of j.info.ids) {
+      if (!provided.has(id)) provided.set(id, { file: j.file, version: j.info.versions[id] ?? null });
+    }
+  }
+  const problems = [];
+  const push = (p) => problems.push({ ...p, key: `${p.type}|${p.byId}|${p.id}` });
+  for (const j of jars) {
+    const byId = j.info.ids[0] || j.file;
+    const base = { by: j.file, byId, byVersion: j.info.versions[byId] ?? null };
+    for (const id of j.info.requires) {
+      if (BUILTIN_MOD_IDS.has(id)) continue;
+      const p = provided.get(id);
+      if (!p) { push({ ...base, type: 'missing', id, range: j.info.ranges[id] ?? null }); continue; }
+      if (p.file === j.file) continue;
+      const range = j.info.ranges[id];
+      if (isAnyRange(range)) continue;
+      if (satisfies(p.version, range, j.info.flavor) === false) {
+        push({ ...base, type: 'version', id, range, haveFile: p.file, have: p.version });
+      }
+    }
+    for (const [id, range] of Object.entries(j.info.breaks)) {
+      if (BUILTIN_MOD_IDS.has(id)) continue;
+      const p = provided.get(id);
+      if (!p || p.file === j.file) continue;
+      if (isAnyRange(range) || satisfies(p.version, range, j.info.flavor) === true) {
+        push({ ...base, type: 'breaks', id, range, haveFile: p.file, have: p.version });
+      }
+    }
+  }
+  return problems;
+}
+
+// Enabled top-level jars of a mods folder as analyzeJars entries.
+function listEnabledJars(modsDir) {
+  let files = [];
+  try { files = fs.readdirSync(modsDir).filter(f => /\.jar$/i.test(f) && !f.startsWith('.')); } catch (_) {}
+  return files.map(file => ({ file, path: path.join(modsDir, file) }));
+}
+
+/**
+ * analyzeJars over a mods folder, optionally with changes applied virtually:
+ * `replace` maps an installed filename to { file, path } of the jar that would
+ * take its place (or null to remove it); `add` lists extra { file, path } jars.
+ */
+function analyzeModsDir(modsDir, loader, { side = 'server', replace = {}, add = [] } = {}) {
+  const entries = [];
+  for (const e of listEnabledJars(modsDir)) {
+    if (!(e.file in replace)) { entries.push(e); continue; }
+    if (replace[e.file]) entries.push(replace[e.file]);
+  }
+  entries.push(...add);
+  return analyzeJars(entries, loader, { side });
+}
+
+// Problems in `after` that weren't already in `before` — what a change caused.
+function introducedProblems(before, after) {
+  const seen = new Set(before.map(p => p.key));
+  return after.filter(p => !seen.has(p.key));
+}
+
+// One line a person can act on.
+function describeProblem(p) {
+  const who = p.byVersion ? `${p.byId} ${p.byVersion}` : p.byId;
+  const have = p.have ? `${p.id} ${p.have}` : p.id;
+  if (p.type === 'missing') return `${who} needs ${p.id}, which isn't installed`;
+  if (p.type === 'version') return `${who} needs ${p.id} ${describePredicate(p.range)}, but ${have} is installed`;
+  return `${who} doesn't work with ${have}`;
+}
+
 module.exports = {
+  analyzeJars,
+  analyzeModsDir,
+  listEnabledJars,
+  introducedProblems,
+  describeProblem,
   BUILTIN_MOD_IDS,
   readJarModInfo,
   scanModsDir,

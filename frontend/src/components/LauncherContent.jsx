@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as ImageIcon, Sparkles, Trash2, Package, Layers, Database, RefreshCw, FolderOpen, Globe, CheckSquare, Square, X, AlertTriangle, Wrench, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Download, Heart, Loader2, Check, AlertCircle, Box, Image as ImageIcon, Sparkles, Trash2, Package, Layers, Database, RefreshCw, FolderOpen, Globe, CheckSquare, Square, X, AlertTriangle, Wrench, Upload, ChevronLeft, ChevronRight, Link2Off } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import { VersionRow } from './VersionRow';
@@ -14,6 +14,13 @@ const TYPES = [
   { key: 'modpack',      label: 'Modpacks',       icon: Layers     },
   { key: 'datapack',     label: 'Data Packs',     icon: Database   },
 ];
+
+// "Update available: 0.8.12 — skipped 0.8.14 (sodium 0.8.14 doesn't work with
+// iris 1.10.7)". The skipped part is why this isn't the very newest version.
+function updateTooltip(u) {
+  const skipped = (u.heldBack || []).slice(0, 2).map(h => `${h.versionNumber} (${h.reason})`);
+  return `Update available: ${u.latestVersionNumber || ''}${skipped.length ? ` — skipped ${skipped.join(', ')}` : ''}`;
+}
 
 function fmt(n) {
   if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
@@ -456,6 +463,9 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
       if (r.ok) {
         const d = await r.json();
         const next = {};
+        // The backend only offers versions that fit beside the other installed
+        // mods; `heldBack` lists newer ones it skipped (and why), `held` the
+        // mods with no compatible update at all.
         for (const u of d.updates || []) {
           next[u.filename] = {
             hasUpdate: true,
@@ -463,7 +473,11 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
             latestVersionNumber: u.versionNumber,
             newFilename: u.newFilename,
             title: u.title,
+            heldBack: u.heldBack || [],
           };
+        }
+        for (const h of d.held || []) {
+          next[h.filename] = { hasUpdate: false, heldReason: h.reason, title: h.title };
         }
         setUpdateInfo(next);
       }
@@ -1209,9 +1223,19 @@ function InstalledTabView({ items, typeLabel, filter, onFilterChange, onDelete, 
                       </Tooltip>
                     )}
                     {updateInfo?.[f.filename]?.hasUpdate && (
-                      <Tooltip content={`Update available: ${updateInfo[f.filename].latestVersionNumber || ''}`} className="flex-shrink-0">
+                      <Tooltip content={updateTooltip(updateInfo[f.filename])} className="flex-shrink-0">
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-md">
                           <Download size={10} /> Update available
+                        </span>
+                      </Tooltip>
+                    )}
+                    {/* A newer version exists but doesn't work with the other
+                        installed mods (e.g. Sodium vs the installed Iris), so
+                        no update is offered — say why instead of staying silent. */}
+                    {updateInfo?.[f.filename]?.heldReason && (
+                      <Tooltip content={`Newer versions aren't compatible with your other mods: ${updateInfo[f.filename].heldReason}`} className="flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-[var(--c-surface-1)] text-[var(--c-text-muted)] border border-[var(--c-border)] rounded-md">
+                          <Link2Off size={10} /> Update held
                         </span>
                       </Tooltip>
                     )}

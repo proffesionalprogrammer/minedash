@@ -59,8 +59,12 @@ function parseMissingModIds(logText) {
 
 // Returns true if the log text indicates a dependency crash (regardless of exit code).
 // Forge exits with code 0 even on dep failures, so we can't rely on code alone.
+// Also matches version conflicts, not just missing mods: Fabric's
+// ModResolutionException ("Some of your mods are incompatible with the game or
+// each other!") is what a declared `breaks` or a wrong dependency version
+// produces — the Sodium/Iris case — and mod-compat.repairMods handles those.
 function hasDependencyCrash(logText) {
-  return /Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Mod resolution failed/i.test(logText);
+  return /Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed/i.test(logText);
 }
 
 module.exports = { stripMcCodes, parseMissingModIds, hasDependencyCrash };

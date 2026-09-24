@@ -42,6 +42,11 @@ const javaPool = require('./java-pool');
 // last-played from its level.dat (Worlds panel). See backend/nbt-lite.js.
 const nbtLite = require('./nbt-lite');
 const { findModUpdates } = require('./modrinth-updates');
+// Compatibility-checked updates, update backups and the crash auto-fix — see
+// mod-compat.js for the Sodium/Iris bug that made these necessary.
+const modDeps = require('./mod-deps');
+const modCompat = require('./mod-compat');
+const modrinthResolve = require('./modrinth-resolve');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
@@ -2285,32 +2290,61 @@ function register(app) {
       return res.status(502).json({ error: err.status ? err.message : `Modrinth unreachable: ${err.message}` });
     }
 
-    const updates = [];
-    for (const [sha1, { version: ver, file }] of Object.entries(found)) {
-      const filename = hashToFile.get(sha1);
-      if (!filename) continue;
-      const m = meta[filename] || {};
-      updates.push({
-        filename,
-        title: m.title || filename,
-        iconUrl: m.iconUrl || null,
-        projectId: ver.project_id,
-        versionId: ver.id,
-        versionNumber: ver.version_number,
-        newFilename: file.filename,
-        datePublished: ver.date_published,
+    // Newest isn't the same as usable. Each candidate's jar is downloaded (into
+    // a cache the Update step reuses) and checked against the installed mods;
+    // one that declares it breaks something installed, or needs a version of
+    // something that isn't installed, is stepped back to the newest version
+    // that fits. Betas aren't offered to someone on a release.
+    const cacheDir = path.join(profileDir, '.minedash-update-cache');
+    await modCompat.pruneCache(cacheDir);
+    const candidates = Object.entries(found)
+      .map(([sha1, { version: ver, installed }]) => ({ filename: hashToFile.get(sha1), newest: ver, installed }))
+      .filter(c => c.filename);
+    let vetted = [];
+    try {
+      vetted = await modCompat.vetUpdates({
+        modsDir, loader, side: 'client', gameVersion: version, candidates, cacheDir,
+        api: MODRINTH_API, headers: MODRINTH_HEADERS,
       });
+    } catch (err) {
+      return res.status(502).json({ error: `Couldn't check update compatibility: ${err.message}` });
+    }
+
+    const updates = [];
+    const held = [];
+    for (const v of vetted) {
+      const m = meta[v.filename] || {};
+      const title = m.title || v.filename;
+      if (v.offer) {
+        updates.push({
+          filename: v.filename,
+          title,
+          iconUrl: m.iconUrl || null,
+          projectId: v.offer.project_id,
+          versionId: v.offer.id,
+          versionNumber: v.offer.version_number,
+          newFilename: v.file?.filename || null,
+          datePublished: v.offer.date_published,
+          // Newer versions that were skipped because they don't fit.
+          heldBack: v.heldBack.filter(h => !/build$/.test(h.reason)),
+        });
+      } else if (!v.skip) {
+        held.push({ filename: v.filename, title, iconUrl: m.iconUrl || null, reason: v.reason });
+      }
     }
     updates.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-    res.json({ updates, checked: hashToFile.size });
+    held.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    res.json({ updates, held, checked: hashToFile.size });
   });
 
   // Apply mod updates found by check-updates. Body: { updates: [{ filename,
-  // versionId }] }. Downloads each new file, swaps it in for the old one, and
-  // keeps every side-table consistent: the launcher manifest, the
-  // client-extras list (so server-sync doesn't wipe the new jar), and any
-  // modpack record that tracked the old path (so modpack delete/update flows
-  // keep working after a per-mod update).
+  // versionId }] }. Each new jar is checked against the rest of the mods
+  // folder once more (the set may have changed since the check, and "Update
+  // all" applies several at once) and refused if it would stop the game
+  // starting. The jar it replaces is kept in .minedash-update-backup/ so the
+  // crash auto-fix can roll it back. New required mods are installed through
+  // the validated resolver. Launcher bookkeeping (manifest, client extras,
+  // modpack records) follows every rename — see renameLauncherMod.
   app.post('/api/launcher/profiles/:loader/:version/content/update-mods', async (req, res) => {
     const { loader, version } = req.params;
     const instanceId = req.query.instance || null;
@@ -2321,13 +2355,9 @@ function register(app) {
     catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
 
     const modsDir = path.join(profileDir, 'mods');
-    const metaPath = path.join(modsDir, '.minedash-launcher.json');
-    let meta = {};
-    try { meta = await fs.readJson(metaPath); } catch {}
-
-    let extras = { files: [] };
-    try { extras = await readClientExtras(profileDir); } catch {}
-    const extrasSet = new Set(extras.files || []);
+    const backupDir = path.join(profileDir, '.minedash-update-backup');
+    const cacheDir = path.join(profileDir, '.minedash-update-cache');
+    const side = 'client';
 
     const updated = [];
     const failed = [];
@@ -2338,58 +2368,61 @@ function register(app) {
         failed.push({ filename: oldName || '(unknown)', reason: 'Invalid update entry' });
         continue;
       }
+      if (!await fs.pathExists(path.join(modsDir, oldName))) {
+        failed.push({ filename: oldName, reason: 'No longer installed — run the check again' });
+        continue;
+      }
+      let staging = null;
       try {
         const vRes = await fetch(`${MODRINTH_API}/version/${versionId}`, { headers: MODRINTH_HEADERS });
         if (!vRes.ok) { failed.push({ filename: oldName, reason: `Version lookup failed (${vRes.status})` }); continue; }
         const ver = await vRes.json();
-        const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
+        const file = modrinthResolve.primaryFile(ver);
         if (!file?.url) { failed.push({ filename: oldName, reason: 'No downloadable file in version' }); continue; }
 
-        const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
-        if (!dlRes.ok) { failed.push({ filename: oldName, reason: `Download failed (${dlRes.status})` }); continue; }
-        const buf = Buffer.from(await dlRes.arrayBuffer());
+        const wasDisabled = oldName.endsWith('.disabled');
+        const newBase = path.basename(file.filename);
+        const newName = wasDisabled ? `${newBase}.disabled` : newBase;
+        // Dot-prefixed so the analyzer (and the game) never see it as a mod.
+        staging = path.join(modsDir, `.${newName}.minedash-tmp`);
+        await modrinthResolve.downloadVersionFile(file, staging, { headers: MODRINTH_HEADERS, cacheDir });
 
-        const newName = path.basename(file.filename);
-        await fs.writeFile(path.join(modsDir, newName), buf);
-        if (newName !== oldName) await fs.remove(path.join(modsDir, oldName)).catch(() => {});
+        if (!wasDisabled) {
+          const before = modDeps.analyzeModsDir(modsDir, loader, { side });
+          const after = modDeps.analyzeModsDir(modsDir, loader, { side, replace: { [oldName]: { file: newBase, path: staging } } });
+          const bad = modCompat.blocking(modDeps.introducedProblems(before, after), newBase);
+          if (bad.length > 0) {
+            failed.push({ filename: oldName, reason: `${modDeps.describeProblem(bad[0])} — kept the current version` });
+            continue;
+          }
+        }
 
-        const m = meta[oldName] || {};
-        if (newName !== oldName) delete meta[oldName];
-        meta[newName] = {
-          ...m,
-          projectId: ver.project_id || m.projectId || null,
-          gameVersions: ver.game_versions || [],
-          loaders: ver.loaders || [],
-          lookedUp: true,
-          installedAt: Date.now(),
-        };
-        if (extrasSet.has(oldName)) { extrasSet.delete(oldName); extrasSet.add(newName); }
-        updated.push({ from: oldName, to: newName, title: m.title || newName, versionNumber: ver.version_number });
+        await modCompat.replaceWithBackup({ modsDir, backupDir, oldName, newName, newJarPath: staging });
+        staging = null;
+        const title = await renameLauncherMod(profileDir, oldName, newName, ver);
+        updated.push({ from: oldName, to: newName, title: title || newName, versionNumber: ver.version_number });
       } catch (err) {
         failed.push({ filename: oldName, reason: err.message });
+      } finally {
+        if (staging) await fs.remove(staging).catch(() => {});
       }
     }
 
+    // A new version can need a library the old one didn't.
+    let installedDeps = [];
     if (updated.length > 0) {
-      try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
-      try { await writeClientExtras(profileDir, { files: Array.from(extrasSet) }); } catch {}
-      // Keep modpack file-tracking pointing at the renamed jars.
       try {
-        const recordPath = path.join(profileDir, '.minedash-modpacks.json');
-        const record = await fs.readJson(recordPath);
-        let changed = false;
-        for (const entry of Object.values(record || {})) {
-          if (!entry || !Array.isArray(entry.files)) continue;
-          for (const { from, to } of updated) {
-            if (from === to) continue;
-            const idx = entry.files.findIndex(p => p === `mods/${from}` || p === `mods\\${from}`);
-            if (idx !== -1) { entry.files[idx] = `mods/${to}`; changed = true; }
-          }
-        }
-        if (changed) await fs.writeJson(recordPath, record, { spaces: 2 });
-      } catch {}
+        const actions = await modCompat.repairMods({
+          modsDir, backupDir, cacheDir, loader, side, gameVersion: version,
+          api: MODRINTH_API, headers: MODRINTH_HEADERS, conflicts: false,
+          hooks: launcherModHooks(profileDir),
+        });
+        installedDeps = actions.map(a => a.text);
+      } catch (err) {
+        console.warn('[launcher] post-update dependency install failed:', err.message);
+      }
     }
-    res.json({ updated, failed });
+    res.json({ updated, failed, installedDeps });
   });
 
   // Upload a manually-downloaded file (mod jar / resource pack zip / shader zip
@@ -3606,33 +3639,44 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
       emit(launchId, 'close', { code: 'cancelled' });
       return;
     }
-    // Try to recover from a dep-crash before signalling close: if the game
-    // exited because of "Mod X requires Y", install Y from Modrinth and retry.
+    // Try to recover from a mod-loading crash before signalling close. The
+    // loader refuses to start for three reasons — a mod is missing, a mod is
+    // the wrong version for another, or one mod declares it breaks another
+    // (Sodium 0.8.14 vs Iris 1.10.7). modCompat.repairMods reads the mods
+    // folder the way the loader does and fixes the cause: it rolls back an
+    // update that did it, swaps in a version that fits, or installs a missing
+    // mod through the validated resolver. It never adds a second copy of a
+    // mod that's already there — which is what the old installer did, so the
+    // game crashed the same way again after "fixing" it.
     try {
       if (hasDependencyCrashFn && hasDependencyCrashFn(logBuffer)) {
-        const allMissing = (parseMissingModIdsFn ? parseMissingModIdsFn(logBuffer) : []);
-        const newOnes = allMissing.filter(id => !triedIds.has(id));
-        if (newOnes.length > 0) {
-          emit(launchId, 'status', { message: `Missing client mods detected: ${newOnes.join(', ')}. Installing…` });
-          const installed = await installMissingClientMods({
-            profileRoot, loader, version,
-            missingIds: newOnes,
-            onLog: (msg) => emit(launchId, 'log', { message: msg }),
-          });
-          newOnes.forEach(id => triedIds.add(id));
-          if (installed.length > 0) {
-            emit(launchId, 'status', { message: `Installed ${installed.length} mod(s) (${installed.map(i => i.title).join(', ')}). Restarting…` });
-            activeLaunches.delete(launchId);
-            // Restart with the same launchId so the UI stays on this session.
-            // Pass syncServer:null — re-syncing from the server would wipe the
-            // client-only deps we just installed.
-            runLaunch({
-              launchId, instance, account, accountsDoc,
-              syncServer: null, settings, quickPlayHost, quickPlayWorld,
-              depAttempted: triedIds, elybyLaunch,
-            }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
-            return;
-          }
+        const logMissing = (parseMissingModIdsFn ? parseMissingModIdsFn(logBuffer) : []);
+        emit(launchId, 'status', { message: 'Minecraft refused to load these mods — looking for a fix…' });
+        const actions = await modCompat.repairMods({
+          modsDir: path.join(profileRoot, 'mods'),
+          backupDir: path.join(profileRoot, '.minedash-update-backup'),
+          cacheDir: path.join(profileRoot, '.minedash-update-cache'),
+          loader, side: 'client', gameVersion: version,
+          api: MODRINTH_LOOKUP_API, headers: MODRINTH_LOOKUP_HEADERS,
+          extraMissingIds: logMissing, tried: triedIds,
+          log: (msg) => emit(launchId, 'log', { message: msg }),
+          hooks: launcherModHooks(profileRoot),
+        });
+        if (actions.length === 0) {
+          emit(launchId, 'status', { message: "Couldn't fix the mod problem automatically — see the log for what's wrong." });
+        } else {
+          emit(launchId, 'status', { message: `Fixed: ${actions.map(a => a.text).join('; ')}. Restarting…` });
+          activeLaunches.delete(launchId);
+          // Restart with the same launchId so the UI stays on this session.
+          // Pass syncServer:null — re-syncing from the server would wipe the
+          // client-only deps we just installed. `triedIds` rides along so a
+          // problem the fix didn't cure is never "fixed" twice in a loop.
+          runLaunch({
+            launchId, instance, account, accountsDoc,
+            syncServer: null, settings, quickPlayHost, quickPlayWorld,
+            depAttempted: triedIds, elybyLaunch,
+          }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
+          return;
         }
       }
     } catch (err) {
@@ -3738,6 +3782,93 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
 function clientExtrasPath(profileRoot) {
   return path.join(profileRoot, '.minedash-client-extras.json');
 }
+// ─── Keeping launcher bookkeeping in step with jar swaps ──────────────
+// A jar that MineDash replaces (update, crash auto-fix) or adds has three
+// side-tables that must follow it: the mods-folder manifest (title / icon /
+// projectId), the client-extras list (so a server sync doesn't wipe it), and
+// any modpack record that tracked the old path (so deleting the modpack still
+// removes it). Returns the mod's title, when known.
+async function renameLauncherMod(profileRoot, from, to, ver) {
+  const modsDir = path.join(profileRoot, 'mods');
+  const metaPath = path.join(modsDir, '.minedash-launcher.json');
+  let meta = {};
+  try { meta = await fs.readJson(metaPath); } catch {}
+  const m = meta[from] || {};
+  if (from !== to) delete meta[from];
+  meta[to] = {
+    ...m,
+    ...(ver ? {
+      projectId: ver.project_id || m.projectId || null,
+      gameVersions: ver.game_versions || [],
+      loaders: ver.loaders || [],
+    } : {}),
+    lookedUp: !!ver || !!m.lookedUp,
+    installedAt: Date.now(),
+  };
+  try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
+
+  if (from !== to) {
+    try {
+      const extras = await readClientExtras(profileRoot);
+      const set = new Set(extras.files || []);
+      if (set.delete(from)) { set.add(to); await writeClientExtras(profileRoot, { files: [...set] }); }
+    } catch {}
+    try {
+      const recordPath = path.join(profileRoot, '.minedash-modpacks.json');
+      const record = await fs.readJson(recordPath);
+      let changed = false;
+      for (const entry of Object.values(record || {})) {
+        if (!entry || !Array.isArray(entry.files)) continue;
+        const idx = entry.files.findIndex(p => p === `mods/${from}` || p === `mods\\${from}`);
+        if (idx !== -1) { entry.files[idx] = `mods/${to}`; changed = true; }
+      }
+      if (changed) await fs.writeJson(recordPath, record, { spaces: 2 });
+    } catch {}
+  }
+  return m.title || null;
+}
+
+// Hooks for modCompat.repairMods on a launcher profile.
+function launcherModHooks(profileRoot) {
+  const modsDir = path.join(profileRoot, 'mods');
+  const api = { api: MODRINTH_LOOKUP_API, headers: MODRINTH_LOOKUP_HEADERS };
+  return {
+    // Which Modrinth project (and version) a local jar is. The hash lookup is
+    // authoritative; the manifest's projectId covers a jar Modrinth can't hash.
+    async projectFor(filename) {
+      let projectId = null;
+      try { projectId = (await fs.readJson(path.join(modsDir, '.minedash-launcher.json')))[filename]?.projectId || null; } catch {}
+      let version = null;
+      try { version = await modrinthResolve.versionForSha1(await fileSha1(path.join(modsDir, filename)), api); } catch {}
+      if (version?.project_id) projectId = version.project_id;
+      return projectId ? { projectId, version } : null;
+    },
+    async onReplaced({ from, to, version }) { await renameLauncherMod(profileRoot, from, to, version); },
+    async onAdded({ file, version, project }) {
+      const metaPath = path.join(modsDir, '.minedash-launcher.json');
+      let meta = {};
+      try { meta = await fs.readJson(metaPath); } catch {}
+      meta[file] = {
+        title: project?.title || null,
+        iconUrl: project?.icon_url || null,
+        projectId: project?.id || version?.project_id || null,
+        gameVersions: version?.game_versions || [],
+        loaders: version?.loaders || [],
+        lookedUp: true,
+        installedAt: Date.now(),
+      };
+      try { await fs.writeJson(metaPath, meta, { spaces: 2 }); } catch {}
+      // Auto-installed deps survive a server sync, like any client-side extra.
+      try {
+        const extras = await readClientExtras(profileRoot);
+        const set = new Set(extras.files || []);
+        set.add(file);
+        await writeClientExtras(profileRoot, { files: [...set] });
+      } catch {}
+    },
+  };
+}
+
 async function readClientExtras(profileRoot) {
   try { return await fs.readJson(clientExtrasPath(profileRoot)); }
   catch { return { files: [] }; }
@@ -3846,79 +3977,6 @@ async function syncClientMods(launchId, server, profileRoot) {
       await fs.remove(path.join(targetModsDir, f));
     }
   } catch {}
-}
-
-// After a dep-crash, install the missing mods from Modrinth into the client
-// profile's mods/ folder and record each install in .minedash-client-extras.json
-// so subsequent syncClientMods runs don't wipe them.
-async function installMissingClientMods({ profileRoot, loader, version, missingIds, onLog }) {
-  if (!Array.isArray(missingIds) || missingIds.length === 0) return [];
-  const targetDir = path.join(profileRoot, 'mods');
-  await fs.ensureDir(targetDir);
-
-  // 'fabric' as a dep ID on Fabric means Fabric API (a real Modrinth project),
-  // not the Fabric loader itself. Same remapping the server-side installer uses.
-  const MOD_ID_REMAP = { fabric: 'fabric-api' };
-  const installed = [];
-  const extras = await readClientExtras(profileRoot);
-  const extrasFiles = new Set(extras.files || []);
-
-  for (const rawId of missingIds) {
-    const lookupId = MOD_ID_REMAP[rawId] || rawId;
-    onLog?.(`[client-dep] Searching Modrinth for '${lookupId}'…\n`);
-    try {
-      // Strategy 1: direct slug lookup
-      let project = null;
-      const slugRes = await fetch(`${MODRINTH_LOOKUP_API}/project/${lookupId}`, { headers: MODRINTH_LOOKUP_HEADERS });
-      if (slugRes.ok) project = await slugRes.json();
-
-      // Strategy 2: search and pick the closest match
-      if (!project) {
-        const facets = [['project_type:mod']];
-        if (version) facets.push([`versions:${version}`]);
-        if (loader)  facets.push([`categories:${loader}`]);
-        const params = new URLSearchParams({ query: lookupId, limit: '5', facets: JSON.stringify(facets) });
-        const sRes = await fetch(`${MODRINTH_LOOKUP_API}/search?${params}`, { headers: MODRINTH_LOOKUP_HEADERS });
-        if (sRes.ok) {
-          const data = await sRes.json();
-          const hit = (data.hits || []).find(h =>
-            h.slug === lookupId || h.slug.includes(lookupId) || lookupId.includes(h.slug)
-          ) || data.hits?.[0];
-          if (hit) project = { id: hit.project_id, icon_url: hit.icon_url, title: hit.title };
-        }
-      }
-      if (!project) { onLog?.(`[client-dep] Could not find '${lookupId}' on Modrinth.\n`); continue; }
-
-      const vParams = new URLSearchParams();
-      if (version) vParams.set('game_versions', JSON.stringify([version]));
-      if (loader)  vParams.set('loaders',       JSON.stringify([loader]));
-      const vRes = await fetch(`${MODRINTH_LOOKUP_API}/project/${project.id}/version?${vParams}`, { headers: MODRINTH_LOOKUP_HEADERS });
-      if (!vRes.ok) { onLog?.(`[client-dep] No compatible version for '${lookupId}'.\n`); continue; }
-      const versions = await vRes.json();
-      if (!Array.isArray(versions) || versions.length === 0) {
-        onLog?.(`[client-dep] No version of '${lookupId}' for ${loader} ${version}.\n`);
-        continue;
-      }
-      const best = pickBestModrinthVersion(versions);
-      if (!best) continue;
-      const file = best.files.find(f => f.primary) || best.files[0];
-      if (!file) continue;
-
-      const dlRes = await fetch(file.url, { headers: MODRINTH_LOOKUP_HEADERS });
-      if (!dlRes.ok) { onLog?.(`[client-dep] Download failed for '${lookupId}'.\n`); continue; }
-      await fs.writeFile(path.join(targetDir, file.filename), Buffer.from(await dlRes.arrayBuffer()));
-      extrasFiles.add(file.filename);
-      installed.push({ id: rawId, filename: file.filename, title: project.title || lookupId });
-      onLog?.(`[client-dep] ✓ Installed ${project.title || lookupId} (${file.filename})\n`);
-    } catch (err) {
-      onLog?.(`[client-dep] Error installing '${rawId}': ${err.message || err}\n`);
-    }
-  }
-
-  if (installed.length > 0) {
-    await writeClientExtras(profileRoot, { files: Array.from(extrasFiles) });
-  }
-  return installed;
 }
 
 // Ely.by skins for EVERYONE, no login required.

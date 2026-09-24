@@ -31,7 +31,10 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
   // "no updates found" apart from "never looked" — otherwise a freshly-opened
   // tab would claim everything is up to date without having checked.
   const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updates, setUpdates] = useState(null);       // [{ filename, versionId, … }] | null
+  const [updates, setUpdates] = useState(null);       // [{ filename, versionId, heldBack, … }] | null
+  // Mods with a newer version that doesn't fit beside the installed mods, so
+  // nothing is offered: [{ filename, title, reason }].
+  const [heldUpdates, setHeldUpdates] = useState([]);
   const [updatingSet, setUpdatingSet] = useState(new Set()); // filenames currently being applied
   const [updateError, setUpdateError] = useState(null);
   // Mandatory dependencies an update introduced that nothing installed
@@ -75,6 +78,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Update check failed');
       setUpdates(data.updates || []);
+      setHeldUpdates(data.held || []);
     } catch (err) {
       setUpdates(null);
       setUpdateError(err.message);
@@ -672,7 +676,9 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                     <p className="text-sm font-bold text-white">
                       {updates.length > 0
                         ? `${updates.length} mod${updates.length !== 1 ? 's have' : ' has'} a newer build`
-                        : 'Every mod Modrinth knows about is up to date'}
+                        : heldUpdates.length > 0
+                          ? 'No updates that work with your other mods'
+                          : 'Every mod Modrinth knows about is up to date'}
                     </p>
                     <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
                       {updates.length > 0
@@ -689,7 +695,7 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                       <span>Update all</span>
                     </motion.button>
                   )}
-                  <button onClick={() => { setUpdates(null); setUpdateError(null); }}
+                  <button onClick={() => { setUpdates(null); setHeldUpdates([]); setUpdateError(null); }}
                     className="flex-shrink-0 p-1.5 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] transition-colors">
                     <X size={14} />
                   </button>
@@ -712,12 +718,31 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                             )}
                           </p>
                           <p className="text-[11px] text-[var(--c-text-muted)] font-mono truncate">→ {u.versionNumber}</p>
+                          {u.heldBack?.length > 0 && (
+                            <p className="text-[11px] text-[var(--c-text-muted)] truncate">
+                              Newer {u.heldBack[0].versionNumber} skipped — {u.heldBack[0].reason}
+                            </p>
+                          )}
                         </div>
                         <button onClick={() => applyUpdates([u])}
                           disabled={updatingSet.has(u.filename) || updatingSet.size > 0}
                           className="flex-shrink-0 px-3 py-1.5 text-xs font-bold rounded-xl bg-[#00AF5C]/10 hover:bg-[#00AF5C]/20 text-[#00AF5C] border border-[#00AF5C]/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                           {updatingSet.has(u.filename) ? <Loader2 size={13} className="animate-spin" /> : 'Update'}
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {heldUpdates.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-[var(--c-border)] space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--c-text-muted)] px-2">
+                      Held back — newer versions don't work with your other mods
+                    </p>
+                    {heldUpdates.map(h => (
+                      <div key={h.filename} className="flex items-center gap-3 px-2 py-1">
+                        <p className="text-sm font-bold text-[var(--c-text-secondary)] truncate flex-shrink-0 max-w-[40%]">{h.title}</p>
+                        <p className="text-[11px] text-[var(--c-text-muted)] truncate">{h.reason}</p>
                       </div>
                     ))}
                   </div>

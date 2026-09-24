@@ -32,7 +32,9 @@ async function postJson(url, headers, body) {
   return r.json();
 }
 
-// Resolves to { [sha1]: { version, file } } for every jar with a real upgrade.
+// Resolves to { [sha1]: { version, file, installed } } for every jar with a
+// real upgrade. `installed` is the Modrinth version of the local jar (null when
+// unknown) — mod-compat needs it to judge release channel and "newer".
 // Throws on a network error (no .status) or a non-2xx answer (.status set), so
 // callers can tell "offline" from "Modrinth said no".
 async function findModUpdates({ api, headers, hashes, loader, gameVersion }) {
@@ -54,7 +56,7 @@ async function findModUpdates({ api, headers, hashes, loader, gameVersion }) {
     const curDate = Date.parse(cur?.date_published);
     const newDate = Date.parse(ver.date_published);
     if (Number.isFinite(curDate) && Number.isFinite(newDate) && newDate <= curDate) continue;
-    out[sha1] = { version: ver, file };
+    out[sha1] = { version: ver, file, installed: cur || null };
   }
   return out;
 }

@@ -329,6 +329,9 @@ javaPool.init(RUNTIMES_DIR);
 // See backend/mod-deps.js for why Modrinth's server_side flag isn't enough.
 const modDeps = require('./mod-deps');
 const { runWithConcurrency } = require('./concurrency');
+// Compatibility-checked updates, update backups and conflict repair — shared
+// with the launcher. See mod-compat.js.
+const modCompat = require('./mod-compat');
 const { findModUpdates } = require('./modrinth-updates');
 
 // Tracks whether this machine can actually reach Modrinth/Hangar/Mojang, so the
@@ -2033,130 +2036,14 @@ app.post('/api/servers/:id/clone', async (req, res) => {
 // worker so both server and client crash recovery use the same regexes.
 const { stripMcCodes, parseMissingModIds, hasDependencyCrash } = require('./dep-crash');
 
-// Pick the best version from a Modrinth /project/{id}/version response.
-// Preference order: release > beta > alpha; within each type, newest by
-// date_published. Older code only sorted by type and relied on Modrinth
-// returning versions newest-first, which isn't reliable when query filters
-// (game_versions, loaders) are applied — the API has been observed returning
-// an older release in front of a newer one, so we don't let v82 win over v92.
-function pickBestModrinthVersion(versions) {
-  if (!Array.isArray(versions) || versions.length === 0) return null;
-  const typeRank = { release: 0, beta: 1, alpha: 2 };
-  const sorted = [...versions].sort((a, b) => {
-    const ta = typeRank[a.version_type] ?? 3;
-    const tb = typeRank[b.version_type] ?? 3;
-    if (ta !== tb) return ta - tb;
-    const da = Date.parse(a.date_published || '') || 0;
-    const db = Date.parse(b.date_published || '') || 0;
-    return db - da; // newest first
-  });
-  return sorted[0];
-}
-
-// A mod's in-game ID is rarely its Modrinth slug. `athena` is a Paper *plugin*
-// on Modrinth while the mod packs depend on is `athena-ctm`; `fusion` is an
-// unrelated mod while the one packs depend on is `fusion-connected-textures`;
-// `simplytooltips` 404s and Modrinth's search can't match the run-together form
-// at all. So: generate query variants, never trust a bare slug hit, and verify
-// the jar we downloaded really declares the ID we were asked for.
-
-// 'simplytooltips' -> ['simplytooltips', 'simply tooltips', 'simply-tooltips'].
-// Modrinth's search tokenizes on words, so a split form is what actually
-// matches a project titled "Simply Tooltips".
-function modIdQueryVariants(modId) {
-  const base = String(modId).toLowerCase();
-  const variants = new Set([base]);
-  const spaced = base.replace(/[-_]+/g, ' ').trim();
-  if (spaced !== base) { variants.add(spaced); variants.add(spaced.replace(/ +/g, '-')); }
-
-  // Split a run-together id on known word boundaries. We can't segment
-  // arbitrary text, so use a dictionary of words that actually show up in mod
-  // names — enough to turn simplytooltips into "simply tooltips".
-  const WORDS = [
-    'simply', 'simple', 'just', 'enough', 'tooltips', 'tooltip', 'better', 'extra', 'more',
-    'mod', 'menu', 'lib', 'library', 'core', 'api', 'utils', 'util', 'tweaks', 'craft',
-    'items', 'item', 'blocks', 'block', 'world', 'gen', 'client', 'server', 'config',
-    'inventory', 'storage', 'farmers', 'delight', 'create', 'sodium', 'fabric', 'forge',
-  ];
-  const segment = (str) => {
-    if (!str) return [];
-    for (const w of WORDS) {
-      if (!str.startsWith(w)) continue;
-      const rest = segment(str.slice(w.length));
-      if (rest !== null) return [w, ...rest];
-    }
-    return null;
-  };
-  const parts = segment(base);
-  if (parts && parts.length > 1) {
-    variants.add(parts.join(' '));
-    variants.add(parts.join('-'));
-  }
-  return [...variants];
-}
-
-// Does this Modrinth project plausibly answer the request? Slugs collide across
-// project types and loaders (see athena / fusion above), so a candidate must at
-// least be a mod that runs on our loader.
-function projectMatchesTarget(project, loader, gameVersion) {
-  if (!project) return false;
-  if (project.project_type && project.project_type !== 'mod') return false;
-  const loaders = project.loaders || [];
-  if (loader && Array.isArray(loaders) && loaders.length > 0 && !loaders.includes(loader)) return false;
-  const gvs = project.game_versions || [];
-  if (gameVersion && Array.isArray(gvs) && gvs.length > 0 && !gvs.includes(gameVersion)) return false;
-  return true;
-}
-
-// Collect candidate projects for one missing mod ID, best guess first.
-async function findModrinthCandidates(modId, loader, gameVersion) {
-  const candidates = [];
-  const seen = new Set();
-  const push = (p, score) => {
-    if (!p || !p.id || seen.has(p.id)) return;
-    seen.add(p.id);
-    candidates.push({ project: p, score });
-  };
-
-  // The slug IS sometimes right — but only counts when it's a mod for our
-  // loader. Skipping this check is what made 'athena' resolve to a Paper plugin
-  // and stop the search dead ("Could not find the missing mods on Modrinth").
-  try {
-    const r = await fetch(`${MODRINTH_API}/project/${encodeURIComponent(modId)}`, { headers: MODRINTH_HEADERS });
-    if (r.ok) {
-      const p = await r.json();
-      if (projectMatchesTarget(p, loader, gameVersion)) push(p, 100);
-    }
-  } catch (_) {}
-
-  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const target = norm(modId);
-
-  for (const query of modIdQueryVariants(modId)) {
-    const facets = [['project_type:mod']];
-    if (gameVersion) facets.push([`versions:${gameVersion}`]);
-    if (loader) facets.push([`categories:${loader}`]);
-    const params = new URLSearchParams({ query, limit: '10', facets: JSON.stringify(facets) });
-    try {
-      const r = await fetch(`${MODRINTH_API}/search?${params}`, { headers: MODRINTH_HEADERS });
-      if (!r.ok) continue;
-      const data = await r.json();
-      for (const h of data.hits || []) {
-        const slug = norm(h.slug);
-        const title = norm(h.title);
-        let score = 0;
-        if (slug === target || title === target) score = 90;
-        else if (slug.startsWith(target) || target.startsWith(slug)) score = 70;   // athena -> athena-ctm
-        else if (title.startsWith(target) || target.startsWith(title)) score = 65;  // simplytooltips -> Simply Tooltips
-        else if (slug.includes(target) || title.includes(target)) score = 40;
-        else continue;
-        push({ id: h.project_id, slug: h.slug, title: h.title, icon_url: h.icon_url }, score);
-      }
-    } catch (_) {}
-  }
-
-  return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
-}
+// The validated mod-ID -> Modrinth project resolver lives in modrinth-resolve.js
+// (shared with the launcher's crash auto-fix). Read its header before touching
+// it: a mod ID is not a Modrinth slug.
+const modrinthResolve = require('./modrinth-resolve');
+const { pickBestModrinthVersion } = modrinthResolve;
+// MODRINTH_API / MODRINTH_HEADERS are declared further down; read at call time.
+const findModrinthCandidates = (modId, loader, gameVersion) =>
+  modrinthResolve.findModrinthCandidates(modId, loader, gameVersion, { api: MODRINTH_API, headers: MODRINTH_HEADERS });
 
 // Search Modrinth for a mod by its in-game mod ID and install the best compatible version.
 async function findAndInstallMissingDeps(missingModIds, serverConfig, serverPath, appendLog) {
@@ -2551,10 +2438,38 @@ function startProcess(id, serverConfig, serverPath) {
     // NOTE: Forge exits with code 0 even on dep failures, so check log content too.
     const logText = (activeLogs[id] || []).join('');
     if (code !== 0 || hasDependencyCrash(logText)) {
-      const allMissing = parseMissingModIds(logText);
-
-      // Filter out IDs we've already tried for this server (avoid infinite loop)
       if (!depInstallHistory[id]) depInstallHistory[id] = new Set();
+
+      // A mod that's present but the wrong version for another, or that
+      // declares it breaks another, can't be fixed by installing anything —
+      // installing is what the code below does. Repair those first: roll back
+      // the update that caused it, or swap in a version that fits.
+      const repairLoader = SERVER_MOD_LOADERS[serverConfig.type];
+      if (repairLoader && hasDependencyCrash(logText)) {
+        try {
+          const actions = await modCompat.repairMods({
+            modsDir: path.join(serverPath, 'mods'),
+            backupDir: path.join(serverPath, '.minedash-update-backup'),
+            cacheDir: path.join(serverPath, '.minedash-update-cache'),
+            loader: repairLoader, side: 'server', gameVersion: serverConfig.version,
+            api: MODRINTH_API, headers: MODRINTH_HEADERS,
+            tried: depInstallHistory[id], missing: false,
+            log: (msg) => appendLog(`[MineDash] ${msg}`),
+            hooks: serverModHooks(serverPath),
+          });
+          if (actions.length > 0) {
+            appendLog(`[MineDash] Fixed: ${actions.map(a => a.text).join('; ')}\n`);
+            appendLog('[MineDash] Restarting server...\n');
+            setTimeout(() => { if (!activeProcesses[id]) startProcess(id, serverConfig, serverPath); }, 3000);
+            return;
+          }
+        } catch (err) {
+          appendLog(`[MineDash] Mod conflict repair failed: ${err.message}\n`);
+        }
+      }
+
+      const allMissing = parseMissingModIds(logText);
+      // Filter out IDs we've already tried for this server (avoid infinite loop)
       const toInstall = allMissing.filter(mid => !depInstallHistory[id].has(mid));
 
       if (toInstall.length > 0) {
@@ -3459,29 +3374,84 @@ app.post('/api/servers/:id/mods/check-updates', async (req, res) => {
     return res.status(502).json({ error: `Modrinth unreachable: ${err.message}` });
   }
 
-  const updates = [];
-  for (const [sha1, { version: ver, file }] of Object.entries(found)) {
-    const filename = hashToFile.get(sha1);
-    if (!filename) continue;
-    const baseKey = filename.replace(/\.disabled$/, '');
-    const m = meta[baseKey] || {};
-    updates.push({
-      filename,
-      title: m.title || baseKey,
-      iconUrl: m.iconUrl || null,
-      enabled: !filename.endsWith('.disabled'),
-      projectId: ver.project_id,
-      versionId: ver.id,
-      versionNumber: ver.version_number,
-      newFilename: file.filename,
-      datePublished: ver.date_published,
+  // Newest isn't the same as usable: each candidate jar is checked against the
+  // installed mods and stepped back to the newest version that fits (and never
+  // moved from a release to a beta). See mod-compat.js vetUpdates.
+  const cacheDir = path.join(INSTANCES_DIR, id, '.minedash-update-cache');
+  await modCompat.pruneCache(cacheDir);
+  const candidates = Object.entries(found)
+    .map(([sha1, { version: ver, installed }]) => ({ filename: hashToFile.get(sha1), newest: ver, installed }))
+    .filter(c => c.filename);
+  let vetted;
+  try {
+    vetted = await modCompat.vetUpdates({
+      modsDir: modsPath, loader: serverLoader, side: 'server', gameVersion, candidates, cacheDir,
+      api: MODRINTH_API, headers: MODRINTH_HEADERS,
     });
+  } catch (err) {
+    return res.status(502).json({ error: `Couldn't check update compatibility: ${err.message}` });
+  }
+
+  const updates = [];
+  const held = [];
+  for (const v of vetted) {
+    const baseKey = v.filename.replace(/\.disabled$/, '');
+    const m = meta[baseKey] || {};
+    if (v.offer) {
+      updates.push({
+        filename: v.filename,
+        title: m.title || baseKey,
+        iconUrl: m.iconUrl || null,
+        enabled: !v.filename.endsWith('.disabled'),
+        projectId: v.offer.project_id,
+        versionId: v.offer.id,
+        versionNumber: v.offer.version_number,
+        newFilename: v.file?.filename || null,
+        datePublished: v.offer.date_published,
+        heldBack: v.heldBack.filter(h => !/build$/.test(h.reason)),
+      });
+    } else if (!v.skip) {
+      held.push({ filename: v.filename, title: m.title || baseKey, iconUrl: m.iconUrl || null, reason: v.reason });
+    }
   }
   updates.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  res.json({ updates, checked: hashToFile.size });
+  held.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  res.json({ updates, held, checked: hashToFile.size });
 });
 
 const SERVER_MOD_LOADERS = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
+
+// Hooks for modCompat.repairMods on a server: which Modrinth project a jar is,
+// and keeping .mod-metadata.json in step when a jar is swapped.
+function serverModHooks(serverPath) {
+  const modsPath = path.join(serverPath, 'mods');
+  return {
+    async projectFor(filename) {
+      let projectId = null;
+      try { projectId = (await readModMetadata(modsPath))[filename.replace(/\.disabled$/, '')]?.projectId || null; } catch (_) {}
+      let version = null;
+      try {
+        version = await modrinthResolve.versionForSha1(await fileSha1(path.join(modsPath, filename)),
+          { api: MODRINTH_API, headers: MODRINTH_HEADERS });
+      } catch (_) {}
+      if (version?.project_id) projectId = version.project_id;
+      return projectId ? { projectId, version } : null;
+    },
+    async onReplaced({ from, to, version }) {
+      const meta = await readModMetadata(modsPath);
+      const fromKey = from.replace(/\.disabled$/, '');
+      const toKey = to.replace(/\.disabled$/, '');
+      const m = meta[fromKey] || {};
+      if (fromKey !== toKey) delete meta[fromKey];
+      meta[toKey] = {
+        ...m,
+        ...(version ? { projectId: version.project_id || m.projectId || null, gameVersions: version.game_versions || [], loaders: version.loaders || [] } : {}),
+        lookedUp: true,
+      };
+      await writeModMetadata(modsPath, meta);
+    },
+  };
+}
 
 // Apply updates found above. Body: { updates: [{ filename, versionId }] }.
 // Refuses while the server runs — swapping a jar out from under a live JVM
@@ -3535,49 +3505,52 @@ app.post('/api/servers/:id/mods/update', async (req, res) => {
       const file = (ver.files || []).find(x => x.primary) || (ver.files || [])[0];
       if (!file?.url) { failed.push({ filename: oldName, reason: 'No downloadable file in version' }); continue; }
 
-      const dlRes = await fetch(file.url, { headers: MODRINTH_HEADERS });
-      if (!dlRes.ok) { failed.push({ filename: oldName, reason: `Download failed (${dlRes.status})` }); continue; }
-      const buf = Buffer.from(await dlRes.arrayBuffer());
-      // A truncated or mangled download would otherwise replace a working jar
-      // with one the loader can't open. Modrinth publishes the hash; use it.
-      const expected = file.hashes?.sha1;
-      if (expected && crypto.createHash('sha1').update(buf).digest('hex') !== expected) {
-        failed.push({ filename: oldName, reason: 'Downloaded file failed its checksum — try again' });
-        continue;
-      }
-
       const newBase = path.basename(file.filename);
       const newName = wasDisabled ? `${newBase}.disabled` : newBase;
-      // Write the new jar before removing the old one. An interrupted update
-      // then leaves two copies (the loader complains loudly) rather than none
-      // — which would silently boot a server missing a mod other mods require.
-      // Written under a temp name first: when the filename doesn't change
-      // between versions, a direct write would truncate the old jar in place.
+      // Staged under a dot-name (invisible to the loader and to the analyzer),
+      // SHA1-verified, and reusing the jar "Check updates" already downloaded.
       const tmpPath = path.join(modsPath, `.${newName}.minedash-tmp`);
-      await fs.writeFile(tmpPath, buf);
-
-      // Never remove a jar another mod requires: if the new version stopped
-      // providing a mod ID something else depends on (a library split out, a
-      // renamed modid), keep the working version rather than break the other
-      // mod. A disabled jar provides nothing today, so it can't lose anything.
-      let lost = [];
-      if (!wasDisabled) {
-        try { lost = modDeps.idsLostByReplacing(modsPath, loader, oldName, tmpPath); }
-        catch (e) { console.warn('[mod-deps] update pre-check failed:', e.message); }
-      }
-      if (lost.length > 0) {
-        await fs.remove(tmpPath).catch(() => {});
-        const who = [...new Set(lost.flatMap(l => l.requiredBy))]
-          .map(f => meta[f.replace(/\.disabled$/, '')]?.title || f);
-        failed.push({
-          filename: oldName,
-          reason: `The new version no longer provides ${lost.map(l => `'${l.id}'`).join(', ')}, which ${who.join(', ')} ${who.length === 1 ? 'needs' : 'need'} — kept the current version`,
+      try {
+        await modrinthResolve.downloadVersionFile(file, tmpPath, {
+          headers: MODRINTH_HEADERS, cacheDir: path.join(serverPath, '.minedash-update-cache'),
         });
+      } catch (e) {
+        await fs.remove(tmpPath).catch(() => {});
+        failed.push({ filename: oldName, reason: `${e.message} — try again` });
         continue;
       }
 
-      await fs.move(tmpPath, path.join(modsPath, newName), { overwrite: true });
-      if (newName !== oldName) await fs.remove(path.join(modsPath, oldName)).catch(() => {});
+      // The new jar must fit beside everything else: no declared break, no
+      // wrong version for another mod, and — the invariant in CLAUDE.md — no
+      // other mod losing a dependency (a library split out, a renamed modid).
+      // A new requirement of the new jar itself is fine; it comes back as
+      // missingDeps below. A disabled jar isn't loaded, so it can't conflict.
+      let bad = [];
+      if (!wasDisabled) {
+        try {
+          const before = modDeps.analyzeModsDir(modsPath, loader);
+          const after = modDeps.analyzeModsDir(modsPath, loader, { replace: { [oldName]: { file: newBase, path: tmpPath } } });
+          bad = modCompat.blocking(modDeps.introducedProblems(before, after), newBase);
+        } catch (e) { console.warn('[mod-deps] update pre-check failed:', e.message); }
+      }
+      if (bad.length > 0) {
+        await fs.remove(tmpPath).catch(() => {});
+        failed.push({ filename: oldName, reason: `${modDeps.describeProblem(bad[0])} — kept the current version` });
+        continue;
+      }
+
+      // The old jar goes to .minedash-update-backup/ rather than being
+      // deleted, so an update that breaks the server can be rolled back exactly.
+      try {
+        await modCompat.replaceWithBackup({
+          modsDir: modsPath, backupDir: path.join(serverPath, '.minedash-update-backup'),
+          oldName, newName, newJarPath: tmpPath,
+        });
+      } catch (e) {
+        await fs.remove(tmpPath).catch(() => {});
+        failed.push({ filename: oldName, reason: `Couldn't swap the jar: ${e.message}` });
+        continue;
+      }
 
       const m = meta[oldBase] || {};
       if (newBase !== oldBase) delete meta[oldBase];
