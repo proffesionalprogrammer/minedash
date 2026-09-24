@@ -26,18 +26,19 @@
 const path = require('path');
 const fs = require('fs-extra');
 const multer = require('multer');
-const os = require('os');
-const AdmZip = require('adm-zip');
+const zipStream = require('./zip-stream');
 const archiver = require('archiver');
 const nbtLite = require('./nbt-lite');
 
 let INSTANCES_DIR = null;
+let TEMP_DIR = null;     // under MineDash's data dir — see register()
 let getServers = null;   // async () => servers[]
 let isRunning = null;    // (serverId) => boolean
 let io = null;
 
 function init(deps) {
   INSTANCES_DIR = deps.INSTANCES_DIR;
+  TEMP_DIR = deps.TEMP_DIR;
   getServers = deps.getServers;
   isRunning = deps.isRunning;
   io = deps.io;
@@ -364,41 +365,11 @@ async function listWorlds(serverPath, { onSizesReady } = {}) {
   return out;
 }
 
-// Turn a zip entry path into a safe relative path, or null if it tries to
-// escape. adm-zip sanitises on extractAllTo, but this module extracts entries
-// itself so the check has to live here.
-function safeEntryPath(entryName) {
-  const normalized = path.normalize(entryName.replace(/\\/g, '/')).replace(/^([\\/]+)/, '');
-  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || path.isAbsolute(normalized)) return null;
-  return normalized;
-}
-
-// `onProgress(doneBytes, totalBytes)` is called as entries are written, sized
-// by uncompressed bytes so one huge region file moves the bar as much as it
-// should. Every entry is checked before anything is written, so a bad path
-// can't leave a half-extracted world in the temp dir.
+// `onProgress(doneBytes, totalBytes)` is called as bytes are written. The
+// archive is streamed from disk (never loaded into memory) and every entry is
+// checked before anything is written — see zip-stream.js.
 async function extractZip(zipPath, destDir, onProgress) {
-  const zip = new AdmZip(zipPath);
-  const planned = [];
-  let total = 0;
-  for (const entry of zip.getEntries()) {
-    const rel = safeEntryPath(entry.entryName);
-    if (rel === null) throw new Error(`Refusing unsafe path in zip: ${entry.entryName}`);
-    planned.push({ entry, target: path.join(destDir, rel) });
-    if (!entry.isDirectory) total += entry.header.size || 0;
-  }
-  let done = 0;
-  onProgress?.(0, total);
-  for (const { entry, target } of planned) {
-    if (entry.isDirectory) {
-      await fs.ensureDir(target);
-      continue;
-    }
-    await fs.ensureDir(path.dirname(target));
-    await fs.writeFile(target, entry.getData());
-    done += entry.header.size || 0;
-    onProgress?.(done, total);
-  }
+  await zipStream.extractZip(zipPath, destDir, { onProgress });
 }
 
 // Find the world root inside an extracted zip: the extract dir itself (level.dat
@@ -458,8 +429,12 @@ async function uniqueWorldName(serverPath, base) {
 }
 
 function register(app) {
+  // The upload and its extraction live in MineDash's own data dir, not the OS
+  // temp folder: that's often on another drive (C: while MineDash stores on
+  // D:), which made the final move into the instance a full multi-GB copy
+  // with no progress. On the same volume the move is a rename.
   const worldUpload = multer({
-    dest: path.join(os.tmpdir(), 'minedash-server-worlds'),
+    dest: path.join(TEMP_DIR, 'server-worlds'),
     limits: { fileSize: 4 * 1024 * 1024 * 1024 }, // adventure maps routinely run to a GB+
   });
 

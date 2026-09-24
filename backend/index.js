@@ -102,15 +102,48 @@ for (const _p of ['id', 'serverId', 'modName', 'backupName', 'filename']) {
 }
 
 // Allow all origins, including null (file:// in packaged Electron app)
+// ─── Who may talk to the backend ───────────────────────────────────────────────
+// Listening on 127.0.0.1 keeps other machines out, but not other web pages: any
+// site open in the user's browser can fetch('http://localhost:3001/...'), and a
+// multipart upload or form POST doesn't even need a CORS preflight. So a
+// request that carries an Origin must come from MineDash itself:
+//   - the packaged app, whose Electron main process stamps APP_ORIGIN on every
+//     request to the backend (a file:// page would otherwise send "null", which
+//     a sandboxed iframe on any site can send too);
+//   - the Vite dev server, in development.
+// Requests with no Origin at all are same-machine tools (Electron's readiness
+// poll, the game JVM, curl) — browsers attach one to every cross-site request
+// that could change something.
+const APP_ORIGIN = 'minedash://app'; // keep in sync with electron/main.js
+const ALLOWED_ORIGINS = new Set([
+  APP_ORIGIN,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]);
+const originAllowed = (origin) => !origin || ALLOWED_ORIGINS.has(origin);
+// DNS rebinding: a page on evil.example re-pointed at 127.0.0.1 is same-origin
+// with itself, so its GETs carry no Origin — but its Host header still names
+// evil.example.
+const ALLOWED_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+const hostAllowed = (host) => !host || ALLOWED_HOST.test(host);
+
 const corsOptions = {
-  origin: (origin, callback) => callback(null, true),
+  origin: (origin, callback) => callback(null, originAllowed(origin)),
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 };
 
 const io = new Server(server, {
   cors: corsOptions,
+  // The websocket transport skips CORS entirely, so check the handshake here.
+  allowRequest: (req, callback) => {
+    callback(null, originAllowed(req.headers.origin) && hostAllowed(req.headers.host));
+  },
 });
 
+app.use((req, res, next) => {
+  if (originAllowed(req.headers.origin) && hostAllowed(req.headers.host)) return next();
+  res.status(403).json({ error: 'Requests to MineDash must come from the MineDash app.' });
+});
 app.use(cors(corsOptions));
 app.use(express.json());
 
@@ -418,6 +451,9 @@ const VERSION_CACHE_TTL = 10 * 60 * 1000;
 // temp_uploads must live under the writable data dir — when packaged the
 // backend code is inside app.asar (read-only) and writes to __dirname fail.
 fs.ensureDirSync(path.join(DATA_DIR, 'temp_uploads'));
+// Every import (worlds, files, mods, screenshots) stages here, so anything
+// left at boot is a half-finished upload from a crash — possibly GBs of map.
+try { fs.emptyDirSync(path.join(DATA_DIR, 'temp_uploads')); } catch (_) { /* best effort */ }
 
 // In-memory process tracking
 const activeProcesses = {};
@@ -4406,9 +4442,10 @@ app.post('/api/servers/:serverId/mods/install-modrinth', async (req, res) => {
   const { url, filename, iconUrl, title, projectId, gameVersion, loader, dependencies, serverSide, force } = req.body;
 
   if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
+  // Body-supplied, and joined onto mods/ — "../../x" would write anywhere.
+  if (isUnsafeSegment(filename)) return res.status(400).json({ error: 'Invalid filename' });
 
   const modsPath = path.join(INSTANCES_DIR, serverId, 'mods');
-  const destPath = path.join(modsPath, filename);
 
   // Warn about client-only mods unless explicitly overridden. NeoForge/Forge dedicated
   // servers crash during mod construction the moment a client-only mod touches a
@@ -4442,17 +4479,37 @@ app.post('/api/servers/:serverId/mods/install-modrinth', async (req, res) => {
     }
   }
 
+  const serverPath = path.join(INSTANCES_DIR, serverId);
+  const stagingPath = path.join(serverPath, '.minedash-update-cache', `install-${Date.now()}-${filename}`);
   try {
     await fs.ensureDir(modsPath);
 
-    // Download the primary mod file
+    // Download beside the mods folder first: if this is another version of a
+    // mod that's already installed ("Change version"), the old jar is swapped
+    // out below instead of being left next to the new one.
     const response = await fetch(url, { headers: MODRINTH_HEADERS });
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
     const buffer = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(destPath, buffer);
+    await fs.outputFile(stagingPath, buffer);
+
+    const meta = await readModMetadata(modsPath);
+    const baseOf = (f) => f.replace(/\.disabled$/i, '');
+    const copies = await modCompat.otherCopiesOf({
+      dir: modsPath, newName: filename, newJarPath: stagingPath, projectId,
+      projectIdOf: (f) => meta[baseOf(f)]?.projectId || null,
+      loader, side: 'server',
+    });
+    if (copies.length > 0 && activeProcesses[serverId]) {
+      await fs.remove(stagingPath).catch(() => {});
+      return res.status(409).json({ error: 'Stop the server to change a mod\'s version — the running server holds the current jar open.' });
+    }
+    const replaced = await modCompat.installReplacingCopies({
+      dir: modsPath, backupDir: path.join(serverPath, '.minedash-update-backup'),
+      stagingPath, newName: filename, copies,
+    });
+    for (const f of replaced) delete meta[baseOf(f)];
 
     // Persist metadata and resolve required dependencies
-    const meta = await readModMetadata(modsPath);
     meta[filename] = {
       iconUrl: iconUrl || null,
       title: title || null,
@@ -4469,8 +4526,9 @@ app.post('/api/servers/:serverId/mods/install-modrinth', async (req, res) => {
     }
 
     await writeModMetadata(modsPath, meta);
-    res.json({ message: 'Mod installed', filename, depsInstalled });
+    res.json({ message: 'Mod installed', filename, depsInstalled, replaced });
   } catch (error) {
+    await fs.remove(stagingPath).catch(() => {});
     console.error('Modrinth install error:', error);
     res.status(500).json({ error: 'Failed to install mod: ' + error.message });
   }
@@ -4837,6 +4895,7 @@ app.post('/api/servers/:serverId/plugins/install-hangar', async (req, res) => {
   if (!downloadUrl || !filename) {
     return res.status(400).json({ error: 'downloadUrl and filename are required' });
   }
+  if (isUnsafeSegment(filename)) return res.status(400).json({ error: 'Invalid filename' });
 
   const servers = await getServers();
   const serverConfig = servers.find(s => s.id === serverId);
@@ -5394,11 +5453,14 @@ connect.register(app);
 const serverIsRunning = (serverId) => !!activeProcesses[serverId];
 
 const serverWorlds = require('./server-worlds');
-serverWorlds.init({ INSTANCES_DIR, getServers, isRunning: serverIsRunning, io });
+// Uploads land in MineDash's own data dir (same volume as instances/), never
+// the OS temp folder — see server-worlds.js register().
+const TEMP_UPLOADS_DIR = path.join(DATA_DIR, 'temp_uploads');
+serverWorlds.init({ INSTANCES_DIR, TEMP_DIR: TEMP_UPLOADS_DIR, getServers, isRunning: serverIsRunning, io });
 serverWorlds.register(app);
 
 const serverFiles = require('./server-files');
-serverFiles.init({ INSTANCES_DIR, getServers, isRunning: serverIsRunning });
+serverFiles.init({ INSTANCES_DIR, TEMP_DIR: TEMP_UPLOADS_DIR, getServers, isRunning: serverIsRunning });
 serverFiles.register(app);
 
 // ─── JSON error handler ──────────────────────────────────────────────────────

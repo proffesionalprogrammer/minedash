@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, screen, Tray, Menu, dialog } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, screen, Tray, Menu, dialog, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -157,6 +157,23 @@ function waitForBackend(retries = 30, delay = 500) {
 }
 
 // ─── Window ────────────────────────────────────────────────────────────────────
+// The backend only accepts requests from MineDash itself (see ALLOWED_ORIGINS
+// in backend/index.js). The renderer is a file:// page, whose Origin is "null"
+// — which any website can also send from a sandboxed iframe — so every request
+// the app makes to the backend, websockets included, gets a fixed Origin no
+// web page can forge.
+const APP_ORIGIN = 'minedash://app'; // keep in sync with backend/index.js
+function stampBackendOrigin() {
+  const urls = ['http', 'ws'].flatMap(scheme =>
+    ['localhost', '127.0.0.1'].map(host => `${scheme}://${host}:3001/*`));
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls }, (details, callback) => {
+    const headers = details.requestHeaders;
+    for (const key of Object.keys(headers)) if (key.toLowerCase() === 'origin') delete headers[key];
+    headers.Origin = APP_ORIGIN;
+    callback({ requestHeaders: headers });
+  });
+}
+
 async function createWindow() {
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
   const winW = Math.min(1400, Math.round(sw * 0.88));
@@ -408,6 +425,7 @@ app.whenReady().then(async () => {
     log('[Electron] WARNING:', err.message, '— showing window anyway');
   }
 
+  stampBackendOrigin();
   await createWindow();
   setupAutoUpdater();
 

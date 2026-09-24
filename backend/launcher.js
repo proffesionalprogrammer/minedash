@@ -13,6 +13,7 @@ const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const { spawn, exec } = require('child_process');
 const AdmZip = require('adm-zip');
+const zipStream = require('./zip-stream');
 const archiver = require('archiver');
 const multer = require('multer');
 const { PNG } = require('pngjs');
@@ -164,6 +165,13 @@ const LOADERS = ['vanilla', 'fabric', 'forge', 'neoforge'];
 
 function defaultInstanceId(loader, version) {
   return `${loader}-${version}`;
+}
+
+// Uploads are staged in MineDash's own data dir rather than os.tmpdir(): the
+// OS temp folder is often on another drive, which turns the final move into
+// the instance into a full copy (minutes for a multi-GB world, no progress).
+function uploadTempDir() {
+  return path.join(DATA_DIR, 'temp_uploads');
 }
 
 function instanceDir(instanceId) {
@@ -864,6 +872,12 @@ async function resolveProfileDir({ loader, version, instanceId }) {
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────
+// A single file name with no way out of the folder it's joined onto.
+function isSafeFileName(name) {
+  return typeof name === 'string' && !!name.trim() && name !== '.' && name !== '..'
+    && !/[\\/\0]/.test(name) && !/^[a-zA-Z]:/.test(name);
+}
+
 // Resolve a single child name inside a directory, rejecting separators and
 // dot-walks so a crafted world/screenshot name can't escape the instance
 // folder. Returns the absolute path, or null when the name is unsafe.
@@ -1459,8 +1473,8 @@ function register(app) {
   // unique name, and skips session.lock so an imported copy never carries a
   // stale lock.
   const worldImportUpload = multer({
-    dest: path.join(require('os').tmpdir(), 'minedash-world-imports'),
-    limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // worlds can be large
+    dest: path.join(uploadTempDir(), 'launcher-world-imports'),
+    limits: { fileSize: 4 * 1024 * 1024 * 1024 }, // worlds can be large; extraction streams
   });
   app.post('/api/launcher/instances/:id/worlds/import', worldImportUpload.single('file'), async (req, res) => {
     const inst = await getInstance(req.params.id);
@@ -1476,8 +1490,8 @@ function register(app) {
 
     const tmpExtract = `${req.file.path}-extracted`;
     try {
-      const AdmZip = require('adm-zip');
-      new AdmZip(req.file.path).extractAllTo(tmpExtract, true);
+      // Streamed from disk — a multi-GB world never has to fit in memory.
+      await zipStream.extractZip(req.file.path, tmpExtract);
 
       // Locate the world root: either the extract dir itself (level.dat at zip
       // root) or a single subfolder containing level.dat.
@@ -1580,7 +1594,7 @@ function register(app) {
   // without this the Screenshots grid is the one read-only panel. Useful for
   // putting a shot you edited (or one a friend sent) back beside the originals.
   const screenshotUpload = multer({
-    dest: path.join(require('os').tmpdir(), 'minedash-screenshot-uploads'),
+    dest: path.join(uploadTempDir(), 'launcher-screenshot-uploads'),
     limits: { fileSize: 64 * 1024 * 1024 },
   });
   app.post('/api/launcher/instances/:id/screenshots', screenshotUpload.array('file', 50), async (req, res) => {
@@ -1821,6 +1835,8 @@ function register(app) {
     const instanceId = req.query.instance || null;
     const { url, filename, projectType, projectId, iconUrl, title, gameVersions, loaders, dependencies } = req.body || {};
     if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
+    // Body-supplied and joined onto the content folder — refuse "../" and friends.
+    if (!isSafeFileName(filename)) return res.status(400).json({ error: 'Invalid filename' });
     if (!LOADERS.includes(loader)) {
       return res.status(400).json({ error: 'Invalid loader' });
     }
@@ -1841,13 +1857,45 @@ function register(app) {
     catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
     const targetDir = path.join(profileDir, subdir);
     await fs.ensureDir(targetDir);
-    const dest = path.join(targetDir, filename);
+    const stagingPath = path.join(profileDir, '.minedash-update-cache', `install-${Date.now()}-${filename}`);
+    const metaPath = path.join(targetDir, '.minedash-launcher.json');
 
     try {
       const r = await fetch(url, { headers: MODRINTH_HEADERS });
       if (!r.ok) throw new Error(`Download failed (${r.status})`);
       const buf = Buffer.from(await r.arrayBuffer());
-      await fs.writeFile(dest, buf);
+      await fs.outputFile(stagingPath, buf);
+
+      // Another version of this project may already be installed ("Change
+      // version", or installing a newer build from Browse). Swap it out rather
+      // than leave both — two copies of a mod stop the game from starting.
+      let meta = {};
+      try { meta = await fs.readJson(metaPath); } catch {}
+      const baseOf = (f) => f.replace(/\.disabled$/i, '');
+      const copies = await modCompat.otherCopiesOf({
+        dir: targetDir, newName: filename, newJarPath: stagingPath, projectId,
+        projectIdOf: (f) => (meta[f] || meta[baseOf(f)])?.projectId || null,
+        loader, side: 'client', compareJars: projectType === 'mod',
+      });
+      let replaced = [];
+      if (projectType === 'mod') {
+        replaced = await modCompat.installReplacingCopies({
+          dir: targetDir, backupDir: path.join(profileDir, '.minedash-update-backup'),
+          stagingPath, newName: filename, copies,
+        });
+        // Client extras + modpack records follow the swap, so deleting the
+        // modpack later still removes the version that replaced its jar.
+        for (const f of replaced) await renameLauncherMod(profileDir, f, filename, null);
+        try { meta = await fs.readJson(metaPath); } catch {}
+      } else {
+        await fs.move(stagingPath, path.join(targetDir, filename), { overwrite: true });
+        for (const f of copies) {
+          if (f === filename) continue;
+          await fs.remove(path.join(targetDir, f)).catch(() => {});
+          replaced.push(f);
+        }
+      }
+      for (const f of replaced) { delete meta[f]; delete meta[baseOf(f)]; }
 
       // Record metadata so the UI can show titles/icons later. We also stash
       // the version's gameVersions + loaders (when the client supplies them
@@ -1855,9 +1903,6 @@ function register(app) {
       // banner works on the very next /content listing — no SHA1 round-trip
       // needed. `lookedUp: true` short-circuits enrichLauncherMeta for the
       // same reason.
-      const metaPath = path.join(targetDir, '.minedash-launcher.json');
-      let meta = {};
-      try { meta = await fs.readJson(metaPath); } catch {}
       meta[filename] = {
         projectId,
         iconUrl,
@@ -1894,9 +1939,11 @@ function register(app) {
       res.json({
         ok: true,
         installed: filename,
+        replaced,
         dependencies: installedDeps,
       });
     } catch (err) {
+      await fs.remove(stagingPath).catch(() => {});
       res.status(500).json({ error: err.message });
     }
   });
@@ -2059,6 +2106,7 @@ function register(app) {
     const instanceId = req.query.instance || null;
     const { url, filename, projectId, iconUrl, title } = req.body || {};
     if (!url || !filename) return res.status(400).json({ error: 'url and filename are required' });
+    if (!isSafeFileName(filename)) return res.status(400).json({ error: 'Invalid filename' });
     if (!['fabric', 'forge', 'neoforge'].includes(loader)) {
       return res.status(400).json({ error: 'Modpacks require a Fabric/Forge/NeoForge profile.' });
     }
@@ -2431,7 +2479,7 @@ function register(app) {
   // and dropping them in here. 100 MB cap covers the chunky modpacks like
   // GregTech / Create patches without bloating disk usage.
   const launcherUpload = multer({
-    dest: path.join(require('os').tmpdir(), 'minedash-launcher-uploads'),
+    dest: path.join(uploadTempDir(), 'launcher-uploads'),
     limits: { fileSize: 200 * 1024 * 1024 },
   });
   // `array('file', 50)` — accept multiple files appended under the same `file`
@@ -4377,7 +4425,7 @@ async function installModpackIntoProfile({ sessionId, profileDir, url, filename,
 
   const tempDir = path.join(profileDir, '.modpack-tmp');
   await fs.ensureDir(tempDir);
-  const mrpackPath = path.join(tempDir, filename);
+  const mrpackPath = path.join(tempDir, path.basename(String(filename)));
 
   try {
     emitFn('status', { message: 'Downloading modpack…' });

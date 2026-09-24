@@ -237,6 +237,56 @@ async function rollback({ modsDir, backupDir, current }) {
   return { restored: b.file, removed: current };
 }
 
+// ── Installing a version of a mod that's already there ───────────────────────
+// "Change version" (and a plain reinstall of a newer build) used to write the
+// new jar beside the old one, leaving two versions of the same mod in the
+// folder — which the loader refuses to start with. A jar is another copy of
+// the incoming one when it has the same filename, the same Modrinth project
+// in MineDash's metadata, or (for jars MineDash knows nothing about) declares
+// the same primary mod ID.
+const isJarName = (f) => /\.jar(\.disabled)?$/i.test(f);
+
+async function otherCopiesOf({ dir, newName, newJarPath, projectId, projectIdOf, loader, side, compareJars = true }) {
+  let names;
+  try { names = await fs.readdir(dir); } catch { return []; }
+  const primary = compareJars && newJarPath
+    ? modDeps.readJarModInfo(newJarPath, loader, { side }).ownIds[0] || null
+    : null;
+  const stripDisabled = (f) => f.replace(/\.disabled$/i, '');
+  const copies = [];
+  for (const f of names) {
+    if (f.startsWith('.')) continue;
+    if (stripDisabled(f) === stripDisabled(newName)) { copies.unshift(f); continue; }
+    if (projectId && projectIdOf(f) === projectId) { copies.push(f); continue; }
+    if (primary && isJarName(f)) {
+      const other = modDeps.readJarModInfo(path.join(dir, f), loader, { side }).ownIds[0];
+      if (other && other === primary) copies.push(f);
+    }
+  }
+  return copies;
+}
+
+/**
+ * Move the downloaded `stagingPath` into `dir` as `newName`, replacing every
+ * other copy of the same mod. The first copy goes through replaceWithBackup
+ * (so a crash repair can roll back to it); any extra copies — a folder that's
+ * already doubled up — are moved into the backup folder too. Nothing is
+ * deleted outright, and the new jar is in place before any old one leaves.
+ * Returns the filenames that were replaced.
+ */
+async function installReplacingCopies({ dir, backupDir, stagingPath, newName, copies }) {
+  if (!copies.length) {
+    await fs.move(stagingPath, path.join(dir, newName), { overwrite: true });
+    return [];
+  }
+  await replaceWithBackup({ modsDir: dir, backupDir, oldName: copies[0], newName, newJarPath: stagingPath, reason: 'change-version' });
+  for (const extra of copies.slice(1)) {
+    if (extra === newName) continue;
+    await fs.move(path.join(dir, extra), path.join(backupDir, `${Date.now()}-${extra}`), { overwrite: true }).catch(() => {});
+  }
+  return copies.filter(f => f !== newName);
+}
+
 // ── Crash repair ─────────────────────────────────────────────────────────────
 
 /**
@@ -380,6 +430,8 @@ module.exports = {
   vetUpdates,
   pruneCache,
   replaceWithBackup,
+  otherCopiesOf,
+  installReplacingCopies,
   readBackups,
   backupFor,
   rollback,

@@ -362,7 +362,9 @@ export default function ModrinthBrowser({ serverId, serverVersion, serverType, o
       if (!r.ok) throw new Error(d.error || 'Install failed');
       setInstalled(prev => ({...prev, [versionModal.project_id]: true}));
       const depMsg = d.depsInstalled?.length > 0 ? ` + ${d.depsInstalled.length} dep${d.depsInstalled.length === 1 ? '' : 's'} auto-installed` : '';
-      showToast(`${versionModal.title} v${version.version_number} installed!${depMsg}`);
+      showToast(d.replaced?.length > 0
+        ? `${versionModal.title} switched to v${version.version_number}${depMsg}`
+        : `${versionModal.title} v${version.version_number} installed!${depMsg}`);
       if (onInstalled) onInstalled();
       setVersionModal(null);
     } catch (err) { showToast(err.message, true); }

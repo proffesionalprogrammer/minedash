@@ -406,9 +406,16 @@ export default function LauncherContent({ loader, version, instanceId, onError, 
     setVersionPickerOpen(p => ({ ...p, [project.project_id]: false }));
     setInstalling(p => ({ ...p, [project.project_id]: true }));
     try {
-      const currentFile = (installedFiles[type] || []).find(f => f.projectId === project.project_id);
-      if (currentFile) {
-        await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/content/${type}/${encodeURIComponent(currentFile.filename)}${instanceQuery}`, { method: 'DELETE' });
+      // The install route swaps out the version that's already there (by
+      // project, filename or mod ID) once the new one has downloaded — so a
+      // failed download no longer leaves the mod uninstalled. A modpack is a
+      // set of files rather than one, so its old version is still removed
+      // through the modpack DELETE (which knows every file it installed).
+      if (type === 'modpack') {
+        const currentFile = (installedFiles[type] || []).find(f => f.projectId === project.project_id);
+        if (currentFile) {
+          await fetch(`http://localhost:3001/api/launcher/profiles/${loader}/${encodeURIComponent(version)}/content/${type}/${encodeURIComponent(currentFile.filename)}${instanceQuery}`, { method: 'DELETE' });
+        }
       }
       const file = modVersion.files.find(f => f.primary) || modVersion.files[0];
       if (!file) throw new Error('No downloadable file');

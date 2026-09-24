@@ -31,7 +31,8 @@
     "node-os-utils": "^2.0.3",
     "pidusage": "^4.0.1",
     "pngjs": "^7.0.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "yauzl": "^2.10.0"
   },
   "build": {
     "appId": "com.minedash.app",

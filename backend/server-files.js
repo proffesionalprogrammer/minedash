@@ -17,18 +17,19 @@
 const path = require('path');
 const fs = require('fs-extra');
 const multer = require('multer');
-const os = require('os');
 const express = require('express');
-const AdmZip = require('adm-zip');
+const zipStream = require('./zip-stream');
 const archiver = require('archiver');
 const crypto = require('crypto');
 
 let INSTANCES_DIR = null;
+let TEMP_DIR = null;    // under MineDash's data dir, so moving an upload in is a rename
 let getServers = null;  // async () => servers[]
 let isRunning = null;   // (serverId) => boolean
 
 function init(deps) {
   INSTANCES_DIR = deps.INSTANCES_DIR;
+  TEMP_DIR = deps.TEMP_DIR;
   getServers = deps.getServers;
   isRunning = deps.isRunning;
 }
@@ -158,7 +159,7 @@ async function listDir(serverPath, absDir) {
 
 function register(app) {
   const fileUpload = multer({
-    dest: path.join(os.tmpdir(), 'minedash-server-files'),
+    dest: path.join(TEMP_DIR, 'server-files'),
     limits: { fileSize: 2 * 1024 * 1024 * 1024 },
   });
   // The global express.json() is capped at the default 100 KB, which a chunky
@@ -458,23 +459,13 @@ function register(app) {
     const destDir = path.dirname(target);
     let extracted = 0;
     try {
-      const zip = new AdmZip(target);
-      // Same zip-slip guard as the world importer: adm-zip only sanitises
-      // inside its own extractAllTo, and this walks the entries by hand. Every
-      // entry is checked before anything is written, so one bad path can't
-      // leave a half-extracted archive behind.
-      const planned = [];
-      for (const entry of zip.getEntries()) {
-        const rel = path.normalize(entry.entryName.replace(/\\/g, '/')).replace(/^([\\/]+)/, '');
-        try { planned.push({ entry, abs: resolvePath(destDir, rel) }); }
-        catch { return res.status(400).json({ error: `Refusing unsafe path in zip: ${entry.entryName}` }); }
-      }
-      for (const { entry, abs } of planned) {
-        if (entry.isDirectory) { await fs.ensureDir(abs); continue; }
-        await fs.ensureDir(path.dirname(abs));
-        await fs.writeFile(abs, entry.getData());
-        extracted++;
-      }
+      // Streamed (see zip-stream.js) so a big archive never has to fit in
+      // memory. Every entry is checked against resolvePath before anything is
+      // written, so one bad path can't leave a half-extracted archive behind.
+      let plan;
+      try { plan = await zipStream.planZip(target, { resolveTarget: (rel) => resolvePath(destDir, rel) }); }
+      catch (err) { return res.status(400).json({ error: err.message }); }
+      ({ files: extracted } = await zipStream.extractZip(target, destDir, { plan }));
     } catch (err) {
       return res.status(500).json({ error: `Extract failed: ${err.message}` });
     }

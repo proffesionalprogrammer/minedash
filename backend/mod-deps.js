@@ -291,7 +291,7 @@ function metaForLoader(perLoader, loader) {
  * break a server start.
  */
 function readJarModInfo(jarPath, loader, { side = 'server' } = {}) {
-  const empty = { ids: [], requires: [], flavor: null, versions: {}, ranges: {}, breaks: {} };
+  const empty = { ids: [], ownIds: [], requires: [], flavor: null, versions: {}, ranges: {}, breaks: {} };
   let stat;
   try { stat = fs.statSync(jarPath); } catch (_) { return empty; }
 
@@ -307,6 +307,9 @@ function readJarModInfo(jarPath, loader, { side = 'server' } = {}) {
 
   const meta = metaForLoader(raw.perLoader, loader);
   const out = { ...empty, ids: raw.ids, versions: { ...raw.nestedVersions } };
+  // The jar's own mod IDs (no jar-in-jar), first declared first — what makes
+  // two jars "the same mod in different versions".
+  out.ownIds = meta ? meta.ids : Object.values(raw.perLoader).find(Boolean)?.ids || [];
   if (!meta) return out;
   out.flavor = meta.flavor;
   Object.assign(out.versions, meta.versions);
