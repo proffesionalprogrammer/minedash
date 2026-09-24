@@ -3706,7 +3706,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
           cacheDir: path.join(profileRoot, '.minedash-update-cache'),
           loader, side: 'client', gameVersion: version,
           api: MODRINTH_LOOKUP_API, headers: MODRINTH_LOOKUP_HEADERS,
-          extraMissingIds: logMissing, tried: triedIds,
+          extraMissingIds: logMissing, tried: triedIds, crashLog: logBuffer,
           log: (msg) => emit(launchId, 'log', { message: msg }),
           hooks: launcherModHooks(profileRoot),
         });

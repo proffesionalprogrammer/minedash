@@ -23,6 +23,7 @@ const fs = require('fs-extra');
 const modDeps = require('./mod-deps');
 const resolve = require('./modrinth-resolve');
 const { runWithConcurrency } = require('./concurrency');
+const depCrash = require('./dep-crash');
 
 // What makes a change unacceptable:
 //   - a wrong version or a declared break, anywhere in the folder;
@@ -51,6 +52,14 @@ const dateOf = (v) => Date.parse(v?.date_published) || 0;
 function releasesFirst(versions) {
   return [...versions].sort((a, b) =>
     ((CHANNEL_RANK[a.version_type] ?? 3) - (CHANNEL_RANK[b.version_type] ?? 3)) || (dateOf(b) - dateOf(a)));
+}
+
+// Does `text` mention mod ID `id` as a whole token? "(sodium)", "'sodium'",
+// "depends sodium @" count; "sodium-extra" and "sodiumoptions" don't.
+function mentions(text, id) {
+  if (!id) return false;
+  const esc = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w.-])${esc}(?![\\w-])`, 'i').test(text);
 }
 
 // ── Trying candidate versions ────────────────────────────────────────────────
@@ -316,6 +325,7 @@ async function installReplacingCopies({ dir, backupDir, stagingPath, newName, co
 async function repairMods({
   modsDir, backupDir, cacheDir, loader, side, gameVersion, api, headers,
   extraMissingIds = [], tried = new Set(), log = () => {}, hooks = {}, conflicts = true, missing = true,
+  crashLog = null,
 }) {
   await fs.ensureDir(cacheDir);
   const actions = [];
@@ -364,10 +374,24 @@ async function repairMods({
     return true;
   };
 
+  // After a crash, only touch conflicts the loader's error actually names.
+  // Our reading of the jars can be wrong where the loader's isn't, and acting
+  // on a conflict the game never complained about swaps a working mod out —
+  // after rolling a Sodium beta back to 0.8.7 correctly, a phantom conflict
+  // sent the same run on to 0.8.0.
+  const section = crashLog == null ? null : depCrash.loaderErrorSection(crashLog);
+  const named = (p) => section == null || (mentions(section, p.byId) && mentions(section, p.id));
+  if (conflicts && section != null) {
+    for (const p of blocking(analyze()).filter(q => !named(q) && !tried.has(q.key))) {
+      tried.add(p.key);
+      log(`[auto-fix] Leaving this alone — Minecraft didn't report it: ${modDeps.describeProblem(p)}\n`);
+    }
+  }
+
   // 1–3: conflicts, most specific fix first. Re-analyse after each change —
   // one swap can clear (or cause) others.
   for (let pass = 0; conflicts && pass < 4; pass++) {
-    const conflict = blocking(analyze()).find(p => !tried.has(p.key));
+    const conflict = blocking(analyze()).find(p => !tried.has(p.key) && named(p));
     if (!conflict) break;
     tried.add(conflict.key);
     log(`[auto-fix] ${modDeps.describeProblem(conflict)}\n`);
