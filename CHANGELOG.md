@@ -2,6 +2,13 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.3.31 — 2026-09-25
+
+### Fixed
+
+- **The crash auto-fix no longer downgrades mods that were working.** After fixing a real conflict (such as rolling a Sodium beta back to the version that worked with Iris), the auto-fix could keep going and "fix" a conflict that didn't exist, swapping Sodium 0.8.7 for the much older 0.8.0. It now only changes mods that Minecraft's error message actually names.
+- **Mods bundled inside other mods no longer cause false conflicts.** Some mods ship their own copy of another mod inside them (Distant Horizons includes an older Fabric API, for example). MineDash sometimes checked your mods against that bundled copy instead of the one you installed, and reported conflicts that don't exist. It now checks against the copy Minecraft actually loads.
+
 ## v1.3.3 — 2026-09-25
 
 ### Added
