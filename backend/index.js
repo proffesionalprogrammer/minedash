@@ -328,6 +328,7 @@ javaPool.init(RUNTIMES_DIR);
 // nothing that another installed mod requires can be stripped as "client-only".
 // See backend/mod-deps.js for why Modrinth's server_side flag isn't enough.
 const modDeps = require('./mod-deps');
+const { runWithConcurrency } = require('./concurrency');
 const { findModUpdates } = require('./modrinth-updates');
 
 // Tracks whether this machine can actually reach Modrinth/Hangar/Mojang, so the
@@ -3408,19 +3409,6 @@ app.post('/api/servers/:id/mods/repair-versions', async (req, res) => {
 // recognise (CurseForge-only mods, hand-built jars) are simply absent from the
 // response, which is right — we have no basis to offer an update for those.
 
-// Run async tasks with a concurrency cap. Hashing every jar of a 300-mod pack
-// at once would thrash the disk and blow through the open-file limit.
-async function runModTasks(tasks, limit) {
-  const queue = [...tasks];
-  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    while (queue.length) {
-      const task = queue.shift();
-      if (task) await task();
-    }
-  });
-  await Promise.all(workers);
-}
-
 app.post('/api/servers/:id/mods/check-updates', async (req, res) => {
   const { id } = req.params;
   const modsPath = path.join(INSTANCES_DIR, id, 'mods');
@@ -3448,7 +3436,7 @@ app.post('/api/servers/:id/mods/check-updates', async (req, res) => {
   // jars under different names collide here and the last one wins — harmless,
   // since they're the same mod and the loser surfaces on the next check.
   const hashToFile = new Map();
-  await runModTasks(files.map(f => async () => {
+  await runWithConcurrency(files.map(f => async () => {
     try { hashToFile.set(await fileSha1(path.join(modsPath, f)), f); } catch {}
   }), 8);
   if (hashToFile.size === 0) return res.json({ updates: [], checked: 0 });
@@ -3493,10 +3481,17 @@ app.post('/api/servers/:id/mods/check-updates', async (req, res) => {
   res.json({ updates, checked: hashToFile.size });
 });
 
+const SERVER_MOD_LOADERS = { forge: 'forge', neoforge: 'neoforge', fabric: 'fabric', quilt: 'quilt' };
+
 // Apply updates found above. Body: { updates: [{ filename, versionId }] }.
 // Refuses while the server runs — swapping a jar out from under a live JVM
 // leaves the running server on the old code and, on Windows, usually fails
 // outright because the file is locked.
+//
+// A new version can need mods the old one didn't. After the swap the updated
+// jars are run through mod-deps: anything they need that's sitting in the
+// client-mod stash is restored, and whatever is still missing comes back as
+// `missingDeps[]` for the Mods tab to offer (POST /mods/install-missing).
 app.post('/api/servers/:id/mods/update', async (req, res) => {
   const { id } = req.params;
   if (activeProcesses[id]) {
@@ -3505,8 +3500,14 @@ app.post('/api/servers/:id/mods/update', async (req, res) => {
   const requested = Array.isArray(req.body?.updates) ? req.body.updates : [];
   if (requested.length === 0) return res.status(400).json({ error: 'No updates supplied' });
 
-  const modsPath = path.join(INSTANCES_DIR, id, 'mods');
+  const serverPath = path.join(INSTANCES_DIR, id);
+  const modsPath = path.join(serverPath, 'mods');
   if (!await fs.pathExists(modsPath)) return res.status(404).json({ error: 'This server has no mods folder' });
+  const cfg = (await getServers()).find(s => s.id === id);
+  if (!cfg) return res.status(404).json({ error: 'Server not found' });
+  // Always the server's own loader: a universal jar declares different
+  // dependencies per loader and only the running one's apply.
+  const loader = SERVER_MOD_LOADERS[cfg.type] || cfg.type;
   const meta = await readModMetadata(modsPath);
 
   const updated = [];
@@ -3554,6 +3555,27 @@ app.post('/api/servers/:id/mods/update', async (req, res) => {
       // between versions, a direct write would truncate the old jar in place.
       const tmpPath = path.join(modsPath, `.${newName}.minedash-tmp`);
       await fs.writeFile(tmpPath, buf);
+
+      // Never remove a jar another mod requires: if the new version stopped
+      // providing a mod ID something else depends on (a library split out, a
+      // renamed modid), keep the working version rather than break the other
+      // mod. A disabled jar provides nothing today, so it can't lose anything.
+      let lost = [];
+      if (!wasDisabled) {
+        try { lost = modDeps.idsLostByReplacing(modsPath, loader, oldName, tmpPath); }
+        catch (e) { console.warn('[mod-deps] update pre-check failed:', e.message); }
+      }
+      if (lost.length > 0) {
+        await fs.remove(tmpPath).catch(() => {});
+        const who = [...new Set(lost.flatMap(l => l.requiredBy))]
+          .map(f => meta[f.replace(/\.disabled$/, '')]?.title || f);
+        failed.push({
+          filename: oldName,
+          reason: `The new version no longer provides ${lost.map(l => `'${l.id}'`).join(', ')}, which ${who.join(', ')} ${who.length === 1 ? 'needs' : 'need'} — kept the current version`,
+        });
+        continue;
+      }
+
       await fs.move(tmpPath, path.join(modsPath, newName), { overwrite: true });
       if (newName !== oldName) await fs.remove(path.join(modsPath, oldName)).catch(() => {});
 
@@ -3573,7 +3595,73 @@ app.post('/api/servers/:id/mods/update', async (req, res) => {
   }
 
   if (updated.length > 0) await writeModMetadata(modsPath, meta);
-  res.json({ updated, failed });
+
+  let restored = [];
+  let missingDeps = [];
+  if (updated.length > 0) {
+    // The stash is local and exact (the jar a pack shipped), so prefer it over
+    // a Modrinth search. Same helper that runs before every start.
+    try { restored = restoreRequiredStashedMods(serverPath, loader); }
+    catch (e) { console.warn('[mod-deps] post-update restore failed:', e.message); }
+    try {
+      missingDeps = modDeps.missingDepsOf(modsPath, loader, updated.map(u => u.to)).map(d => ({
+        id: d.id,
+        requiredBy: d.requiredBy.map(f => ({ filename: f, title: meta[f.replace(/\.disabled$/, '')]?.title || f })),
+      }));
+    } catch (e) { console.warn('[mod-deps] post-update scan failed:', e.message); }
+  }
+  res.json({ updated, failed, restored, missingDeps });
+});
+
+// Install mandatory dependencies that nothing in mods/ provides. Body:
+// { modIds?: string[] } — omit to install everything that's missing. The IDs
+// are intersected with what's *actually* missing right now, so a stale list
+// (or a crafted one) can't pull arbitrary projects onto the server.
+//
+// Resolution goes through findAndInstallMissingDeps, the same validated path
+// the crash auto-installer uses: a mod ID is not a Modrinth slug, so every
+// candidate is checked for project type / loader / version and the downloaded
+// jar must really declare the ID, or it's deleted and the next one tried.
+app.post('/api/servers/:id/mods/install-missing', async (req, res) => {
+  const { id } = req.params;
+  const cfg = (await getServers()).find(s => s.id === id);
+  if (!cfg) return res.status(404).json({ error: 'Server not found' });
+  const loader = SERVER_MOD_LOADERS[cfg.type];
+  if (!loader) return res.status(400).json({ error: 'This server has no mod loader.' });
+
+  const serverPath = path.join(INSTANCES_DIR, id);
+  const modsPath = path.join(serverPath, 'mods');
+  let restored = [];
+  try { restored = restoreRequiredStashedMods(serverPath, loader); } catch (_) {}
+
+  const missingNow = () => {
+    try { return modDeps.missingModIds(modsPath, loader); } catch (_) { return []; }
+  };
+  const wanted = Array.isArray(req.body?.modIds) ? new Set(req.body.modIds.map(String)) : null;
+  const targets = missingNow().map(m => m.id).filter(mid => !wanted || wanted.has(mid));
+  if (targets.length === 0) return res.json({ installed: [], restored, stillMissing: [] });
+
+  // Mirror progress into the server console — resolving a handful of mods can
+  // take a while, and the console is where the crash auto-installer talks too.
+  const log = [];
+  const appendLog = (text) => {
+    log.push(text);
+    if (!activeLogs[id]) activeLogs[id] = [];
+    activeLogs[id].push(text);
+    if (activeLogs[id].length > 500) activeLogs[id].shift();
+    io.emit(`console_${id}`, text);
+  };
+
+  let installed = [];
+  try {
+    installed = await findAndInstallMissingDeps(targets, cfg, serverPath, appendLog);
+    connectivity.noteUpstreamSuccess();
+  } catch (err) {
+    connectivity.noteUpstreamFailure(err);
+    return res.status(502).json({ error: `Couldn't reach Modrinth: ${err.message}` });
+  }
+  const stillMissing = missingNow().filter(m => targets.includes(m.id)).map(m => m.id);
+  res.json({ installed, restored, stillMissing, log });
 });
 
 // Multer's .array('modFile', 50) accepts multiple files appended under the

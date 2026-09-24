@@ -310,20 +310,11 @@ async function resolveAndInstallLauncherDeps(depProjectIds, gameVersion, loader,
   return installed;
 }
 
-// Run async tasks with bounded concurrency. Default 4 in flight keeps a
-// 300-mod first-load comfortably under Modrinth's 300 req/min/IP cap (each
-// file is 2 requests, so peak throughput is ~8 req/s = 480/min, but real
-// latency keeps it well below).
-async function runWithConcurrency(tasks, limit) {
-  const queue = tasks.slice();
-  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    while (queue.length) {
-      const job = queue.shift();
-      if (job) await job();
-    }
-  });
-  await Promise.all(workers);
-}
+// Bounded concurrency lives in concurrency.js (shared with index.js). 4 in
+// flight keeps a 300-mod first-load comfortably under Modrinth's 300
+// req/min/IP cap (each file is 2 requests, so peak throughput is ~8 req/s =
+// 480/min, but real latency keeps it well below).
+const { runWithConcurrency } = require('./concurrency');
 
 // For any launcher-installed file without an iconUrl, hash it and ask Modrinth.
 // Persists results to .minedash-launcher.json so subsequent listings are instant.

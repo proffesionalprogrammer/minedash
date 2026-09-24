@@ -21,6 +21,7 @@ const os = require('os');
 const express = require('express');
 const AdmZip = require('adm-zip');
 const archiver = require('archiver');
+const crypto = require('crypto');
 
 let INSTANCES_DIR = null;
 let getServers = null;  // async () => servers[]
@@ -97,6 +98,35 @@ function resolvePath(serverPath, rel) {
 function toRelative(serverPath, abs) {
   const rel = path.relative(path.resolve(serverPath), abs);
   return rel.split(path.sep).join('/');
+}
+
+const sha1 = (buf) => crypto.createHash('sha1').update(buf).digest('hex');
+
+// An uploaded file's name, reduced to a bare basename, or null if unusable.
+function uploadName(raw) {
+  const name = path.basename(String(raw || '').replace(/\\/g, '/'));
+  if (!name || name === '.' || name === '..') return null;
+  return name;
+}
+
+// "server.properties" -> "server (2).properties". Dotfiles (".env") keep the
+// whole name as the stem; path.extname would otherwise call it all extension.
+function numberedName(name, n) {
+  const ext = name.startsWith('.') && name.indexOf('.', 1) === -1 ? '' : path.extname(name);
+  return `${name.slice(0, name.length - ext.length)} (${n})${ext}`;
+}
+
+// Which of `names` already exist in `dir`. Case-insensitive filesystems make
+// "Server.properties" clash with "server.properties", and stat agrees with the
+// filesystem, so no extra folding is needed here.
+async function existingNames(dir, names) {
+  const out = [];
+  for (const n of names) {
+    let st = null;
+    try { st = await fs.stat(path.join(dir, n)); } catch {}
+    if (st) out.push({ name: n, isDir: st.isDirectory() });
+  }
+  return out;
 }
 
 async function listDir(serverPath, absDir) {
@@ -200,6 +230,9 @@ function register(app) {
       content,
       sizeBytes: stat.size,
       modifiedAt: stat.mtimeMs,
+      // Sent back on save so a touched-but-unchanged file (a running server
+      // rewrites ops.json with identical bytes all the time) isn't a conflict.
+      hash: sha1(raw),
     });
   }));
 
@@ -207,6 +240,13 @@ function register(app) {
   // Writes via a temp file in the same directory then renames, so a failed or
   // interrupted write can't leave a half-truncated server.properties behind —
   // which would be a server that won't boot.
+  //
+  // Body: { content, expectedModifiedAt?, expectedHash?, force? }. A running
+  // server rewrites ops.json, whitelist.json, server.properties and friends on
+  // its own, so the file on disk may have moved on since the editor loaded it.
+  // When `expectedModifiedAt` no longer matches, the save is refused with 409
+  // unless the bytes are still the ones the editor loaded (`expectedHash`) —
+  // a rewrite with identical content is not a conflict. `force` overwrites.
   app.put('/api/servers/:id/files/content', jsonBody, withPath(async (req, res, { serverPath, target }) => {
     const content = req.body?.content;
     if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
@@ -216,6 +256,23 @@ function register(app) {
     if (stat.isDirectory()) return res.status(400).json({ error: 'That is a folder' });
     if (!isTextFile(path.basename(target), 0)) {
       return res.status(415).json({ error: "That file type can't be edited here." });
+    }
+
+    const expectedAt = Number(req.body?.expectedModifiedAt);
+    // mtimeMs round-trips through JSON exactly; the slack only absorbs
+    // filesystems that report sub-millisecond noise between stat calls.
+    if (req.body?.force !== true && req.body?.expectedModifiedAt != null
+        && Number.isFinite(expectedAt) && Math.abs(stat.mtimeMs - expectedAt) > 1) {
+      const expectedHash = typeof req.body?.expectedHash === 'string' ? req.body.expectedHash : null;
+      const unchanged = expectedHash && sha1(await fs.readFile(target)) === expectedHash;
+      if (!unchanged) {
+        return res.status(409).json({
+          error: `${path.basename(target)} changed on disk since you opened it.`,
+          conflict: true,
+          modifiedAt: stat.mtimeMs,
+          running: isRunning(req.params.id),
+        });
+      }
     }
 
     const tmp = path.join(path.dirname(target), `.${path.basename(target)}.minedash-tmp`);
@@ -232,6 +289,7 @@ function register(app) {
       path: toRelative(serverPath, target),
       sizeBytes: after.size,
       modifiedAt: after.mtimeMs,
+      hash: sha1(Buffer.from(content, 'utf8')),
       // The UI turns this into "restart to apply" rather than acting on it —
       // silently bouncing someone's server because they saved a file would be
       // a genuinely bad surprise.
@@ -259,31 +317,78 @@ function register(app) {
   }));
 
   // ── Upload into the current folder ──────────────────────────────────────────
+  // Which of these names are already taken in the folder? The UI asks this
+  // before uploading so a clash can be settled (Replace / Keep both) without
+  // sending a multi-GB drop twice. Body: { names: string[] }.
+  app.post('/api/servers/:id/files/conflicts', jsonBody, withPath(async (req, res, { target }) => {
+    const names = (Array.isArray(req.body?.names) ? req.body.names : []).map(uploadName).filter(Boolean);
+    let stat;
+    try { stat = await fs.stat(target); }
+    catch { return res.status(404).json({ error: 'Folder not found' }); }
+    if (!stat.isDirectory()) return res.status(400).json({ error: 'Not a folder' });
+    res.json({ conflicts: await existingNames(target, [...new Set(names)]) });
+  }));
+
+  // `?onConflict=` decides what happens to a name that already exists:
+  //   ask (default) — nothing is written; 409 with `conflicts[]` so the UI can
+  //                   ask. Silently replacing was how a dropped
+  //                   server.properties wiped the real one.
+  //   replace       — overwrite files. Never a folder: fs.move would delete the
+  //                   whole folder (a world!) to put one file in its place.
+  //   keep-both     — the upload lands as "name (2).ext".
   app.post('/api/servers/:id/files/upload', fileUpload.array('file', 50), withPath(async (req, res, { serverPath, target }) => {
     const files = req.files || [];
     const cleanup = async () => { for (const f of files) await fs.remove(f.path).catch(() => {}); };
     if (files.length === 0) return res.status(400).json({ error: 'No file uploaded' });
+    const mode = ['replace', 'keep-both'].includes(req.query.onConflict) ? req.query.onConflict : 'ask';
 
     let stat;
     try { stat = await fs.stat(target); }
     catch { await cleanup(); return res.status(404).json({ error: 'Folder not found' }); }
     if (!stat.isDirectory()) { await cleanup(); return res.status(400).json({ error: 'Upload target is not a folder' }); }
 
+    if (mode === 'ask') {
+      const names = [...new Set(files.map(f => uploadName(f.originalname)).filter(Boolean))];
+      const conflicts = await existingNames(target, names);
+      if (conflicts.length > 0) {
+        await cleanup();
+        return res.status(409).json({
+          error: conflicts.length === 1
+            ? `"${conflicts[0].name}" already exists in this folder.`
+            : `${conflicts.length} files already exist in this folder.`,
+          conflicts,
+        });
+      }
+    }
+
     // Per-file results rather than all-or-nothing: dropping ten files and being
     // told only that "the upload failed" is useless when one of them was bad.
     const uploaded = [];
     const failed = [];
+    const claimed = new Set(); // names this batch has already written (keep-both)
+    const fold = (n) => (CASE_INSENSITIVE_FS ? n.toLowerCase() : n);
     for (const f of files) {
-      const name = path.basename(f.originalname || '');
-      if (!name || name === '.' || name === '..') {
+      const name = uploadName(f.originalname);
+      if (!name) {
         failed.push({ filename: f.originalname || '(unnamed)', reason: 'Invalid filename' });
         await fs.remove(f.path).catch(() => {});
         continue;
       }
       try {
-        const dest = resolvePath(serverPath, path.join(toRelative(serverPath, target), name));
-        await fs.move(f.path, dest, { overwrite: true });
-        uploaded.push(name);
+        let finalName = name;
+        if (mode === 'keep-both') {
+          for (let n = 2; claimed.has(fold(finalName)) || await fs.pathExists(path.join(target, finalName)); n++) {
+            finalName = numberedName(name, n);
+          }
+        }
+        const dest = resolvePath(serverPath, path.join(toRelative(serverPath, target), finalName));
+        const existing = await fs.stat(dest).catch(() => null);
+        if (existing?.isDirectory()) throw new Error('A folder with that name is already here');
+        // Appeared since the check above, or a duplicate name within the batch.
+        if (existing && mode === 'ask') throw new Error('Already exists');
+        await fs.move(f.path, dest, { overwrite: mode === 'replace' });
+        claimed.add(fold(finalName));
+        uploaded.push(finalName);
       } catch (err) {
         failed.push({ filename: name, reason: err.message });
         await fs.remove(f.path).catch(() => {});
@@ -377,4 +482,4 @@ function register(app) {
   }));
 }
 
-module.exports = { init, register, resolvePath, isTextFile, MAX_EDIT_BYTES };
+module.exports = { init, register, resolvePath, isTextFile, numberedName, MAX_EDIT_BYTES };

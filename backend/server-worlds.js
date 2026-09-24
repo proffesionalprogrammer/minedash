@@ -85,6 +85,64 @@ async function dirSizeBytes(dir) {
   return total;
 }
 
+// ── World size cache ──────────────────────────────────────────────────────────
+// Walking a multi-GB world (tens of thousands of region/entity/poi files) takes
+// seconds, and GET /worlds used to do it for every world on every request. So
+// sizes are cached per folder, keyed on that folder's level.dat mtime:
+// Minecraft rewrites level.dat on every save, so a world that has been played
+// since gets re-measured, and one that hasn't is answered instantly. A cache
+// miss never blocks the listing — the size comes back null ("measuring"), the
+// walk runs in the background, and `server_worlds_changed` tells the UI to
+// re-read once it lands.
+//
+// In memory only: a restart re-measures once, which is fine.
+const SIZE_TTL_MS = 10 * 60 * 1000; // a file dropped into a world without a save still shows up eventually
+const sizeCache = new Map();         // absDir -> { stamp, sizeBytes, at }
+const sizeInFlight = new Map();      // absDir -> Promise<number>
+
+async function sizeStamp(dir) {
+  // Dimension siblings carry their own level.dat on Bukkit; a sibling without
+  // one (hand-copied) falls back to the folder's own mtime.
+  try { return (await fs.stat(path.join(dir, 'level.dat'))).mtimeMs; } catch {}
+  try { return (await fs.stat(dir)).mtimeMs; } catch { return 0; }
+}
+
+async function cachedDirSize(dir) {
+  const hit = sizeCache.get(dir);
+  if (!hit || Date.now() - hit.at > SIZE_TTL_MS) return null;
+  return hit.stamp === await sizeStamp(dir) ? hit.sizeBytes : null;
+}
+
+// Measure `dir` once even if several listings ask at the same time.
+function measureDirSize(dir) {
+  if (sizeInFlight.has(dir)) return sizeInFlight.get(dir);
+  const p = (async () => {
+    const stamp = await sizeStamp(dir);
+    const sizeBytes = await dirSizeBytes(dir);
+    sizeCache.set(dir, { stamp, sizeBytes, at: Date.now() });
+    return sizeBytes;
+  })().finally(() => sizeInFlight.delete(dir));
+  sizeInFlight.set(dir, p);
+  return p;
+}
+
+// Forget every cached size at or under `prefix` — the Refresh button's way of
+// forcing a re-measure of a server's worlds.
+function forgetSizes(prefix) {
+  const root = path.resolve(prefix);
+  for (const key of sizeCache.keys()) {
+    if (key === root || key.startsWith(root + path.sep)) sizeCache.delete(key);
+  }
+}
+
+// Carry a world's cached sizes over a rename — the bytes didn't change.
+function moveSizes(fromDir, toDir) {
+  const hit = sizeCache.get(path.resolve(fromDir));
+  if (!hit) return;
+  sizeCache.delete(path.resolve(fromDir));
+  sizeCache.set(path.resolve(toDir), hit);
+}
+
 // Windows (and default macOS) filesystems are case-insensitive: level-name=World
 // loads the folder "world". Name comparisons that guard destructive actions
 // (is this the active world?) have to agree with the filesystem, or deleting
@@ -231,7 +289,11 @@ async function worldParts(serverPath, name) {
 
 // A directory is a world when it holds a level.dat. Dimension siblings hold one
 // too, which is why they're filtered out by name against the set of real worlds.
-async function listWorlds(serverPath) {
+//
+// `onSizesReady` (optional) is called once, after any sizes that weren't cached
+// have been measured in the background. Worlds whose size isn't known yet come
+// back with sizeBytes: null and sizePending: true.
+async function listWorlds(serverPath, { onSizesReady } = {}) {
   let entries = [];
   try { entries = await fs.readdir(serverPath, { withFileTypes: true }); } catch { return []; }
 
@@ -253,6 +315,7 @@ async function listWorlds(serverPath) {
   });
 
   const out = [];
+  const pending = [];
   for (const name of roots) {
     const dir = path.join(serverPath, name);
     try {
@@ -265,11 +328,17 @@ async function listWorlds(serverPath) {
 
       const parts = await worldParts(serverPath, name);
       let sizeBytes = 0;
-      for (const p of parts) sizeBytes += await dirSizeBytes(p.dir);
+      for (const p of parts) {
+        const dirKey = path.resolve(p.dir);
+        const cached = await cachedDirSize(dirKey);
+        if (cached == null) { pending.push(dirKey); sizeBytes = null; }
+        else if (sizeBytes != null) sizeBytes += cached;
+      }
 
       out.push({
         name,
         sizeBytes,
+        sizePending: sizeBytes == null,
         lastPlayed: typeof summary.lastPlayed === 'number' && summary.lastPlayed > 0
           ? summary.lastPlayed
           : levelStat.mtimeMs,
@@ -283,6 +352,15 @@ async function listWorlds(serverPath) {
     } catch {}
   }
   out.sort((a, b) => b.lastPlayed - a.lastPlayed);
+
+  if (pending.length > 0) {
+    // One at a time: these are disk-bound walks, and running several in
+    // parallel on a spinning disk is slower than running them in sequence.
+    (async () => {
+      for (const dir of pending) await measureDirSize(dir).catch(() => {});
+      onSizesReady?.();
+    })();
+  }
   return out;
 }
 
@@ -295,18 +373,31 @@ function safeEntryPath(entryName) {
   return normalized;
 }
 
-async function extractZip(zipPath, destDir) {
+// `onProgress(doneBytes, totalBytes)` is called as entries are written, sized
+// by uncompressed bytes so one huge region file moves the bar as much as it
+// should. Every entry is checked before anything is written, so a bad path
+// can't leave a half-extracted world in the temp dir.
+async function extractZip(zipPath, destDir, onProgress) {
   const zip = new AdmZip(zipPath);
+  const planned = [];
+  let total = 0;
   for (const entry of zip.getEntries()) {
     const rel = safeEntryPath(entry.entryName);
     if (rel === null) throw new Error(`Refusing unsafe path in zip: ${entry.entryName}`);
-    const target = path.join(destDir, rel);
+    planned.push({ entry, target: path.join(destDir, rel) });
+    if (!entry.isDirectory) total += entry.header.size || 0;
+  }
+  let done = 0;
+  onProgress?.(0, total);
+  for (const { entry, target } of planned) {
     if (entry.isDirectory) {
       await fs.ensureDir(target);
       continue;
     }
     await fs.ensureDir(path.dirname(target));
     await fs.writeFile(target, entry.getData());
+    done += entry.header.size || 0;
+    onProgress?.(done, total);
   }
 }
 
@@ -385,10 +476,22 @@ function register(app) {
     return { cfg, serverPath: path.join(INSTANCES_DIR, id) };
   };
 
+  // Tell every open Worlds tab for this server to re-read. Emitted after each
+  // mutation (so a second window, or the Files tab moving a folder, stays in
+  // step) and when background size measuring finishes.
+  const worldsChanged = (serverId, reason) => {
+    if (io) io.emit('server_worlds_changed', { serverId, reason });
+  };
+
   app.get('/api/servers/:id/worlds', async (req, res) => {
     const ctx = await resolve(req, res);
     if (!ctx) return;
-    const worlds = await listWorlds(ctx.serverPath);
+    // The Refresh button re-measures — the only way to pick up bytes added to
+    // a world without the server ever saving it (a region file copied in).
+    if (req.query.refresh === '1') forgetSizes(ctx.serverPath);
+    const worlds = await listWorlds(ctx.serverPath, {
+      onSizesReady: () => worldsChanged(req.params.id, 'sizes'),
+    });
     const active = await readLevelName(ctx.serverPath);
     res.json({
       worlds: worlds.map(w => ({ ...w, active: sameWorldName(w.name, active) })),
@@ -421,6 +524,7 @@ function register(app) {
     }
     const { converted, conflicts } = await applyLayout(ctx.serverPath, req.params.name, ctx.cfg.type);
     await writeLevelName(ctx.serverPath, req.params.name);
+    worldsChanged(req.params.id, 'activate');
     res.json({ ok: true, active: req.params.name, converted, conflicts });
   });
 
@@ -437,9 +541,25 @@ function register(app) {
       return res.status(400).json({ error: 'World imports must be .zip files' });
     }
 
+    // Progress for the phases after the upload (which the browser reports on
+    // its own). Throttled — a map can hold 20k entries and each is an event.
+    // `importId` (from the client) lets a tab ignore another tab's import.
+    const importId = typeof req.query.importId === 'string' ? req.query.importId.slice(0, 64) : null;
+    let lastEmit = 0;
+    const progress = (phase, extra = {}, force = false) => {
+      if (!io) return;
+      const now = Date.now();
+      if (!force && now - lastEmit < 150) return;
+      lastEmit = now;
+      io.emit(`world_import_${req.params.id}`, { importId, phase, ...extra });
+    };
+
     const tmpExtract = `${req.file.path}-extracted`;
     try {
-      await extractZip(req.file.path, tmpExtract);
+      await extractZip(req.file.path, tmpExtract, (done, total) => {
+        progress('extract', { done, total }, done === total);
+      });
+      progress('install', {}, true);
       const found = await findWorldRoot(tmpExtract, (req.file.originalname || 'world').replace(/\.zip$/i, ''));
       if (!found) {
         return res.status(400).json({
@@ -465,6 +585,7 @@ function register(app) {
         }
       }
 
+      progress('convert', {}, true);
       const { layout, converted, conflicts } = await applyLayout(ctx.serverPath, target, ctx.cfg.type);
 
       let activated = false;
@@ -472,9 +593,11 @@ function register(app) {
         await writeLevelName(ctx.serverPath, target);
         activated = true;
       }
-      if (io) io.emit('server_worlds_changed', { serverId: req.params.id });
+      progress('done', {}, true);
+      worldsChanged(req.params.id, 'import');
       res.json({ ok: true, name: target, layout, converted, conflicts, activated });
     } catch (err) {
+      progress('error', { error: err.message }, true);
       res.status(500).json({ error: `Import failed: ${err.message}` });
     } finally {
       await cleanup();
@@ -512,16 +635,20 @@ function register(app) {
         const dest = path.join(ctx.serverPath, `${newName}${p.suffix}`);
         await fs.move(p.dir, dest);
         done.push({ from: p.dir, to: dest });
+        moveSizes(p.dir, dest);
       }
     } catch (err) {
       // Put back whatever already moved, so the world stays in one piece under
       // its old name (which level-name still points at).
-      for (const m of done.reverse()) await fs.move(m.to, m.from).catch(() => {});
+      for (const m of done.reverse()) {
+        await fs.move(m.to, m.from).then(() => moveSizes(m.to, m.from)).catch(() => {});
+      }
       return res.status(500).json({ error: `Rename failed: ${err.message}` });
     }
     if (sameWorldName(await readLevelName(ctx.serverPath), req.params.name)) {
       await writeLevelName(ctx.serverPath, newName);
     }
+    worldsChanged(req.params.id, 'rename');
     res.json({ ok: true, name: newName });
   });
 
@@ -542,6 +669,7 @@ function register(app) {
     } catch (err) {
       return res.status(500).json({ error: `Copy failed: ${err.message}` });
     }
+    worldsChanged(req.params.id, 'duplicate');
     res.json({ ok: true, name: copyName });
   });
 
@@ -557,10 +685,13 @@ function register(app) {
     }
     const parts = await worldParts(ctx.serverPath, req.params.name);
     try {
-      for (const p of parts) await fs.remove(p.dir);
+      for (const p of parts) { await fs.remove(p.dir); sizeCache.delete(path.resolve(p.dir)); }
     } catch (err) {
+      // Part of the world may already be gone; the listing should say so.
+      worldsChanged(req.params.id, 'delete');
       return res.status(500).json({ error: `Delete failed: ${err.message}` });
     }
+    worldsChanged(req.params.id, 'delete');
     res.json({ ok: true });
   });
 
@@ -592,6 +723,7 @@ module.exports = {
   register,
   // exported for tests / reuse
   listWorlds,
+  forgetSizes,
   readLevelName,
   writeLevelName,
   toBukkitLayout,

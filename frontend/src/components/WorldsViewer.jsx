@@ -8,6 +8,7 @@ import ModalPortal from './ModalPortal';
 import Tooltip from './Tooltip';
 
 const GAME_MODE = { 0: 'Survival', 1: 'Creative', 2: 'Adventure', 3: 'Spectator' };
+const IMPORT_PHASE = { upload: 'Uploading', extract: 'Extracting', install: 'Adding world', convert: 'Converting dimensions' };
 
 function humanBytes(n) {
   if (!n && n !== 0) return '';
@@ -33,10 +34,10 @@ function fmtDate(ms) {
 // map's dimension layout to whatever the server actually reads (see
 // backend/server-worlds.js — vanilla nests DIM-1/DIM1 inside the world folder,
 // Paper wants them in <world>_nether / <world>_the_end siblings).
-function WorldsViewer({ serverId, serverStatus, onError }) {
+function WorldsViewer({ serverId, serverStatus, socket, onError }) {
   const [data, setData] = useState(null);       // { worlds, active, layout, running } | null while loading
   const [busy, setBusy] = useState(null);        // world name with an action in flight
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState(null); // null | { phase, pct|null, name } — see importZip
   const [pendingDelete, setPendingDelete] = useState(null);
   const [renaming, setRenaming] = useState(null);
   const [renameValue, setRenameValue] = useState('');
@@ -47,13 +48,19 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
   const base = `http://localhost:3001/api/servers/${serverId}`;
   const running = !!data?.running;
 
-  const fetchWorlds = useCallback(async () => {
+  // Only the newest request may land: a mutation's own refetch and the socket
+  // event it triggers race, and an older answer arriving last would roll the
+  // list back.
+  const fetchSeq = useRef(0);
+  const fetchWorlds = useCallback(async ({ refresh = false } = {}) => {
+    const seq = ++fetchSeq.current;
     try {
-      const r = await fetch(`${base}/worlds`);
+      const r = await fetch(`${base}/worlds${refresh ? '?refresh=1' : ''}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed to load worlds');
-      setData(d);
+      if (seq === fetchSeq.current) setData(d);
     } catch (err) {
+      if (seq !== fetchSeq.current) return;
       onError?.(err.message);
       setData({ worlds: [], active: null, layout: 'vanilla', running: false });
     }
@@ -63,6 +70,15 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
   // value fetched once at mount goes stale the moment the server changes state.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount; setState lands asynchronously in the promise
   useEffect(() => { fetchWorlds(); }, [fetchWorlds, serverStatus]);
+
+  // The backend announces every world mutation (from this tab, another window,
+  // or a background size measurement finishing) — re-read when it's ours.
+  useEffect(() => {
+    if (!socket) return;
+    const onChanged = (e) => { if (e?.serverId === serverId) fetchWorlds(); };
+    socket.on('server_worlds_changed', onChanged);
+    return () => socket.off('server_worlds_changed', onChanged);
+  }, [socket, serverId, fetchWorlds]);
 
   // One wrapper for every per-world mutation: they all take a world name, set
   // the busy flag, surface an error the same way, and re-read the list after.
@@ -135,17 +151,50 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
   // `activate` decides between the header's "Import map" (just add it) and the
   // drop-zone / primary action (add it and switch to it). Importing without
   // switching matters when you're staging a map for later.
+  //
+  // XHR rather than fetch because fetch has no upload progress, and a 1 GB map
+  // is minutes of upload on its own. After the upload the backend reports its
+  // own phases (extract → install → convert) on world_import_<serverId>.
   const importZip = async (file, activate) => {
     if (!file) return;
     if (!/\.zip$/i.test(file.name)) { onError?.('World imports must be .zip files.'); return; }
-    setImporting(true);
+    const importId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    setImporting({ phase: 'upload', pct: 0, name: file.name });
     setNotice(null);
+
+    const onPhase = (e) => {
+      if (!e || e.importId !== importId) return;
+      if (e.phase === 'extract') {
+        setImporting(p => p && { ...p, phase: 'extract', pct: e.total > 0 ? Math.round((e.done / e.total) * 100) : null });
+      } else if (e.phase === 'install' || e.phase === 'convert') {
+        setImporting(p => p && { ...p, phase: e.phase, pct: null });
+      }
+    };
+    socket?.on(`world_import_${serverId}`, onPhase);
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const r = await fetch(`${base}/worlds/import${activate ? '?activate=1' : ''}`, { method: 'POST', body: fd });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Import failed');
+      const qs = new URLSearchParams({ importId, ...(activate ? { activate: '1' } : {}) });
+      const d = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${base}/worlds/import?${qs}`);
+        xhr.upload.onprogress = (ev) => {
+          if (!ev.lengthComputable) return;
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          setImporting(p => p && (p.phase === 'upload' ? { ...p, pct } : p));
+        };
+        // Once the body is sent the server takes over; say so instead of
+        // sitting on "100%" while it extracts.
+        xhr.upload.onload = () => setImporting(p => p && (p.phase === 'upload' ? { ...p, phase: 'extract', pct: null } : p));
+        xhr.onload = () => {
+          let body = {};
+          try { body = JSON.parse(xhr.responseText); } catch { /* non-JSON error page */ }
+          if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+          else reject(new Error(body.error || `Import failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error('Import failed — the connection to MineDash dropped.'));
+        xhr.send(fd);
+      });
       const bits = [`Imported "${d.name}"`];
       if (d.converted?.length) {
         bits.push(`converted its ${d.converted.join(' and ')} to the ${d.layout === 'bukkit' ? 'Paper' : 'vanilla'} layout`);
@@ -154,7 +203,8 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
       setNotice({ kind: d.conflicts?.length ? 'warn' : 'ok', text: bits.join(', ') + '.' + conflictText(d.conflicts) });
       await fetchWorlds();
     } catch (err) { onError?.(err.message); }
-    setImporting(false);
+    socket?.off(`world_import_${serverId}`, onPhase);
+    setImporting(null);
   };
 
   // ── Drag-and-drop ───────────────────────────────────────────────────────────
@@ -252,8 +302,8 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
         <div className="flex items-center gap-2">
           <input type="file" ref={fileRef} accept=".zip" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; importZip(f, false); }} />
-          <Tooltip content="Refresh" side="bottom" align="end">
-            <button onClick={fetchWorlds}
+          <Tooltip content="Refresh (re-measures world sizes)" side="bottom" align="end">
+            <button onClick={() => fetchWorlds({ refresh: true })}
               className="p-2 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] hover:bg-[var(--c-surface-2)] transition-colors">
               <RefreshCw size={14} />
             </button>
@@ -282,6 +332,42 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
           </div>
         </div>
       )}
+
+      {/* Import progress. The upload is measured by the browser; extract is
+          measured by the backend in uncompressed bytes; install/convert are
+          quick moves with no meaningful percentage. */}
+      <AnimatePresence>
+        {importing && (
+          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="mx-4 mt-3 p-3 rounded-2xl border bg-[var(--c-surface-2)] border-[var(--c-border)]">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#00AF5C]/15 rounded-xl flex-shrink-0">
+                <Loader2 size={18} className="text-[#00AF5C] animate-spin" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-[var(--c-text-primary)] truncate">
+                  {IMPORT_PHASE[importing.phase] || 'Importing'} <span className="font-mono text-[var(--c-text-secondary)]">{importing.name}</span>
+                </p>
+                <div className="mt-2 h-1.5 rounded-full bg-[var(--c-border)] overflow-hidden">
+                  {importing.pct != null ? (
+                    // Keyed by phase so extract starts from empty instead of
+                    // springing back down from the upload's 100%.
+                    <motion.div key={importing.phase} className="h-full bg-[#00AF5C] rounded-full"
+                      initial={{ width: 0 }} animate={{ width: `${importing.pct}%` }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }} />
+                  ) : (
+                    <motion.div className="h-full w-1/3 bg-[#00AF5C] rounded-full"
+                      animate={{ x: ['-100%', '300%'] }} transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }} />
+                  )}
+                </div>
+              </div>
+              {importing.pct != null && (
+                <span className="text-sm font-bold text-[var(--c-text-primary)] tabular-nums flex-shrink-0">{importing.pct}%</span>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Import / activate result */}
       <AnimatePresence>
@@ -375,7 +461,15 @@ function WorldsViewer({ serverId, serverStatus, onError }) {
                           </span>
                         </Tooltip>
                       )}
-                      <span className="text-[11px] text-[var(--c-text-muted)] tabular-nums">{humanBytes(w.sizeBytes)}</span>
+                      {w.sizePending ? (
+                        <Tooltip content="Measuring this world's size in the background" side="bottom">
+                          <span className="flex items-center gap-1 text-[11px] text-[var(--c-text-muted)]">
+                            <Loader2 size={10} className="animate-spin" /> Measuring…
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <span className="text-[11px] text-[var(--c-text-muted)] tabular-nums">{humanBytes(w.sizeBytes)}</span>
+                      )}
                       {w.lastPlayed > 0 && (
                         <span className="text-[11px] text-[var(--c-text-muted)]">· {fmtDate(w.lastPlayed)}</span>
                       )}

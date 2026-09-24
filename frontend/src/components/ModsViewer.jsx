@@ -34,6 +34,11 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
   const [updates, setUpdates] = useState(null);       // [{ filename, versionId, … }] | null
   const [updatingSet, setUpdatingSet] = useState(new Set()); // filenames currently being applied
   const [updateError, setUpdateError] = useState(null);
+  // Mandatory dependencies an update introduced that nothing installed
+  // provides: [{ id, requiredBy: [{ filename, title }] }]. The server would
+  // refuse to boot with these missing, so they get their own banner.
+  const [missingDeps, setMissingDeps] = useState([]);
+  const [installingDeps, setInstallingDeps] = useState(false);
 
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
@@ -102,6 +107,14 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
       // the list so it can be retried without re-running the whole check.
       const done = new Set((data.updated || []).map(u => u.from));
       setUpdates(prev => (prev || []).filter(u => !done.has(u.filename)));
+      // Merge by id: "Update all" and a later single update can each add some.
+      if (data.missingDeps?.length > 0) {
+        setMissingDeps(prev => {
+          const byId = new Map(prev.map(d => [d.id, d]));
+          for (const d of data.missingDeps) byId.set(d.id, d);
+          return [...byId.values()];
+        });
+      }
       await fetchMods();
     } catch (err) {
       setUpdateError(err.message);
@@ -112,6 +125,32 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
       for (const n of names) next.delete(n);
       return next;
     });
+  };
+
+  // One click: the backend resolves each mod ID through the same validated
+  // Modrinth path the crash auto-installer uses (IDs aren't slugs — the jar it
+  // downloads must really declare the ID, or it's thrown away).
+  const installMissingDeps = async () => {
+    if (missingDeps.length === 0) return;
+    setInstallingDeps(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/servers/${serverId}/mods/install-missing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modIds: missingDeps.map(d => d.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Install failed');
+      const still = new Set(data.stillMissing || []);
+      setMissingDeps(prev => prev.filter(d => still.has(d.id)));
+      if (still.size > 0) {
+        onError?.(`Couldn't find a compatible ${[...still].map(i => `'${i}'`).join(', ')} on Modrinth for this loader and version — install ${still.size === 1 ? 'it' : 'them'} by hand.`);
+      }
+      await fetchMods();
+    } catch (err) {
+      onError?.(err.message);
+    }
+    setInstallingDeps(false);
   };
 
   const fetchMods = async () => {
@@ -687,6 +726,54 @@ function ModsViewer({ serverId, serverVersion, serverType, socket, onError, modp
                 {updateError && (
                   <p className="mt-2 text-xs font-bold text-[var(--c-danger)]">{updateError}</p>
                 )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Missing dependencies after an update. Shown above the issues banner
+              because it's the one that stops the server booting at all. */}
+          <AnimatePresence>
+            {missingDeps.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="mx-4 mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-500/15 rounded-xl flex-shrink-0">
+                    <Link2 size={18} className="text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-white">
+                      {missingDeps.length === 1
+                        ? 'An updated mod needs a mod that isn\'t installed'
+                        : `Updated mods need ${missingDeps.length} mods that aren't installed`}
+                    </p>
+                    <p className="text-xs text-[var(--c-text-secondary)] mt-0.5">
+                      The server won't start until {missingDeps.length === 1 ? 'it\'s' : 'they\'re'} added.
+                    </p>
+                  </div>
+                  {online && (
+                    <motion.button whileTap={{ scale: 0.97 }}
+                      onClick={installMissingDeps} disabled={installingDeps}
+                      className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                      {installingDeps ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                      <span>{installingDeps ? 'Installing…' : 'Install from Modrinth'}</span>
+                    </motion.button>
+                  )}
+                  <button onClick={() => setMissingDeps([])} disabled={installingDeps}
+                    className="flex-shrink-0 p-1.5 rounded-lg text-[var(--c-text-muted)] hover:text-[var(--c-text-primary)] transition-colors">
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="mt-3 pt-3 border-t border-amber-500/20 space-y-1">
+                  {missingDeps.map(d => (
+                    <div key={d.id} className="flex items-center gap-3 px-2 py-1">
+                      <span className="text-sm font-bold font-mono text-[var(--c-text-primary)]">{d.id}</span>
+                      <span className="text-xs text-[var(--c-text-muted)] truncate">
+                        needed by {d.requiredBy.map(r => r.title).join(', ')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

@@ -691,7 +691,7 @@ function MainPanel({ server, socket, onError, onBack, modpackInstalls, onOpenDet
             {activeTab === 'map' && !isVanilla && (
               <MapViewer serverId={server.id} server={server} socket={socket} onError={onError} />
             )}
-            {activeTab === 'worlds' && <WorldsViewer serverId={server.id} serverStatus={server.status} onError={onError} />}
+            {activeTab === 'worlds' && <WorldsViewer serverId={server.id} serverStatus={server.status} socket={socket} onError={onError} />}
             {activeTab === 'backups' && <BackupsViewer serverId={server.id} server={server} onError={onError} />}
             {activeTab === 'files' && <FilesViewer serverId={server.id} serverStatus={server.status} onError={onError} />}
             {activeTab === 'schedule' && <ScheduleViewer serverId={server.id} onError={onError} />}

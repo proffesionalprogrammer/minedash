@@ -29,6 +29,17 @@ const CODE_EXT = new Set(['.json', '.json5', '.toml', '.yml', '.yaml', '.cfg', '
 const ARCHIVE_EXT = new Set(['.zip', '.jar', '.gz', '.tar', '.rar', '.7z']);
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico']);
 
+// Editor state from a GET /files/content answer. A <textarea> hands back every
+// line ending as \n, so a CRLF file would be silently converted on save — and
+// .bat files (Forge's run.bat) misbehave with LF-only endings. Edit in LF, put
+// the CRs back when saving. modifiedAt + hash go back with the save so the
+// backend can tell whether the file changed on disk in the meantime.
+function editorFields(d) {
+  const crlf = d.content.includes('\r\n');
+  const content = crlf ? d.content.replace(/\r\n/g, '\n') : d.content;
+  return { content, original: content, crlf, modifiedAt: d.modifiedAt, hash: d.hash };
+}
+
 function entryIcon(entry) {
   if (entry.isDir) return <Folder size={16} className="text-[#00AF5C]" />;
   const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
@@ -63,6 +74,13 @@ function FilesViewer({ serverId, serverStatus, onError }) {
   // changes asks first, because losing a hand-edited config is a real cost.
   const [editor, setEditor] = useState(null);    // { path, name, content, original, saving }
   const [confirmClose, setConfirmClose] = useState(false);
+  const [saveConflict, setSaveConflict] = useState(null);     // { running } — file changed on disk since it was opened
+  const [uploadConflict, setUploadConflict] = useState(null); // { files, dir, conflicts: [{ name, isDir }] }
+  // The open conflict, readable synchronously. A modal's buttons stay clickable
+  // during its exit animation, so a double-click on Keep both would otherwise
+  // resolve the same (closed-over) upload twice and send it twice.
+  const uploadConflictRef = useRef(null);
+  const openUploadConflict = (c) => { uploadConflictRef.current = c; setUploadConflict(c); };
 
   const fileRef = useRef(null);
   const fetchSeq = useRef(0);
@@ -118,28 +136,39 @@ function FilesViewer({ serverId, serverStatus, onError }) {
     setBusy(entry.path);
     try {
       const d = await req(`${base}/files/content?path=${encodeURIComponent(entry.path)}`);
-      // A <textarea> hands back every line ending as \n, so a CRLF file would be
-      // silently converted on save — and .bat files (Forge's run.bat) misbehave
-      // with LF-only endings. Edit in LF, put the CRs back when saving.
-      const crlf = d.content.includes('\r\n');
-      const content = crlf ? d.content.replace(/\r\n/g, '\n') : d.content;
-      setEditor({ path: entry.path, name: entry.name, content, original: content, crlf, saving: false });
+      setEditor({ path: entry.path, name: entry.name, saving: false, ...editorFields(d) });
     } catch (err) { onError?.(err.message); }
     setBusy(null);
   };
 
-  const saveEditor = async () => {
+  // `force` is the "Overwrite anyway" answer to a save conflict. Otherwise the
+  // save carries the modifiedAt + hash the editor loaded, and the backend
+  // answers 409 if a running server rewrote the file underneath us.
+  const saveEditor = async (force = false) => {
     if (!editor || editor.saving) return;
     // Snapshot what's being written: typing while the request is in flight must
     // leave the editor dirty, not be marked saved.
     const saved = editor.content;
+    setSaveConflict(null);
     setEditor(e => ({ ...e, saving: true }));
     try {
-      await req(`${base}/files/content?path=${encodeURIComponent(editor.path)}`, {
+      const r = await fetch(`${base}/files/content?path=${encodeURIComponent(editor.path)}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editor.crlf ? saved.replace(/\n/g, '\r\n') : saved }),
+        body: JSON.stringify({
+          content: editor.crlf ? saved.replace(/\n/g, '\r\n') : saved,
+          expectedModifiedAt: editor.modifiedAt,
+          expectedHash: editor.hash,
+          force,
+        }),
       });
-      setEditor(e => ({ ...e, original: saved, saving: false }));
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 409 && d.conflict) {
+        setEditor(e => ({ ...e, saving: false }));
+        setSaveConflict({ running: !!d.running });
+        return;
+      }
+      if (!r.ok) throw new Error(d.error || 'Save failed');
+      setEditor(e => ({ ...e, original: saved, saving: false, modifiedAt: d.modifiedAt, hash: d.hash }));
       await refresh();
     } catch (err) {
       onError?.(err.message);
@@ -147,29 +176,66 @@ function FilesViewer({ serverId, serverStatus, onError }) {
     }
   };
 
+  // "Reload" answer to a save conflict: take the file as it is on disk now and
+  // drop the local edits (the modal said so).
+  const reloadEditor = async () => {
+    if (!editor) return;
+    setSaveConflict(null);
+    try {
+      const d = await req(`${base}/files/content?path=${encodeURIComponent(editor.path)}`);
+      setEditor(e => (e && e.path === editor.path ? { ...e, saving: false, ...editorFields(d) } : e));
+    } catch (err) { onError?.(err.message); }
+  };
+
   const closeEditor = () => {
     if (editor && editor.content !== editor.original) { setConfirmClose(true); return; }
     setEditor(null);
   };
 
-  const uploadFiles = async (list) => {
-    const files = Array.from(list || []);
-    if (files.length === 0) return;
+  // Upload never silently replaces a file any more — dropping a
+  // server.properties used to wipe the real one. Names are checked first (a
+  // cheap JSON call, so a big drop isn't sent twice) and a clash opens the
+  // Replace / Keep both / Cancel modal. The upload itself defaults to
+  // onConflict=ask too, so a file that appears in between still can't be
+  // overwritten without asking.
+  const sendUpload = async (files, dir, onConflict) => {
     setUploading(true);
     try {
       const fd = new FormData();
       for (const f of files) fd.append('file', f);
-      const r = await fetch(`${base}/files/upload?path=${encodeURIComponent(cwd)}`, { method: 'POST', body: fd });
+      const r = await fetch(`${base}/files/upload?path=${encodeURIComponent(dir)}&onConflict=${onConflict}`, { method: 'POST', body: fd });
       const d = await r.json().catch(() => ({}));
-      // 207 means some landed and some didn't — still a partial success.
-      if (!r.ok && r.status !== 207) throw new Error(d.error || 'Upload failed');
-      if (d.failed?.length > 0) {
-        const f = d.failed[0];
-        onError?.(`${f.filename}: ${f.reason}${d.failed.length > 1 ? ` (+${d.failed.length - 1} more)` : ''}`);
+      if (r.status === 409 && Array.isArray(d.conflicts)) {
+        openUploadConflict({ files, dir, conflicts: d.conflicts });
+      } else {
+        // 207 means some landed and some didn't — still a partial success.
+        if (!r.ok && r.status !== 207) throw new Error(d.error || 'Upload failed');
+        if (d.failed?.length > 0) {
+          const f = d.failed[0];
+          onError?.(`${f.filename}: ${f.reason}${d.failed.length > 1 ? ` (+${d.failed.length - 1} more)` : ''}`);
+        }
       }
       await refresh();
     } catch (err) { onError?.(err.message); }
     setUploading(false);
+  };
+
+  const uploadFiles = async (list) => {
+    const files = Array.from(list || []);
+    if (files.length === 0) return;
+    const dir = cwd; // the folder the drop landed in, even if the user navigates while the modal is up
+    try {
+      const d = await req(`${base}/files/conflicts?path=${encodeURIComponent(dir)}`, json({ names: files.map(f => f.name) }));
+      if (d.conflicts?.length > 0) { openUploadConflict({ files, dir, conflicts: d.conflicts }); return; }
+    } catch (err) { onError?.(err.message); return; }
+    await sendUpload(files, dir, 'ask');
+  };
+
+  const resolveUploadConflict = (choice) => {
+    const pending = uploadConflictRef.current;
+    uploadConflictRef.current = null; // one answer per conflict — see openUploadConflict
+    setUploadConflict(null);
+    if (pending && choice) sendUpload(pending.files, pending.dir, choice);
   };
 
   // ── Drag-and-drop into the current folder ───────────────────────────────────
@@ -195,12 +261,12 @@ function FilesViewer({ serverId, serverStatus, onError }) {
     if (!editor) return;
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveEditor(); }
-      else if (e.key === 'Escape' && !confirmClose) { e.preventDefault(); closeEditor(); }
+      else if (e.key === 'Escape' && !confirmClose && !saveConflict) { e.preventDefault(); closeEditor(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, confirmClose]);
+  }, [editor, confirmClose, saveConflict]);
 
   const segments = cwd ? cwd.split('/') : [];
   const entries = (data?.entries || []).filter(e =>
@@ -258,6 +324,104 @@ function FilesViewer({ serverId, serverStatus, onError }) {
                   }}
                     className="px-4 py-2 bg-[var(--c-danger)] hover:bg-[var(--c-danger-hover)] text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
                     <Trash2 size={16} /> Delete
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          </ModalPortal>
+        )}
+      </AnimatePresence>
+
+      {/* Upload would overwrite — Replace / Keep both / Cancel */}
+      <AnimatePresence>
+        {uploadConflict && (() => {
+          const { conflicts, dir } = uploadConflict;
+          const folders = conflicts.filter(c => c.isDir);
+          const shown = conflicts.slice(0, 6);
+          return (
+            <ModalPortal>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-[#000000]/80 z-[100] flex items-center justify-center backdrop-blur-sm">
+                <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                  transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+                  className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-amber-500/10 rounded-xl"><AlertTriangle size={18} className="text-amber-400" /></div>
+                    <h3 className="text-xl font-bold text-[var(--c-text-primary)]">
+                      {conflicts.length === 1 ? 'File already exists' : `${conflicts.length} files already exist`}
+                    </h3>
+                  </div>
+                  <p className="text-[var(--c-text-secondary)] text-sm mb-3 leading-relaxed">
+                    {conflicts.length === 1 ? 'This name is' : 'These names are'} already taken in <span className="font-mono text-[var(--c-text-primary)]">/{dir}</span>:
+                  </p>
+                  <div className="mb-4 space-y-1 max-h-40 overflow-y-auto custom-scrollbar">
+                    {shown.map(c => (
+                      <div key={c.name} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--c-base)] border border-[var(--c-border)]">
+                        {c.isDir ? <Folder size={14} className="text-[#00AF5C] flex-shrink-0" /> : <FileText size={14} className="text-[var(--c-text-muted)] flex-shrink-0" />}
+                        <span className="text-sm font-bold font-mono text-[var(--c-text-primary)] truncate">{c.name}</span>
+                      </div>
+                    ))}
+                    {conflicts.length > shown.length && (
+                      <p className="text-xs text-[var(--c-text-muted)] px-1">…and {conflicts.length - shown.length} more</p>
+                    )}
+                  </div>
+                  <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
+                    <span className="font-bold text-[var(--c-text-primary)]">Replace</span> overwrites the existing {conflicts.length === 1 ? 'file' : 'files'}.{' '}
+                    <span className="font-bold text-[var(--c-text-primary)]">Keep both</span> saves the upload as "name (2)".
+                    {folders.length > 0 && ' A folder is never replaced by a file — those uploads are skipped unless you keep both.'}
+                  </p>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
+                    <button onClick={() => resolveUploadConflict(null)}
+                      className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
+                      Cancel
+                    </button>
+                    <button onClick={() => resolveUploadConflict('keep-both')}
+                      className="px-4 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
+                      Keep both
+                    </button>
+                    <button onClick={() => resolveUploadConflict('replace')}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
+                      <Upload size={16} /> Replace
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            </ModalPortal>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Save conflict — the file changed on disk while it was open */}
+      <AnimatePresence>
+        {saveConflict && editor && (
+          <ModalPortal>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-[#000000]/80 z-[110] flex items-center justify-center backdrop-blur-sm">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+                className="bg-[var(--c-surface-1)] border border-[var(--c-border)] p-6 rounded-3xl w-full max-w-md shadow-2xl mx-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-amber-500/10 rounded-xl"><AlertTriangle size={18} className="text-amber-400" /></div>
+                  <h3 className="text-xl font-bold text-[var(--c-text-primary)]">File changed on disk</h3>
+                </div>
+                <p className="text-[var(--c-text-secondary)] text-sm mb-6 leading-relaxed">
+                  <span className="text-[var(--c-text-primary)] font-bold font-mono">{editor.name}</span> was modified since you opened it
+                  {saveConflict.running ? ' — the running server probably rewrote it' : ''}.{' '}
+                  <span className="font-bold text-[var(--c-text-primary)]">Reload</span> loads the new version and discards your edits;{' '}
+                  <span className="font-bold text-[var(--c-text-primary)]">Overwrite anyway</span> replaces it with yours.
+                </p>
+                <div className="flex justify-end gap-3 pt-4 border-t border-[var(--c-border)]">
+                  <button onClick={() => setSaveConflict(null)}
+                    className="px-4 py-2 bg-[var(--c-base)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200">
+                    Cancel
+                  </button>
+                  <button onClick={reloadEditor}
+                    className="px-4 py-2 bg-[var(--c-surface-2)] hover:bg-[var(--c-border)] border border-[var(--c-border)] text-[var(--c-text-primary)] rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
+                    <RefreshCw size={16} /> Reload
+                  </button>
+                  <button onClick={() => saveEditor(true)}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-bold transition-all duration-200 flex items-center gap-2">
+                    <Save size={16} /> Overwrite anyway
                   </button>
                 </div>
               </motion.div>
@@ -515,7 +679,7 @@ function FilesViewer({ serverId, serverStatus, onError }) {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <motion.button whileTap={{ scale: 0.97 }} onClick={saveEditor} disabled={!dirty || editor.saving}
+                <motion.button whileTap={{ scale: 0.97 }} onClick={() => saveEditor()} disabled={!dirty || editor.saving}
                   className="flex items-center gap-2 px-4 py-2 bg-[#00AF5C] hover:bg-[#00964F] text-white rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed">
                   {editor.saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                   <span>{editor.saving ? 'Saving…' : 'Save'}</span>

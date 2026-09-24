@@ -320,11 +320,48 @@ function missingModIds(modsDir, loader) {
   return missing;
 }
 
+/**
+ * Missing mandatory dependencies declared by the given jars only — e.g. the
+ * jars an update just wrote. A dependency that was already missing before
+ * isn't news from *this* change. Returns [{ id, requiredBy: filenames[] }].
+ */
+function missingDepsOf(modsDir, loader, filenames) {
+  const touched = new Set(filenames);
+  return missingModIds(modsDir, loader)
+    .map(({ id, requiredBy }) => ({ id, requiredBy: requiredBy.filter(f => touched.has(f)) }))
+    .filter(d => d.requiredBy.length > 0);
+}
+
+/**
+ * Mod IDs that `oldName` provides, some *other* enabled mod requires, and that
+ * neither the replacement jar at `newJarPath` nor any other enabled jar would
+ * still provide. Replacing the old jar would break those mods — so a caller
+ * must not remove it. `newJarPath` can be a temp file (anything not named
+ * *.jar is invisible to scanModsDir). Returns [{ id, requiredBy: filenames[] }].
+ */
+function idsLostByReplacing(modsDir, loader, oldName, newJarPath) {
+  const oldInfo = readJarModInfo(path.join(modsDir, oldName), loader);
+  if (oldInfo.ids.length === 0) return [];
+  const newIds = new Set(readJarModInfo(newJarPath, loader).ids);
+  const { byFile, required } = scanModsDir(modsDir, loader);
+  const elsewhere = new Set();
+  for (const [f, info] of Object.entries(byFile)) {
+    if (f === oldName || f.toLowerCase().endsWith('.disabled')) continue;
+    for (const i of info.ids) elsewhere.add(i);
+  }
+  return oldInfo.ids
+    .filter(i => !newIds.has(i) && !elsewhere.has(i))
+    .map(i => ({ id: i, requiredBy: (required.get(i) || []).filter(f => f !== oldName) }))
+    .filter(x => x.requiredBy.length > 0);
+}
+
 module.exports = {
   BUILTIN_MOD_IDS,
   readJarModInfo,
   scanModsDir,
   protectedModFiles,
   missingModIds,
+  missingDepsOf,
+  idsLostByReplacing,
   parseModsToml,
 };

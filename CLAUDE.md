@@ -171,7 +171,9 @@ Consequences to preserve if you touch this:
 - **Every mutation moves the whole set.** `worldParts()` returns the world plus its siblings; rename/duplicate/delete/export all iterate it, and rename follows `level-name` if it renamed the active world.
 - **Mutations refuse while the server runs** (`requireStopped`) — the JVM holds these files open, and on Windows the move just fails.
 - **Deleting the active world is refused.** Switch first; otherwise the server boots and silently generates a fresh world under the same name.
-- Zip extraction walks entries by hand with a zip-slip guard rather than using `extractAllTo`.
+- Zip extraction walks entries by hand with a zip-slip guard rather than using `extractAllTo`. Import reports extract/install/convert phases on `world_import_${serverId}` (tagged with the client's `importId`); the upload phase is measured client-side with XHR.
+- **World sizes are cached** per folder, keyed on that folder's `level.dat` mtime (10-min TTL). A miss returns `sizeBytes: null, sizePending: true` and measures in the background — `listWorlds` must never block on walking a multi-GB world. `?refresh=1` forces a re-measure.
+- Every world mutation emits `server_worlds_changed { serverId, reason }`, which `WorldsViewer` listens to — so do the same for any new mutation route.
 
 ### Server file manager (`backend/server-files.js`)
 
@@ -180,6 +182,8 @@ Browse/edit/upload/download anything under `instances/<id>/`. Every other panel 
 - **Paths travel as `?path=` query strings, deliberately.** A file path contains slashes, which Express would split across params — and `index.js`'s global `app.param` guard rejects any `:filename` holding a separator. `resolvePath()` is the single place traversal is checked; `withPath()` turns a rejection into a 400.
 - **The editor is extension-gated** (`TEXT_EXTENSIONS`) and capped at `MAX_EDIT_BYTES` (2 MB). Bigger or unknown files are download-only — the editor POSTs the whole buffer back on save.
 - **Saves are write-temp-then-rename**, so an interrupted write can't leave a half-truncated `server.properties` (= a server that won't boot).
+- **Saves detect a file that changed on disk.** The editor sends back the `modifiedAt` + `hash` it loaded; a mismatched mtime with different bytes is a 409 (`conflict: true`), and the UI offers Reload / Overwrite anyway (`force: true`). A running server rewrites `ops.json` / `server.properties` on its own, which is exactly the case this catches.
+- **Uploads never overwrite silently.** `POST /files/upload` takes `?onConflict=ask|replace|keep-both` (default `ask` → 409 with `conflicts[]`, nothing written). The UI preflights names via `POST /files/conflicts` so a big drop isn't sent twice. `replace` never replaces a *folder* with a file — `fs.move` would delete the folder (a world) to do it.
 - The route-level `express.json({ limit: '8mb' })` matters: the global `express.json()` is at the 100 KB default, which a chunky Create/GregTech config blows straight past.
 - MineDash's own bookkeeping files are hidden from listings (`HIDDEN_ENTRIES`). `.minedash-client-mods/` is deliberately **not** hidden — it's useful to see what got stashed.
 
@@ -188,6 +192,8 @@ Browse/edit/upload/download anything under `instances/<id>/`. Every other panel 
 `POST /api/servers/:id/mods/check-updates` + `POST /api/servers/:id/mods/update` — the server-side equivalent of the launcher's `content/check-updates` / `update-mods` pair, which servers had been missing (they only had `repair-versions`, which fixes jars that are outright *wrong* for the loader/MC version but leaves a correct-but-stale mod alone).
 
 Matching is done by Modrinth's `/version_files/update` endpoint: every jar's SHA1 plus the loader and game version, answered with the newest compatible version per project. Jars Modrinth doesn't recognise (CurseForge-only, hand-built) are simply absent — there's no basis to offer an update for them. Disabled jars are included and keep their `.disabled` suffix through the swap. The update route **refuses while the server is running** and writes the new jar *before* removing the old one, so an interrupted update leaves two copies (loud) rather than none (a server silently missing a mod others require).
+
+Updates obey the dependency invariant: before the old jar is removed, `modDeps.idsLostByReplacing()` checks whether the new version stopped providing a mod ID another enabled mod requires (a split-out library, a renamed modid) — if so the update is refused for that mod and the old jar stays. After the swap, `restoreRequiredStashedMods` runs and `modDeps.missingDepsOf()` reports what the *updated* jars need but nothing provides, as `missingDeps[]`. The Mods tab offers those through `POST /mods/install-missing`, which intersects the requested IDs with what's actually missing and resolves them via `findAndInstallMissingDeps` (the validated resolver above — never a bare slug fetch).
 
 ### Scheduled tasks engine
 
