@@ -2,6 +2,30 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.3.3 — 2026-09-25
+
+### Added
+
+- **Worlds tab for servers.** Every world your server has is listed with its seed, game mode, size and when it was last played. Import a downloaded map from a .zip (with real progress), switch the server to any world with one click, and rename, duplicate, export or delete worlds. Nothing is ever copied around just to switch — every world stays on disk until you delete it.
+- **Custom maps keep their Nether and End on Paper servers.** Paper stores the Nether and End in separate folders, while almost every downloadable map ships them inside the world folder, so the Nether and End used to silently regenerate. MineDash now converts a map to whatever your server reads, both ways, when you import it or switch to it.
+- **Files tab for servers.** Browse, edit, upload, download, rename and delete anything in your server's folder, and extract zips in place. Config files open in a built-in editor. Uploads ask before replacing a file that's already there, and the editor warns you instead of overwriting a file the running server changed after you opened it.
+- **Mod updates for servers.** The Mods tab can now check every mod for updates and update them one at a time or all at once, just like launcher instances already could.
+- **Drag and drop for instance worlds and screenshots**, plus copy-to-clipboard and download buttons for screenshots.
+
+### Fixed
+
+- **Importing a big map no longer eats your RAM.** Maps used to be loaded into memory in full to be unpacked — a 1 GB map needed over 3 GB of RAM, and maps over about 2 GB failed outright. They're now unpacked straight from disk to disk, using well under 100 MB whatever the size.
+- **Imports stay on MineDash's own drive.** Uploaded maps, files and mods were staged in Windows' temp folder, which is usually on C: — so if MineDash keeps its data on another drive, every import was copied across drives a second time (a long pause at "Adding world"), and a nearly-full C: drive could make imports fail. Everything is now staged inside MineDash's own data folder, and leftovers from an interrupted import are cleaned up automatically.
+- **Changing a mod's version no longer leaves both versions installed.** Picking a different version from "Change version" (in a server's Mods tab or a launcher instance) installed the new file next to the old one, and two copies of the same mod stop Minecraft from starting. The old version is now swapped out once the new one has downloaded, and kept as a backup instead of deleted. In the launcher, a failed download no longer leaves you with neither version.
+- **Mod updates are checked for compatibility.** An update is no longer offered when it would conflict with your other mods — for example the Sodium update that refuses to run beside your Iris version — and beta versions aren't offered if you're on a release. MineDash offers the newest version that actually works instead, and shows which versions it skipped and why.
+- **The crash auto-fix repairs incompatible mods properly.** When the game or a server crashes because two mods are incompatible, MineDash now rolls back the update that caused it, or swaps in a version that fits. It used to install another copy of a mod and crash the same way again.
+- **Updates can't break other mods.** An update that would remove something another mod needs is refused, and anything an updated mod newly needs is offered for one-click install.
+- **Several fixes for worlds and files:** a map's own Nether is never deleted when both layouts hold one, deleting the active world is refused on Windows even when the name's capitalisation differs, world names with accents load correctly on older Minecraft versions, and saving a file keeps its original line endings.
+
+### Security
+
+- **Websites can no longer control MineDash.** MineDash's background service accepted requests from any web page open in your browser, which a malicious site could have used to drive it — including writing a downloaded file outside your mods folder. It now only accepts requests from the MineDash app itself, and install requests with a file name that tries to leave the mods folder are refused.
+
 ## v1.3.2 — 2026-09-20
 
 ### Added
