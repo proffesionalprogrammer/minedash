@@ -2489,7 +2489,7 @@ function startProcess(id, serverConfig, serverPath) {
             cacheDir: path.join(serverPath, '.minedash-update-cache'),
             loader: repairLoader, side: 'server', gameVersion: serverConfig.version,
             api: MODRINTH_API, headers: MODRINTH_HEADERS,
-            tried: depInstallHistory[id], missing: false, crashLog: logText,
+            tried: depInstallHistory[id], missing: false,
             log: (msg) => appendLog(`[MineDash] ${msg}`),
             hooks: serverModHooks(serverPath),
           });
