@@ -67,4 +67,15 @@ function hasDependencyCrash(logText) {
   return /Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed/i.test(logText);
 }
 
-module.exports = { stripMcCodes, parseMissingModIds, hasDependencyCrash };
+// The loader's own error report from a dependency crash — from the first
+// marker to the end, within the last 40 KB (a server's buffer can hold earlier
+// runs). Excludes the mod list and "Found mod file" lines above the error, so a
+// mod counts as named only if the loader's complaint actually mentions it.
+// Fabric prints its "Immediate reason" lines before "Incompatible mods found!".
+function loaderErrorSection(logText) {
+  const tail = stripMcCodes(String(logText || '').slice(-40000));
+  const m = /Immediate reason|Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed/i.exec(tail);
+  return m ? tail.slice(m.index) : '';
+}
+
+module.exports = { stripMcCodes, parseMissingModIds, hasDependencyCrash, loaderErrorSection };

@@ -21,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
-const { satisfies, describePredicate } = require('./mod-versions');
+const { satisfies, compareVersions, describePredicate } = require('./mod-versions');
 
 // Mod IDs provided by the platform itself — never "missing", never installable.
 const BUILTIN_MOD_IDS = new Set([
@@ -452,12 +452,28 @@ const isAnyRange = (r) => r == null || r === '*' || (Array.isArray(r) && r.lengt
  *   haveFile, have,            // what's installed for `id` (not for 'missing')
  * }]
  */
+// Would the loader pick provider `a` over `b` for the same mod ID?
+function loadsInstead(a, b, flavor) {
+  if (a.own !== b.own) return a.own;
+  if (a.version == null || b.version == null) return false;
+  return compareVersions(a.version, b.version, flavor) > 0;
+}
+
 function analyzeJars(entries, loader, { side = 'server' } = {}) {
   const jars = entries.map(e => ({ ...e, info: readJarModInfo(e.path, loader, { side }) }));
-  const provided = new Map(); // id -> { file, version }
+  // One ID can be provided by several jars — a mod's own jar and copies nested
+  // inside others (Distant Horizons bundles an older fabric-api). The loader
+  // loads one: the top-level jar wins over nested copies, and among nested
+  // copies the newest does. Taking whichever file sorted first compared ranges
+  // against a copy that never loads — Sodium "broke" DH's bundled fabric-api
+  // 0.139 while 0.141 was installed, and crash repair downgraded Sodium to fix it.
+  const provided = new Map(); // id -> { file, version, own }
   for (const j of jars) {
+    const own = new Set(j.info.ownIds);
     for (const id of j.info.ids) {
-      if (!provided.has(id)) provided.set(id, { file: j.file, version: j.info.versions[id] ?? null });
+      const cand = { file: j.file, version: j.info.versions[id] ?? null, own: own.has(id) };
+      const cur = provided.get(id);
+      if (!cur || loadsInstead(cand, cur, j.info.flavor)) provided.set(id, cand);
     }
   }
   const problems = [];
