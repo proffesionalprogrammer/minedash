@@ -1095,9 +1095,17 @@ function register(app) {
     const version = typeof req.query.version === 'string' ? req.query.version : null;
     const sysPath = (getJavaPath ? getJavaPath() : null) || null;
     const sysMajor = sysPath && sysPath !== 'java' ? javaPool.getJavaVersionForPath(sysPath) : null;
+    // The Settings → Java default, which instances with no Java choice of their
+    // own inherit (see resolveLauncherJava) — the per-instance picker shows it
+    // so it can't claim "Automatic" while a global Java 8 is what launches.
+    const globalPath = ((await readSettings()).javaPath || '').trim();
+    const globalExists = !!globalPath && fs.existsSync(globalPath);
     res.json({
       managed: javaPool.listManagedJavas(),
       system: sysPath && sysPath !== 'java' ? { path: sysPath, major: sysMajor } : null,
+      global: globalPath
+        ? { path: globalPath, exists: globalExists, major: globalExists ? javaPool.getJavaVersionForPath(globalPath) : null }
+        : null,
       required: version ? await mojangRequiredJavaMajor(version) : null,
       // Majors worth offering in a manual picker — every bucket MC has ever
       // needed. Anything not in `managed` will download on first use.
@@ -3344,7 +3352,11 @@ async function mojangRequiredJavaMajor(mcVersion) {
     }
   } catch {}
   // Offline / unknown version — heuristic bucket. Not cached so a later launch
-  // with network back gets Mojang's real answer.
+  // with network back gets Mojang's real answer. The shared table says 25 for
+  // 1.21.6+, but Mojang ships every 1.21.x (and its 25w snapshots) on Java 21;
+  // corrected here only, because index.js keys existing servers' managed JDK on
+  // that table and changing it would re-download Java for them.
+  if (typeof mcVersion === 'string' && /^(1\.21(?:$|[.-])|25w\d)/.test(mcVersion.trim())) return 21;
   return javaPool.requiredJavaMajor(mcVersion);
 }
 
@@ -3359,27 +3371,41 @@ async function mojangRequiredJavaMajor(mcVersion) {
 async function resolveLauncherJava({ launchId, instance, settings, version }) {
   const log = (m) => emit(launchId, 'log', { message: `[java] ${m}\n` });
   const choice = (instance && typeof instance.java === 'string' ? instance.java.trim() : '');
+  const pooledPick = choice.match(/^jdk-(\d+)$/);
+  let required = null;
 
-  if (choice && choice !== 'auto' && !/^jdk-\d+$/.test(choice)) {
+  if (choice && choice !== 'auto' && !pooledPick) {
     if (fs.existsSync(choice)) { log(`Using this instance's custom Java: ${choice}`); return choice; }
     log(`Custom Java path not found (${choice}) — falling back to automatic selection.`);
   } else if (!choice) {
     // Instances that never picked anything keep honouring the old global
-    // override so existing setups don't change behaviour underneath the user.
+    // override so existing setups don't change behaviour underneath the user —
+    // unless that Java is too old to load this version at all. The instance's
+    // Java panel shows "Automatic" for these instances, so a global Java 8 used
+    // to silently launch 1.21 on Java 8 while the UI claimed Java 21.
     const legacy = settings?.javaPath && settings.javaPath.trim();
     if (legacy) {
-      if (fs.existsSync(legacy)) { log(`Using Java from launcher settings: ${legacy}`); return legacy; }
-      log(`Configured Java path not found (${legacy}) — falling back to automatic selection.`);
+      if (!fs.existsSync(legacy)) {
+        log(`Configured Java path not found (${legacy}) — falling back to automatic selection.`);
+      } else {
+        required = await mojangRequiredJavaMajor(version);
+        const legacyMajor = javaPool.getJavaVersionForPath(legacy);
+        if (legacyMajor != null && legacyMajor < required) {
+          log(`Java ${legacyMajor} from launcher settings (${legacy}) can't run Minecraft ${version} — falling back to automatic selection.`);
+        } else {
+          log(`Using Java from launcher settings: ${legacy}`);
+          return legacy;
+        }
+      }
     }
   }
 
   let major;
-  const pooledPick = choice.match(/^jdk-(\d+)$/);
   if (pooledPick) {
     major = parseInt(pooledPick[1], 10);
     log(`Instance is pinned to Java ${major}.`);
   } else {
-    major = await mojangRequiredJavaMajor(version);
+    major = required ?? await mojangRequiredJavaMajor(version);
     log(`Minecraft ${version} needs Java ${major}.`);
     // Auto mode may use the system Java, but only on an exact major match —
     // "newer is fine" is exactly what breaks older Forge versions.

@@ -1,26 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Coffee, Check, Loader2, Download, FolderCog, Sparkles } from 'lucide-react';
+import { Coffee, Check, Loader2, Download, FolderCog, Sparkles, Settings2 } from 'lucide-react';
 import ChoiceRow from '../JavaChoiceRow';
 
 // Per-instance Java runtime picker, rendered inline as a detail-panel (the
 // non-modal sibling of JavaRuntimeModal). Backed by GET /api/launcher/java and
 // PATCH /api/launcher/instances/:id { java }. Choice values mirror the backend:
-//   'auto' | 'jdk-<major>' | <absolute path>
+//   '' (inherit Settings → Java) | 'auto' | 'jdk-<major>' | <absolute path>
+// '' and 'auto' only differ when Settings → Java holds a path; then the panel
+// shows an explicit "Launcher default" row instead of claiming Automatic.
+const isCustomValue = (v) => !!v && v !== 'auto' && !/^jdk-\d+$/.test(v);
+
 export default function InstanceJavaPanel({ inst, patch, onError }) {
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const initial = inst.java && inst.java.trim() ? inst.java.trim() : 'auto';
-  const isCustomInitial = initial !== 'auto' && !/^jdk-\d+$/.test(initial);
+  const initial = inst.java && inst.java.trim() ? inst.java.trim() : '';
+  const isCustomInitial = isCustomValue(initial);
   const [choice, setChoice] = useState(isCustomInitial ? 'custom' : initial);
   const [customPath, setCustomPath] = useState(isCustomInitial ? initial : '');
 
   // Re-seed when the instance prop changes (e.g. another panel saved).
   useEffect(() => {
-    const init = inst.java && inst.java.trim() ? inst.java.trim() : 'auto';
-    const custom = init !== 'auto' && !/^jdk-\d+$/.test(init);
+    const init = inst.java && inst.java.trim() ? inst.java.trim() : '';
+    const custom = isCustomValue(init);
     setChoice(custom ? 'custom' : init);
     setCustomPath(custom ? init : '');
   }, [inst.java]);
@@ -43,6 +47,17 @@ export default function InstanceJavaPanel({ inst, patch, onError }) {
     const majors = new Set([...(info?.knownMajors || []), ...managedMajors]);
     return Array.from(majors).sort((a, b) => a - b);
   }, [info, managedMajors]);
+
+  // Settings → Java default this instance inherits while its own value is ''.
+  // Mirrors resolveLauncherJava: a missing path, or one too old for this MC
+  // version, is skipped in favour of Automatic.
+  const globalJava = info?.global || null;
+  const globalApplies = !!globalJava && globalJava.exists
+    && !(globalJava.major != null && info?.required != null && globalJava.major < info.required);
+  // With no global default, inheriting *is* Automatic — show it that way and
+  // don't turn a click on Automatic into a pointless save.
+  const autoActive = choice === 'auto' || (choice === '' && !globalJava);
+  const pickAuto = () => setChoice(!globalJava && initial === '' ? '' : 'auto');
 
   const currentValue = choice === 'custom' ? customPath.trim() : choice;
   const dirty = currentValue !== initial && !(choice === 'custom' && !customPath.trim());
@@ -83,8 +98,18 @@ export default function InstanceJavaPanel({ inst, patch, onError }) {
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-5 space-y-1.5">
+          {globalJava && (
+            <ChoiceRow
+              active={choice === ''} onSelect={() => setChoice('')} icon={Settings2}
+              title={`Launcher default${globalApplies && globalJava.major ? ` · Java ${globalJava.major}` : ''}`}
+              subtitle={!globalJava.exists
+                ? `Settings → Java path not found — Automatic is used instead`
+                : globalApplies
+                  ? `From Settings → Java: ${globalJava.path}`
+                  : `Settings → Java has Java ${globalJava.major}, too old for ${inst.version} — Automatic is used instead`} />
+          )}
           <ChoiceRow
-            active={choice === 'auto'} onSelect={() => setChoice('auto')} icon={Sparkles}
+            active={autoActive} onSelect={pickAuto} icon={Sparkles}
             title="Automatic (recommended)"
             subtitle={info?.required
               ? `Uses Java ${info.required} for Minecraft ${inst.version} — downloaded automatically if missing`
