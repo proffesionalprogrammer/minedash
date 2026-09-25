@@ -62,7 +62,9 @@ Electron main process (electron/main.js)
   └── loads → Built React frontend (electron/renderer/) OR Vite dev server (localhost:5173)
 ```
 
-In **dev mode**, Electron is not involved — the bat file runs the backend and Vite separately and opens a browser. In **production**, `electron/main.js` does everything: spawns the backend via `fork()` with `silent: true` (stdout/stderr piped to `%AppData%\MineDash\minedash-main.log`), polls `localhost:3001/api/servers` until ready, then shows the window.
+In **dev mode**, Electron is not involved — the bat file runs the backend and Vite separately and opens a browser. In **production**, `electron/main.js` does everything: spawns the backend via `fork()` with `silent: true` (stdout/stderr piped to `%AppData%\MineDash\minedash-main.log`), polls `127.0.0.1:3001/api/servers` until ready, then shows the window.
+
+**Startup:** `electron/splash.html` (themed from the `minedash-theme` localStorage key, which `file://` pages share) is shown the instant Electron is ready; the main window is built hidden *while* the backend boots, loads the renderer once the probe answers, and is revealed on `ready-to-show` (which closes the splash). **The readiness probe must use `127.0.0.1`, never `localhost`**: Electron 28 ships Node 18, which resolves `localhost` to `::1` first, and the backend only listens on 127.0.0.1 — every probe was refused and every launch sat out the full 15 s timeout (the backend itself is up in <1 s). The renderer's own `http://localhost:3001` calls are fine; Chromium falls back to IPv4.
 
 ### Backend (`backend/index.js`) — single very large file
 
@@ -109,8 +111,8 @@ The crash banner in `ConsoleViewer` communicates tab-switches to `MainPanel` via
 
 ### Electron (`electron/`)
 
-- **`main.js`** — `frame: false` (no native title bar). Window size is calculated as 88% of `screen.getPrimaryDisplay().workAreaSize`, capped at 1400×900, minimum 800×560. Forks backend with `silent: true` and pipes its output to a log file. Exposes IPC handlers: `window-minimize`, `window-maximize`, `window-close`, `window-is-maximized`, `window-hide-to-tray`, `updater-quit-and-install`. Emits `window-maximized` to renderer on maximize/unmaximize events. Owns the system tray (created lazily on first `hide-to-tray`) and the auto-updater. The updater reads releases from the main public `proffesionalprogrammer/minedash` repo (configured via the `publish` block in root `package.json`; before v1.0.99 it was the `minedash-releases` mirror); on launch it checks for updates, downloads in the background, and emits `updater-update-downloaded` to the renderer so `UpdateToast` can prompt the user to relaunch. `autoInstallOnAppQuit` is `false` so an in-progress task (Minecraft launching, server starting) isn't killed by a silent install — the user has to click the toast.
-- **`preload.js`** — exposes `window.electronAPI.isElectron`, `window.electronAPI.windowControls` (`minimize`, `maximize`, `close`, `hideToTray`, `isMaximized`, `onMaximizeChange`), and `window.electronAPI.updater` (`onUpdateAvailable`, `onDownloadProgress`, `onUpdateDownloaded`, `quitAndInstall`).
+- **`main.js`** — `frame: false` (no native title bar). Window size is calculated as 88% of `screen.getPrimaryDisplay().workAreaSize`, capped at 1400×900, minimum 800×560. Forks backend with `silent: true` and pipes its output to a log file. Exposes IPC handlers: `window-minimize`, `window-maximize`, `window-close`, `window-is-maximized`, `window-hide-to-tray`, `updater-quit-and-install`, `show-adaptation` (see "Crash auto-fix: Mahoraga's wheel"). Emits `window-maximized` to renderer on maximize/unmaximize events. Owns the system tray (created lazily on first `hide-to-tray`) and the auto-updater. The updater reads releases from the main public `proffesionalprogrammer/minedash` repo (configured via the `publish` block in root `package.json`; before v1.0.99 it was the `minedash-releases` mirror); on launch it checks for updates, downloads in the background, and emits `updater-update-downloaded` to the renderer so `UpdateToast` can prompt the user to relaunch. `autoInstallOnAppQuit` is `false` so an in-progress task (Minecraft launching, server starting) isn't killed by a silent install — the user has to click the toast.
+- **`preload.js`** — exposes `window.electronAPI.isElectron`, `window.electronAPI.showAdaptation(fixes)`, `window.electronAPI.windowControls` (`minimize`, `maximize`, `close`, `hideToTray`, `isMaximized`, `onMaximizeChange`), and `window.electronAPI.updater` (`onUpdateAvailable`, `onDownloadProgress`, `onUpdateDownloaded`, `quitAndInstall`).
 - **`TitleBar.jsx`** — custom 38px title bar rendered inside the React app. Uses `style={{ WebkitAppRegion: 'drag' }}` on the container and `WebkitAppRegion: 'no-drag'` on the buttons. Returns `null` when `window.electronAPI?.isElectron` is falsy (dev mode). Contains a pixel-art grass block SVG and minimize/maximize-restore/close buttons. Close button turns red on hover; others use a muted highlight.
 - Build output lands in `electron/renderer/` (set in `frontend/vite.config.js` `build.outDir`). **`base: './'` in `vite.config.js` is critical** — without it, asset paths are absolute (`/assets/...`) and fail when loaded via `file://` in the packaged app.
 - `electron-builder` config in root `package.json` packages `electron/` + `backend/` source into `app.asar` via the `files` mapping (the `backend → backend` filter excludes `bore/`, `playit/`, `instances/`, `backups/`, `servers.json`, `temp_uploads/`, `runtimes/`, `launcher-clients/`, etc.). Only `electron/renderer` is shipped as `extraResources`.
@@ -127,6 +129,16 @@ The actual game-launch sequence (Microsoft token refresh, Fabric/Forge/NeoForge 
 Why: `minecraft-launcher-core` uses the legacy `request` library and exposes no abort API. Calling `.abort()` mid-download crashes the parent because mclc's pipe to `fs.createWriteStream` has no error listener. Killing the worker process is the only safe way to interrupt mclc — the OS reaps its HTTP connections cleanly. `DELETE /api/launcher/launch/:launchId` sends a polite `cancel` IPC message (the worker `taskkill /F /T`s any sub-children on Windows, then exits), then SIGKILLs the worker after 2.5s if it doesn't go quietly.
 
 **Don't add new launch logic in `backend/launcher.js`'s parent-process route handlers.** Anything that runs during launch — pre-checks, post-launch hooks, mod sync — belongs inside `runLaunch()` so it executes in the worker and gets cancelled cleanly when the user clicks Stop.
+
+### Crash auto-fix: Mahoraga's wheel
+
+When `runLaunch`'s close handler repairs mods (`modCompat.repairMods`) and relaunches, it passes `adaptFixes` (the fix list) into the relaunch. That relaunch turns Mahoraga's wheel (from Jujutsu Kaisen) on screen **as the game window is about to open**, not when the repair finishes. The repair finishes about 10 s before the window appears, and spinning then looked disconnected.
+
+- **Trigger:** Minecraft logs `Backend library: LWJGL version …` just before it creates its window (`GAME_WINDOW_LOG_RE`). On that line the worker suspends the JVM for `ADAPT_HOLD_MS` via `backend/game-window.js` (`prepareGamePause`), then emits `adapting`. The suspend uses a PowerShell helper that calls `NtSuspendProcess`. It is started, and its C# compiled, as soon as the JVM spawns, so it's ready long before the line arrives. It always resumes the game in `finally`. The helper script is written to the temp dir because PowerShell can't read a file inside `app.asar`. GLFW only shows the window after GL context creation, so the freeze lands before anything is visible. The window then opens by itself as the wheel fades, and gets focus normally.
+- **Don't switch to hiding the window after it appears.** That was tried and dropped: the hide is always a frame late, so the window visibly flickers.
+- **Fallback:** without the helper (non-Windows, failed start), the wheel still fires on the log line, just without the hold. `gamePause.stop()` only ever kills an *idle* helper. Killing it mid-hold would leave the game suspended.
+- **Rendering:** `useLaunchSession` gets `adapting` and calls `lib/adaptation.js`. In Electron that sends the `show-adaptation` IPC, and `main.js` opens a transparent, click-through, always-on-top, non-focusable window on the display under the cursor, loading `renderer/adaptation.html`. It's a separate window because MineDash may be hidden in the tray. In the browser dev build the page is mounted as a full-page iframe (`?embedded=1`).
+- **The page:** `frontend/public/adaptation.html` is standalone: SVG wheel, `adaptation.mp3` (user-supplied, 55% volume, cosine fade before its abrupt end), and the turn timed to the clip (grind 0.08–0.55 s, locks at the loudest point). The user settled the look deliberately: **the wheel only, with no text, no screen dimming and no flash/shake after the turn.** The page closes itself; `main.js` destroys it after 10 s regardless.
 
 ### Launcher modpack install
 
@@ -304,6 +316,8 @@ Translucent overlays follow the pattern `bg-[#00AF5C]/10`, `border-[#00AF5C]/20`
 
 `lucide-react`. Always size in JSX (`size={16}`), never via CSS. Default icon color is `text-[#555555]` for ambient/decorative use, branded `text-[#00AF5C]` for active/positive context.
 
+**Alias icons named after JS globals** (`import { Map as MapIcon }`, same for `Set`, `Image`, …). A bare `import { Map }` shadows the global `Map` constructor for the whole module, and the app crashes at load with `Map is not a constructor`. Build and lint both pass; only running the app catches it.
+
 ## UI patterns to follow
 
 These are non-obvious gotchas worth knowing before writing new components:
@@ -322,6 +336,8 @@ These are non-obvious gotchas worth knowing before writing new components:
 
 - **Don't add a mod-removal path that skips `mod-deps.js`.** Any new code that moves, deletes or hides a jar in a server's `mods/` must check `protectedModFilesSafe()` first — see the invariant above. This has broken users' servers once already.
 - **Don't add new fonts.** System sans is the look.
+- **Don't add UI sound effects, particle/"juice" effects or achievements.** A full pass of all three was built in Sept 2026 and the user rejected it outright ("remove everything new"). The crash auto-fix's Mahoraga wheel sound is the one deliberate exception.
+- **Don't remove the unused multipart `POST /api/servers/from-modpack` route or rewrite the "Drop a .mrpack…" copy in `OnboardingTour.jsx`.** Browse now uses the streaming `from-modpack-url`, so the route has no frontend caller, but the user decided (June 2026) to leave both as they are unless they ask.
 - **Don't introduce a global state library.** Prop drilling + socket events is the convention.
 - **Don't use Tailwind's named color shades** (`bg-green-500`, `border-gray-700`). Use the brand hex values listed above.
 - **Don't run backend tests** — there aren't any. Frontend lint (`cd frontend && npm run lint`) is opt-in; only run it for non-trivial frontend changes.
