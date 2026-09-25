@@ -337,7 +337,8 @@ These are non-obvious gotchas worth knowing before writing new components:
 - **Don't add a mod-removal path that skips `mod-deps.js`.** Any new code that moves, deletes or hides a jar in a server's `mods/` must check `protectedModFilesSafe()` first — see the invariant above. This has broken users' servers once already.
 - **Don't add new fonts.** System sans is the look.
 - **Don't add UI sound effects, particle/"juice" effects or achievements.** A full pass of all three was built in Sept 2026 and the user rejected it outright ("remove everything new"). The crash auto-fix's Mahoraga wheel sound is the one deliberate exception.
-- **Don't remove the unused multipart `POST /api/servers/from-modpack` route or rewrite the "Drop a .mrpack…" copy in `OnboardingTour.jsx`.** Browse now uses the streaming `from-modpack-url`, so the route has no frontend caller, but the user decided (June 2026) to leave both as they are unless they ask.
+- **Don't remove the unused multipart `POST /api/servers/from-modpack` route.** Browse now uses the streaming `from-modpack-url`, so the route has no frontend caller, but the user decided (June 2026) to leave it unless they ask.
+- **Don't bring back an onboarding / guided tour.** The first-run tour (`OnboardingTour.jsx`) was removed in Sept 2026 — the user found it looked vibecoded.
 - **Don't introduce a global state library.** Prop drilling + socket events is the convention.
 - **Don't use Tailwind's named color shades** (`bg-green-500`, `border-gray-700`). Use the brand hex values listed above.
 - **Don't run backend tests** — there aren't any. Frontend lint (`cd frontend && npm run lint`) is opt-in; only run it for non-trivial frontend changes.

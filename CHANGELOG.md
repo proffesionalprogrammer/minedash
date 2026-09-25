@@ -2,6 +2,28 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.4.0 — 2026-09-26
+
+### Added
+
+- **New MineDash logo**, shown in the title bar, the taskbar and the app icon.
+- **A splash screen when MineDash opens.** The logo appears straight away while MineDash starts up, then glides onto the title bar once the app is ready.
+- **Create instances from the Instances tab.** A new **New instance** button lets you pick a name, loader and version without going through the Play screen first.
+- **The crash auto-fix looks cooler now.** When MineDash fixes your mods and relaunches the game, you'll see it happen on screen just before the game window opens.
+- **A proper icon for Vanilla** wherever loaders are shown.
+
+### Changed
+
+- **The first-run guided tour has been removed.**
+- **Game logs are easier to read.** The game console, crash log and instance Logs panel now use the app's regular font.
+
+### Fixed
+
+- **MineDash opens much faster.** Every launch waited about 15 seconds before the window appeared, even though everything was ready in under a second. The window now shows as soon as MineDash is ready.
+- **Instances no longer launch on a Java that's too old.** An instance that never had its own Java set could start on the global Java from Settings even when that version was too old for it (for example Java 8 for Minecraft 1.21). MineDash now picks a suitable Java instead, and the instance's Java panel says clearly when it's using the launcher default.
+- **Deleting an instance:** the confirmation box now scrolls into view instead of opening off-screen.
+- **The play button on instance cards** no longer shrinks oddly when you hover it.
+
 ## v1.3.32 — 2026-09-25
 
 ### Fixed

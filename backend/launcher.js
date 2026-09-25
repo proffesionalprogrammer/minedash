@@ -511,7 +511,6 @@ const DEFAULT_SETTINGS = {
   lastLoader: '',            // last loader the user launched — restores the Play form on reopen
   lastVersion: '',           // last version the user launched
   lastInstanceId: '',        // last instance ID launched — narrower than lastLoader+lastVersion when multiple instances exist
-  onboardingComplete: false, // first-run guided tour — true once the user finishes or skips it
   quitOnGameClose: false,    // quit MineDash entirely once the game window closes
   preLaunchCommand: '',      // shell command run before the game launches (non-zero exit aborts)
   postExitCommand: '',       // shell command run after the game exits
@@ -1802,7 +1801,6 @@ function register(app) {
     if (typeof incoming.lastLoader === 'string' && ['vanilla','fabric','forge','neoforge',''].includes(incoming.lastLoader)) next.lastLoader = incoming.lastLoader;
     if (typeof incoming.lastVersion === 'string') next.lastVersion = incoming.lastVersion.trim();
     if (typeof incoming.lastInstanceId === 'string') next.lastInstanceId = incoming.lastInstanceId.trim();
-    if (typeof incoming.onboardingComplete === 'boolean') next.onboardingComplete = incoming.onboardingComplete;
     if (['system', 'light', 'dark', 'oled'].includes(incoming.theme)) next.theme = incoming.theme;
     if (typeof incoming.quitOnGameClose === 'boolean') next.quitOnGameClose = incoming.quitOnGameClose;
     if (typeof incoming.preLaunchCommand === 'string') next.preLaunchCommand = incoming.preLaunchCommand.slice(0, 4000);

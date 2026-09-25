@@ -26,7 +26,6 @@ const CreateServerModal = lazy(() => import('./components/CreateServerModal'));
 const BrowseSection = lazy(() => import('./components/BrowseSection'));
 const InstancesSection = lazy(() => import('./components/InstancesSection'));
 const SettingsPage = lazy(() => import('./components/SettingsPage'));
-const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 const ProjectDetailModal = lazy(() => import('./components/ProjectDetailModal'));
 const JoinSessionModal = lazy(() => import('./components/JoinSessionModal'));
 
@@ -302,11 +301,6 @@ function App() {
 
   // Launcher settings — lifted so SettingsPage and PlaySection share state.
   const [launcherSettings, setLauncherSettings] = useState(null);
-
-  // First-run onboarding tour. We show it the first time the settings file
-  // loads with onboardingComplete === false, and any time the user re-triggers
-  // it from Settings via the `minedash-show-onboarding` custom event.
-  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Cached set of installed `${loader}-${version}` profiles — lifted up so
   // switching to Servers and back doesn't make the launcher "forget" them.
@@ -618,13 +612,7 @@ function App() {
   useEffect(() => {
     fetch('http://localhost:3001/api/launcher/settings')
       .then(r => r.json())
-      .then(d => {
-        setLauncherSettings(d);
-        // Auto-show the welcome tour the first time a user runs MineDash.
-        // We key off the persisted flag so it never re-appears after they
-        // finish or skip it (unless re-triggered from Settings).
-        if (d && d.onboardingComplete === false) setShowOnboarding(true);
-      })
+      .then(d => setLauncherSettings(d))
       .catch(() => {});
   }, []);
 
@@ -645,29 +633,6 @@ function App() {
       return () => mq.removeEventListener('change', apply);
     }
   }, [launcherSettings?.theme]);
-
-  // Settings menu fires this when the user clicks "Replay onboarding tour".
-  useEffect(() => {
-    const handler = () => setShowOnboarding(true);
-    window.addEventListener('minedash-show-onboarding', handler);
-    return () => window.removeEventListener('minedash-show-onboarding', handler);
-  }, []);
-
-  // Persist completion to launcher-settings.json so the tour doesn't reappear.
-  // Both finish and skip flow through here — we don't distinguish the two.
-  const handleOnboardingComplete = useCallback(async () => {
-    try {
-      const r = await fetch('http://localhost:3001/api/launcher/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onboardingComplete: true }),
-      });
-      const updated = await r.json();
-      if (r.ok) setLauncherSettings(updated);
-    } catch {
-      // Best-effort — if the PUT fails the user can dismiss again next launch.
-    }
-  }, []);
 
   useEffect(() => {
     fetchServers();
@@ -998,16 +963,6 @@ function App() {
       />
       <WhatsNewModal />
       <ChangelogHistoryModal />
-
-      {/* First-run guided tour — auto-shows for new users, re-triggerable from Settings */}
-      {showOnboarding && (
-        <Suspense fallback={null}>
-          <OnboardingTour
-            onClose={() => setShowOnboarding(false)}
-            onComplete={handleOnboardingComplete}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }
