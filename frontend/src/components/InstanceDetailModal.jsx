@@ -15,7 +15,7 @@ import InstanceScreenshotsPanel from './instance/InstanceScreenshotsPanel';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
 import duskCover from '../assets/dusk.jpg';
 
-const GLYPH_LOADERS = new Set(['fabric', 'forge', 'neoforge', 'quilt']);
+const GLYPH_LOADERS = new Set(['vanilla', 'fabric', 'forge', 'neoforge', 'quilt']);
 const LOADER_LABEL = { vanilla: 'Vanilla', fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
 
 function humanBytes(n) {
@@ -319,7 +319,7 @@ function LogsPane({ inst, onError }) {
                   <Loader2 size={18} className="text-[#00AF5C] animate-spin" />
                 </div>
               ) : (
-                <pre className="text-[11px] leading-relaxed text-[var(--c-text-secondary)] font-mono whitespace-pre-wrap break-words p-4 selection:bg-[#00AF5C]/30">
+                <pre className="text-xs leading-relaxed font-sans font-medium tabular-nums [tab-size:4] text-[var(--c-text-secondary)] whitespace-pre-wrap break-words p-4 selection:bg-[#00AF5C]/30">
                   {content?.content || (content?.error ? '' : '(empty)')}
                 </pre>
               )}

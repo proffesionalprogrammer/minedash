@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Minus, X } from 'lucide-react';
+import MineDashLogo from './MineDashLogo';
 
 // Maximise / restore icon — two overlapping squares
 function MaxRestoreIcon({ isMaximized }) {
@@ -37,7 +38,7 @@ export default function TitleBar() {
     >
       {/* Branding */}
       <div className="flex items-center gap-2 px-4">
-        <GrassBlockIcon />
+        <MineDashLogo size={16} />
         <span className="text-white font-bold text-sm tracking-wide">MineDash</span>
       </div>
 
@@ -71,26 +72,5 @@ function TitleBarButton({ onClick, children, label, close }) {
     >
       {children}
     </button>
-  );
-}
-
-// Tiny pixel-art grass block for the title bar
-function GrassBlockIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 8 8" shape-rendering="crispEdges">
-      {/* Grass top */}
-      <rect x="0" y="0" width="8" height="3" fill="#5EA91E" />
-      <rect x="1" y="0" width="1" height="1" fill="#7DB356" />
-      <rect x="4" y="0" width="1" height="1" fill="#7DB356" />
-      <rect x="6" y="1" width="1" height="1" fill="#7DB356" />
-      <rect x="2" y="1" width="1" height="1" fill="#4CAF50" />
-      {/* Dirt */}
-      <rect x="0" y="3" width="8" height="5" fill="#96583E" />
-      <rect x="1" y="4" width="1" height="1" fill="#C8A882" />
-      <rect x="4" y="5" width="1" height="1" fill="#7A4E32" />
-      <rect x="6" y="4" width="1" height="1" fill="#7A4E32" />
-      <rect x="2" y="6" width="1" height="1" fill="#C8A882" />
-      <rect x="5" y="6" width="1" height="1" fill="#8E8E8E" />
-    </svg>
   );
 }

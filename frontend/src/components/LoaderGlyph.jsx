@@ -8,20 +8,31 @@ import React from 'react';
 // Shared by BrowseSection (filter rail) and InstancesSection (corner badge) so
 // the loader visual language is identical across the launcher.
 const LOADER_COLORS = {
+  vanilla:  '#8fd18a',
   fabric:   '#dbb69b',
   forge:    '#959eef',
   neoforge: '#f99e6b',
   quilt:    '#c796f9',
 };
 
-// Returns null for loaders without a dedicated mark (e.g. vanilla) — callers
-// fall back to a lucide glyph in that case.
+// Returns null for loaders without a mark — callers fall back to a lucide
+// glyph in that case.
 export default function LoaderGlyph({ loader, size = 16 }) {
   const common = {
     width: size, height: size, viewBox: '0 0 24 24',
     style: { color: LOADER_COLORS[loader] || '#A0A0A0' }, 'aria-hidden': 'true',
   };
   switch (loader) {
+    // Modrinth has no vanilla mark, so this one is ours, drawn in the same
+    // single-stroke style: an isometric block with a grass line round its sides.
+    case 'vanilla':
+      return (
+        <svg {...common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2.5 20.5 7.25v9.5L12 21.5l-8.5-4.75v-9.5Z" />
+          <path d="M3.5 7.25 12 12l8.5-4.75M12 12v9.5" />
+          <path d="M3.5 10.5 12 15.25l8.5-4.75" strokeWidth="1.5" />
+        </svg>
+      );
     case 'fabric':
       return (
         <svg {...common} fill="none" fillRule="evenodd" strokeLinecap="round" strokeLinejoin="round" clipRule="evenodd">

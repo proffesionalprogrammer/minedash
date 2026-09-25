@@ -840,6 +840,7 @@ function App() {
                   modpackInstalls={modpackInstalls}
                   instancesRefreshKey={instancesRefreshKey}
                   settings={launcherSettings}
+                  installedProfiles={installedProfiles}
                   onError={showError}
                 />
               </Suspense>

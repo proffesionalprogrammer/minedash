@@ -103,7 +103,7 @@ export default function LaunchConsole({ open, logs, status, phase, onClose }) {
                     <p className="text-xs font-bold">Waiting for game output…</p>
                   </div>
                 ) : (
-                  <pre className="text-[11.5px] leading-relaxed font-mono text-[var(--c-text-secondary)] whitespace-pre-wrap break-words selection:bg-[#00AF5C]/30">
+                  <pre className="text-xs leading-relaxed font-sans font-medium tabular-nums [tab-size:4] text-[var(--c-text-secondary)] whitespace-pre-wrap break-words selection:bg-[#00AF5C]/30">
                     {text}
                   </pre>
                 )}

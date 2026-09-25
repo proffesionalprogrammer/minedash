@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Play, Search, Trash2, Boxes, Loader2, Check, X,
   Box, Layers, Hammer, FlaskConical, Download, Square,
-  Settings2, ListChecks, Clock,
+  Settings2, ListChecks, Clock, Plus,
 } from 'lucide-react';
 import { formatPlaytime } from '../lib/playtime';
 import { motion, AnimatePresence } from 'framer-motion';
 import Select from './Select';
 import SkinHead from './SkinHead';
 import InstanceDetailModal from './InstanceDetailModal';
+import NewInstanceModal from './NewInstanceModal';
 import ModalPortal from './ModalPortal';
 import Tooltip from './Tooltip';
 import LoaderGlyph from './LoaderGlyph';
@@ -24,9 +25,9 @@ const LOADER_ICONS = {
   neoforge: FlaskConical,
 };
 
-// Loaders that have a dedicated Modrinth glyph (LoaderGlyph). Anything not in
-// this set (vanilla, unknown) falls back to its lucide LOADER_ICONS mark.
-const GLYPH_LOADERS = new Set(['fabric', 'forge', 'neoforge', 'quilt']);
+// Loaders that have a dedicated glyph (LoaderGlyph). Anything not in this set
+// (unknown loaders) falls back to its lucide LOADER_ICONS mark.
+const GLYPH_LOADERS = new Set(['vanilla', 'fabric', 'forge', 'neoforge', 'quilt']);
 
 const LOADER_LABEL = {
   vanilla:  'Vanilla',
@@ -58,9 +59,10 @@ const SORT_OPTIONS = [
 //     /modpack/update endpoint with full progress in the toast stack.
 export default function InstancesSection({
   onError, instancesRefreshKey, modpackInstalls,
-  accounts, activeAccountId, launchSession, settings,
+  accounts, activeAccountId, launchSession, settings, installedProfiles,
 }) {
   const [instances, setInstances] = useState([]);
+  const [showNew, setShowNew] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [query, setQuery]         = useState('');
   const [sort, setSort]           = useState('recent');
@@ -388,25 +390,37 @@ export default function InstancesSection({
               </div>
             )}
           </div>
-          {!loading && visibleInstances.length > 0 && (
-            selectMode ? (
-              <button
-                onClick={exitSelect}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-1)] hover:bg-[var(--c-surface-2)] border border-[var(--c-border)] transition-colors"
-              >
-                <X size={15} /> Cancel
-              </button>
-            ) : (
-              <Tooltip content="Select multiple — or long-press a card" side="bottom" align="end">
+          <div className="flex items-center gap-2">
+            {!loading && visibleInstances.length > 0 && (
+              selectMode ? (
                 <button
-                  onClick={() => enterSelect(null)}
+                  onClick={exitSelect}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-1)] hover:bg-[var(--c-surface-2)] border border-[var(--c-border)] transition-colors"
                 >
-                  <ListChecks size={15} /> Select
+                  <X size={15} /> Cancel
                 </button>
-              </Tooltip>
-            )
-          )}
+              ) : (
+                <Tooltip content="Select multiple — or long-press a card" side="bottom" align="end">
+                  <button
+                    onClick={() => enterSelect(null)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)] bg-[var(--c-surface-1)] hover:bg-[var(--c-surface-2)] border border-[var(--c-border)] transition-colors"
+                  >
+                    <ListChecks size={15} /> Select
+                  </button>
+                </Tooltip>
+              )
+            )}
+            {!selectMode && (
+              <motion.button
+                onClick={() => setShowNew(true)}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-bold bg-[#00AF5C] hover:bg-[#00964F] text-white transition-colors"
+              >
+                <Plus size={15} /> New instance
+              </motion.button>
+            )}
+          </div>
         </div>
 
         {/* Search + sort */}
@@ -433,7 +447,7 @@ export default function InstancesSection({
               <span className="text-sm text-[var(--c-text-secondary)]">Loading instances…</span>
             </div>
           ) : visibleInstances.length === 0 && liveInstalls.length === 0 ? (
-            <EmptyState hasQuery={!!query.trim()} />
+            <EmptyState hasQuery={!!query.trim()} onNew={() => setShowNew(true)} />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {liveInstalls.map(({ key, entry }) => (
@@ -561,6 +575,26 @@ export default function InstancesSection({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {showNew && (
+          <NewInstanceModal
+            key="new-instance"
+            settings={settings}
+            installedProfiles={installedProfiles}
+            onClose={() => setShowNew(false)}
+            onError={onError}
+            onCreated={(inst) => {
+              // Show it straight away and open its panel, where mods, Java and
+              // RAM are set up — that's usually the next thing you want.
+              setInstances(prev => [inst, ...prev]);
+              setShowNew(false);
+              setQuery('');
+              setDetailInst(inst);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Per-instance detail / management panel */}
       <AnimatePresence>
         {detailInst && (
@@ -583,7 +617,7 @@ export default function InstancesSection({
   );
 }
 
-function EmptyState({ hasQuery }) {
+function EmptyState({ hasQuery, onNew }) {
   return (
     <div className="flex flex-col items-center py-20 text-[var(--c-text-muted)]">
       <div className="p-4 bg-[var(--c-surface-1)] border border-[var(--c-border)] rounded-3xl mb-4">
@@ -598,8 +632,16 @@ function EmptyState({ hasQuery }) {
         <>
           <p className="text-sm font-bold text-[var(--c-text-secondary)]">No instances yet</p>
           <p className="text-xs mt-1 max-w-xs text-center">
-            Head to <span className="font-bold text-[var(--c-text-primary)]">Browse</span> and install a modpack, or create one from the <span className="font-bold text-[var(--c-text-primary)]">Launcher</span> tab.
+            Create one here, or head to <span className="font-bold text-[var(--c-text-primary)]">Browse</span> and install a modpack.
           </p>
+          <motion.button
+            onClick={onNew}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            className="mt-4 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold bg-[#00AF5C] hover:bg-[#00964F] text-white transition-colors"
+          >
+            <Plus size={15} /> New instance
+          </motion.button>
         </>
       )}
     </div>
@@ -825,18 +867,19 @@ function InstanceCard({
             )}
           </div>
         ) : selectMode ? null : (
-          /* Hover play button — centered, big, brand green. */
-          <motion.button
+          /* Hover play button — centered, big, brand green. Only the inner
+             circle scales: scaling the full-bleed overlay shrank it inside the
+             poster (the press, and the hover spring's rebound, dip below 1),
+             exposing its edges. */
+          <button
             onClick={(e) => { e.stopPropagation(); onPlay?.(); }}
             disabled={playDisabled}
-            whileHover={playDisabled ? {} : { scale: 1.05 }}
-            whileTap={playDisabled ? {} : { scale: 0.95 }}
-            className={`absolute inset-0 flex items-center justify-center bg-[#000000]/60 transition-opacity ${
+            className={`group/play absolute inset-0 flex items-center justify-center bg-[#000000]/60 transition-opacity ${
               playDisabled ? 'opacity-0 cursor-not-allowed' : 'opacity-0 group-hover:opacity-100'
             }`}
           >
             <div className="flex flex-col items-center gap-2">
-              <span className="flex items-center justify-center w-14 h-14 rounded-full bg-[#00AF5C] text-white shadow-lg shadow-[#00AF5C]/40">
+              <span className="flex items-center justify-center w-14 h-14 rounded-full bg-[#00AF5C] text-white shadow-lg shadow-[#00AF5C]/40 transition-transform duration-200 group-hover/play:scale-105 group-active/play:scale-95">
                 <Play size={22} className="ml-0.5" fill="currentColor" />
               </span>
               {activeAccount && (
@@ -846,7 +889,7 @@ function InstanceCard({
                 </span>
               )}
             </div>
-          </motion.button>
+          </button>
         )}
       </div>
 

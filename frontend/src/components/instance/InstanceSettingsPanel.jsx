@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Cpu, Check, Loader2, FolderOpen, FileDown, Trash2, Clock,
@@ -45,6 +45,12 @@ export default function InstanceSettingsPanel({ inst, settings, patch, onError, 
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // The confirm box is taller than the button it replaces and sits at the very
+  // bottom of the panel, so its buttons open below the fold. Scroll it into view.
+  const confirmRef = useRef(null);
+  useEffect(() => {
+    if (confirmDelete) confirmRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [confirmDelete]);
   const [exporting, setExporting] = useState(false);
 
   // ── Override editing state ────────────────────────────────────────
@@ -298,7 +304,7 @@ export default function InstanceSettingsPanel({ inst, settings, patch, onError, 
       {/* Danger zone */}
       <div className="border-t border-[var(--c-border)] pt-5">
         {confirmDelete ? (
-          <div className="bg-[var(--c-danger)]/10 border border-[var(--c-danger)]/30 rounded-2xl p-4">
+          <div ref={confirmRef} className="bg-[var(--c-danger)]/10 border border-[var(--c-danger)]/30 rounded-2xl p-4 scroll-mb-5">
             <p className="text-sm font-bold text-[var(--c-text-primary)]">Delete this instance?</p>
             <p className="text-xs text-[var(--c-text-secondary)] mt-1">The on-disk profile (mods, worlds, configs) will be permanently removed.</p>
             <div className="flex items-center gap-2 mt-3">
