@@ -180,26 +180,47 @@ function stampBackendOrigin() {
   });
 }
 
+// Where the main window opens: 88% of the primary work area, capped, centred.
+// The splash uses the same bounds so its logo can fly to the title bar.
+function mainWindowBounds() {
+  const { x, y, width: sw, height: sh } = screen.getPrimaryDisplay().workArea;
+  const width  = Math.min(1400, Math.round(sw * 0.88));
+  const height = Math.min(900,  Math.round(sh * 0.88));
+  return { x: x + Math.round((sw - width) / 2), y: y + Math.round((sh - height) / 2), width, height };
+}
+
 // ─── Splash ────────────────────────────────────────────────────────────────────
-// A tiny frameless window painted the instant Electron is ready, so a click on
-// the exe gets feedback right away instead of nothing until the backend is up
-// and React has rendered. Closed as soon as the main window has painted.
+// A frameless window painted the instant Electron is ready, so a click on the
+// exe gets feedback right away instead of nothing until the backend is up and
+// React has rendered. It's transparent and click-through, covering exactly
+// where the main window will open, with the logo in its centre: at handoff the
+// logo shrinks onto the title-bar logo (flyLogoHome) and the splash closes.
+// Handoff waits at least SPLASH_MIN_MS after the splash appeared: splash.html
+// builds the "M" pixel by pixel (done at ~1.45 s), and a fast start shouldn't
+// cut that off.
+const SPLASH_MIN_MS = 1600;
 let splashWindow = null;
+let splashShownAt = 0;
 function createSplash() {
+  splashShownAt = Date.now();
   splashWindow = new BrowserWindow({
-    width: 340,
-    height: 220,
+    ...mainWindowBounds(),
     frame: false,
     transparent: true,
+    hasShadow: false,
     resizable: false,
-    movable: true,
     show: false,
     skipTaskbar: false,
     title: 'MineDash',
     icon: path.join(__dirname, 'assets', 'icon.ico'),
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
-  splashWindow.once('ready-to-show', () => splashWindow?.show());
+  // Most of it is empty space over the desktop — let clicks through.
+  splashWindow.setIgnoreMouseEvents(true);
+  splashWindow.once('ready-to-show', () => {
+    splashShownAt = Date.now();
+    splashWindow?.show();
+  });
   splashWindow.on('closed', () => { splashWindow = null; });
   splashWindow.loadFile(path.join(__dirname, 'splash.html'));
 }
@@ -208,18 +229,78 @@ function closeSplash() {
   splashWindow = null;
 }
 
+// The main window's first frames on screen are slow (a dropped frame or two).
+// While the splash is still building the logo, reveal() puts the window up
+// fully transparent and click-through so those frames are spent unseen;
+// showMain() then just makes it opaque, and the flight starts without a hitch.
+let mainPrewarmed = false;
+function prewarmMain() {
+  if (mainPrewarmed || mainWindow.isVisible()) return;
+  mainPrewarmed = true;
+  mainWindow.setOpacity(0);
+  mainWindow.setIgnoreMouseEvents(true);
+  mainWindow.showInactive();
+}
+function showMain() {
+  if (!mainPrewarmed) { mainWindow.show(); return; }
+  mainPrewarmed = false;
+  mainWindow.setIgnoreMouseEvents(false);
+  mainWindow.setOpacity(1);
+  mainWindow.focus();
+}
+
+// Show the main window with the splash logo flying onto the title-bar logo
+// ([data-app-logo] in TitleBar.jsx), which stays hidden until it lands. Any
+// failure (no title bar yet, a window gone) falls back to a plain swap.
+async function flyLogoHome() {
+  const splash = splashWindow;
+  let target = null;
+  try {
+    if (splash && !splash.isDestroyed()) {
+      target = await mainWindow.webContents.executeJavaScript(`(async () => {
+        for (const until = Date.now() + 1500; Date.now() < until; ) {
+          const el = document.querySelector('[data-app-logo]');
+          const r = el && el.getBoundingClientRect();
+          if (r && r.width) { el.style.visibility = 'hidden'; return { x: r.left, y: r.top, size: r.width }; }
+          await new Promise(res => setTimeout(res, 50));
+        }
+        return null;
+      })()`);
+    }
+  } catch (_) { target = null; }
+
+  if (!target || !splash || splash.isDestroyed()) {
+    log('[Electron] Title-bar logo not found — plain splash handoff');
+    showMain();
+    closeSplash();
+    return;
+  }
+  // Keep the splash above the main window it's about to land on.
+  splash.setAlwaysOnTop(true, 'floating');
+  showMain();
+  // One frame for the window to turn opaque — too short to read as a pause.
+  await new Promise(res => setTimeout(res, 20));
+  try {
+    const main = mainWindow.getContentBounds();
+    const own = splash.getContentBounds();
+    await splash.webContents.executeJavaScript(
+      `flyTo(${main.x + target.x - own.x}, ${main.y + target.y - own.y}, ${target.size})`);
+    log('[Electron] Splash logo landed on the title bar');
+  } catch (_) { /* land wherever it got to */ }
+  try {
+    await mainWindow.webContents.executeJavaScript(
+      `(() => { const el = document.querySelector('[data-app-logo]'); if (el) el.style.visibility = ''; })()`);
+  } catch (_) {}
+  closeSplash();
+}
+
 // `backendReady` lets the window be built while the backend is still booting:
 // creating the BrowserWindow (a new renderer process) overlaps the backend's
 // startup, and the page itself only loads once the API answers — the UI fetches
 // servers/settings on mount and would otherwise render its error states.
 async function createWindow(backendReady = Promise.resolve()) {
-  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const winW = Math.min(1400, Math.round(sw * 0.88));
-  const winH = Math.min(900,  Math.round(sh * 0.88));
-
   mainWindow = new BrowserWindow({
-    width: winW,
-    height: winH,
+    ...mainWindowBounds(),
     minWidth: 800,
     minHeight: 560,
     backgroundColor: '#111111',
@@ -235,13 +316,19 @@ async function createWindow(backendReady = Promise.resolve()) {
     },
   });
 
+  let revealing = false;
   const reveal = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (!mainWindow.isVisible()) {
-      mainWindow.show();
-      log('[Electron] Window shown');
-    }
-    closeSplash();
+    if (revealing || !mainWindow || mainWindow.isDestroyed()) return;
+    // Let the splash finish building the logo before the app replaces it.
+    const splashLeft = splashWindow ? SPLASH_MIN_MS - (Date.now() - splashShownAt) : 0;
+    if (splashLeft > 0) { prewarmMain(); setTimeout(reveal, splashLeft); return; }
+    revealing = true;
+    if (mainWindow.isVisible() && !mainPrewarmed) { closeSplash(); return; }
+    log('[Electron] Window shown');
+    flyLogoHome().catch(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) showMain();
+      closeSplash();
+    });
   };
   mainWindow.once('ready-to-show', reveal);
 

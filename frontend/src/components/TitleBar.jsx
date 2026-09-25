@@ -38,7 +38,8 @@ export default function TitleBar() {
     >
       {/* Branding */}
       <div className="flex items-center gap-2 px-4">
-        <MineDashLogo size={16} />
+        {/* data-app-logo: the startup splash's logo lands here (electron/main.js flyLogoHome). */}
+        <MineDashLogo size={16} data-app-logo />
         <span className="text-white font-bold text-sm tracking-wide">MineDash</span>
       </div>
 

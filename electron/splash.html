@@ -1,73 +1,99 @@
 <!DOCTYPE html>
-<html data-theme="dark">
+<html>
 <head>
 <meta charset="utf-8">
 <title>MineDash</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<script>
-  // Same theme the app will open in (App.jsx mirrors it into localStorage, which
-  // file:// pages share), so a Light user isn't flashed a dark splash.
-  try {
-    const pref = localStorage.getItem('minedash-theme') || 'dark';
-    const sysLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-    document.documentElement.setAttribute('data-theme',
-      pref === 'system' ? (sysLight ? 'light' : 'dark') : pref);
-  } catch { /* fall back to dark */ }
-</script>
 <style>
-  :root, :root[data-theme="dark"] {
-    --c-surface-1: #1A1A1A; --c-border: #2D2D2D;
-    --c-text-primary: #FFFFFF; --c-text-secondary: #A0A0A0;
-  }
-  :root[data-theme="light"] {
-    --c-surface-1: #F4F4F5; --c-border: #DDDDDD;
-    --c-text-primary: #111827; --c-text-secondary: #4B5563;
-  }
-  :root[data-theme="oled"] {
-    --c-surface-1: #0A0A0A; --c-border: #262626;
-    --c-text-primary: #FFFFFF; --c-text-secondary: #A0A0A0;
+  /* Logo only: the green tile fades in, then the "M" builds pixel by pixel in
+     stroke order — bottom-left up to top-left, down the V to the middle, up to
+     top-right, down to bottom-right. main.js keeps the splash up until the
+     build has finished (SPLASH_MIN_MS) — keep the two in step if the timings
+     here change. Brand colours only, so there's nothing to theme.
+     The window is the size of the main window and click-through; at handoff
+     main.js calls flyTo() to land the logo on the title-bar logo. */
+  :root {
+    --tile-in: 180ms;   /* tile fade */
+    --build-at: 240ms;  /* first block */
+    --step: 80ms;       /* delay between consecutive blocks */
+    --block-in: 260ms;  /* each block's pop */
   }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
   body {
     display: flex; align-items: center; justify-content: center;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    user-select: none; -webkit-app-region: drag;
+    user-select: none;
   }
-  .card {
-    box-sizing: border-box; width: 324px; height: 204px;
-    background: var(--c-surface-1); border: 1px solid var(--c-border);
-    border-radius: 24px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  /* The flight must stay on the compositor: only .mark's transform and
+     .shadow's opacity animate. Animating a filter (the old drop-shadow) re-
+     rasterized the logo every frame, and the crispEdges pixels snapped from one
+     whole pixel to the next as it shrank — a visible stutter just before landing. */
+  .mark {
+    position: relative; width: 112px; height: 112px;
+    will-change: transform;
+    animation: tile-in var(--tile-in) ease-out both;
   }
-  .block { width: 56px; height: 56px; animation: bob 1.6s ease-in-out infinite; }
-  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-  .name { color: var(--c-text-primary); font-weight: 800; font-size: 22px; letter-spacing: -0.01em; }
-  .bar {
-    position: relative; width: 160px; height: 4px; border-radius: 4px;
-    background: var(--c-border); overflow: hidden;
+  .shadow {
+    position: absolute; inset: 0; border-radius: 24.5px; /* rx 7 of 32, at 112px */
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
   }
-  .bar::after {
-    content: ''; position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 4px;
-    background: #00AF5C; animation: slide 1.1s ease-in-out infinite;
+  .logo { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  @keyframes tile-in { from { opacity: 0; } to { opacity: 1; } }
+
+  .px {
+    transform-box: fill-box; transform-origin: center;
+    animation: block-in var(--block-in) cubic-bezier(.34, 1.56, .64, 1) both;
+    animation-delay: calc(var(--build-at) + var(--i) * var(--step));
   }
-  @keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
-  .status {
-    color: var(--c-text-secondary); font-weight: 700; font-size: 10px;
-    text-transform: uppercase; letter-spacing: 0.08em;
+  @keyframes block-in {
+    from { transform: scale(.2); opacity: 0; }
+    to   { transform: scale(1);  opacity: 1; }
   }
-  @media (prefers-reduced-motion: reduce) { .block { animation: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mark, .px { animation: none; }
+  }
 </style>
+<script>
+  // Called by main.js at handoff: shrink the logo onto the title-bar logo at
+  // (x, y, size) in this window's CSS px, resolving once it has landed.
+  window.flyTo = (x, y, size) => {
+    const mark = document.querySelector('.mark');
+    const r = mark.getBoundingClientRect();
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 520;
+    mark.style.transformOrigin = '0 0';
+    document.querySelector('.shadow').animate([{ opacity: 1 }, { opacity: 0 }],
+      { duration: duration * 0.6, easing: 'ease-out', fill: 'forwards' });
+    return mark.animate([
+      { transform: 'translate(0, 0) scale(1)' },
+      { transform: `translate(${x - r.left}px, ${y - r.top}px) scale(${size / r.width})` },
+    ], { duration, easing: 'cubic-bezier(.65, 0, .35, 1)', fill: 'forwards' })
+      .finished.then(() => true);
+  };
+</script>
 </head>
 <body>
-  <div class="card">
-    <!-- Same mark as MineDashLogo.jsx -->
-    <svg class="block" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="#00AF5C" />
-      <path fill="#fff" shape-rendering="crispEdges" d="M6 6h4v20H6zM22 6h4v20h-4zM10 10h4v4h-4zM18 10h4v4h-4zM14 14h4v4h-4z" />
-    </svg>
-    <div class="name">MineDash</div>
-    <div class="bar"></div>
-    <div class="status">Starting</div>
+  <!-- Same mark as MineDashLogo.jsx, with the M split into its 4×4 pixels.
+       --i is each pixel's place in the stroke order. -->
+  <div class="mark">
+  <div class="shadow"></div>
+  <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32" rx="7" fill="#00AF5C" />
+    <g fill="#fff" shape-rendering="crispEdges">
+      <rect class="px" style="--i:0"  x="6"  y="22" width="4" height="4" />
+      <rect class="px" style="--i:1"  x="6"  y="18" width="4" height="4" />
+      <rect class="px" style="--i:2"  x="6"  y="14" width="4" height="4" />
+      <rect class="px" style="--i:3"  x="6"  y="10" width="4" height="4" />
+      <rect class="px" style="--i:4"  x="6"  y="6"  width="4" height="4" />
+      <rect class="px" style="--i:5"  x="10" y="10" width="4" height="4" />
+      <rect class="px" style="--i:6"  x="14" y="14" width="4" height="4" />
+      <rect class="px" style="--i:7"  x="18" y="10" width="4" height="4" />
+      <rect class="px" style="--i:8"  x="22" y="6"  width="4" height="4" />
+      <rect class="px" style="--i:9"  x="22" y="10" width="4" height="4" />
+      <rect class="px" style="--i:10" x="22" y="14" width="4" height="4" />
+      <rect class="px" style="--i:11" x="22" y="18" width="4" height="4" />
+      <rect class="px" style="--i:12" x="22" y="22" width="4" height="4" />
+    </g>
+  </svg>
   </div>
 </body>
 </html>
