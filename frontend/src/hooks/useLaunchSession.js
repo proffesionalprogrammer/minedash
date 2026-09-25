@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { showAdaptation } from '../lib/adaptation';
 
 const STAGE_LABEL = {
   'assets':      'Downloading game assets',
@@ -166,6 +167,8 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           }
         } else if (event === 'status') {
           setStatusText(payload.message || '');
+        } else if (event === 'adapting') {
+          showAdaptation(payload.fixes);
         } else if (event === 'mod_sync') {
           setStatusText(`Syncing mods · ${payload.name}`);
         } else if (event === 'progress') {

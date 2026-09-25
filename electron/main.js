@@ -38,6 +38,8 @@ if (!gotInstanceLock) {
   // (or hits a shortcut). Restore + show + focus the existing window instead
   // of letting a duplicate spawn.
   app.on('second-instance', () => {
+    // Still starting up — the splash is what's on screen.
+    if (splashWindow && !splashWindow.isDestroyed()) { splashWindow.focus(); return; }
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     if (!mainWindow.isVisible()) mainWindow.show();
@@ -129,10 +131,14 @@ function startBackend() {
 }
 
 // ─── Backend Ready Check ───────────────────────────────────────────────────────
-function waitForBackend(retries = 30, delay = 500) {
+// Probes 127.0.0.1, never `localhost`: Electron 28's Node 18 resolves localhost
+// to ::1 first, the backend only listens on 127.0.0.1, so every probe got
+// ECONNREFUSED and startup sat out the whole timeout (15s) on every launch even
+// though the backend was up in under a second.
+function waitForBackend(retries = 100, delay = 150) {
   return new Promise((resolve, reject) => {
     const attempt = () => {
-      const req = http.get('http://localhost:3001/api/servers', (res) => {
+      const req = http.get('http://127.0.0.1:3001/api/servers', (res) => {
         res.resume();
         resolve();
       });
@@ -174,7 +180,39 @@ function stampBackendOrigin() {
   });
 }
 
-async function createWindow() {
+// ─── Splash ────────────────────────────────────────────────────────────────────
+// A tiny frameless window painted the instant Electron is ready, so a click on
+// the exe gets feedback right away instead of nothing until the backend is up
+// and React has rendered. Closed as soon as the main window has painted.
+let splashWindow = null;
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 340,
+    height: 220,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    show: false,
+    skipTaskbar: false,
+    title: 'MineDash',
+    icon: path.join(__dirname, 'assets', 'icon.ico'),
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  splashWindow.once('ready-to-show', () => splashWindow?.show());
+  splashWindow.on('closed', () => { splashWindow = null; });
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+}
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy();
+  splashWindow = null;
+}
+
+// `backendReady` lets the window be built while the backend is still booting:
+// creating the BrowserWindow (a new renderer process) overlaps the backend's
+// startup, and the page itself only loads once the API answers — the UI fetches
+// servers/settings on mount and would otherwise render its error states.
+async function createWindow(backendReady = Promise.resolve()) {
   const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
   const winW = Math.min(1400, Math.round(sw * 0.88));
   const winH = Math.min(900,  Math.round(sh * 0.88));
@@ -186,6 +224,9 @@ async function createWindow() {
     minHeight: 560,
     backgroundColor: '#111111',
     frame: false,
+    // Shown on first paint (below) so the splash hands straight over to the
+    // rendered app instead of to an empty dark frame.
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -194,16 +235,18 @@ async function createWindow() {
     },
   });
 
+  const reveal = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+      log('[Electron] Window shown');
+    }
+    closeSplash();
+  };
+  mainWindow.once('ready-to-show', reveal);
+
   mainWindow.on('maximize',   () => mainWindow?.webContents.send('window-maximized', true));
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window-maximized', false));
-
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
-  } else {
-    const indexPath = getResourcePath('renderer', 'index.html');
-    mainWindow.loadFile(indexPath);
-  }
 
   // Open external links in system browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -226,7 +269,64 @@ async function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  await backendReady;
+  if (!mainWindow) return;
+  // Safety net: if the page never paints (renderer failed to load), still show
+  // the window rather than leaving the user staring at the splash forever.
+  setTimeout(reveal, 15000);
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools();
+  } else {
+    const indexPath = getResourcePath('renderer', 'index.html');
+    mainWindow.loadFile(indexPath);
+  }
 }
+
+// ─── Adaptation overlay ───────────────────────────────────────────────────────
+// When the launcher's crash auto-fix has repaired the mods and is about to
+// relaunch the game, the renderer asks for Mahoraga's wheel to turn. It gets its
+// own transparent, click-through, always-on-top window covering the screen —
+// the game window has just died and MineDash itself may be hidden in the tray,
+// so drawing inside the main window would often go unseen. The page
+// (frontend/public/adaptation.html) closes itself when the animation ends.
+let adaptationWindow = null;
+ipcMain.on('show-adaptation', (_event, fixes) => {
+  if (adaptationWindow && !adaptationWindow.isDestroyed()) adaptationWindow.destroy();
+  const list = (Array.isArray(fixes) ? fixes : []).slice(0, 4).map(f => String(f).slice(0, 200));
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const win = new BrowserWindow({
+    ...display.bounds,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required',
+    },
+  });
+  adaptationWindow = win;
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setIgnoreMouseEvents(true);
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
+  win.on('closed', () => { if (adaptationWindow === win) adaptationWindow = null; });
+  // The page closes itself; this only catches a page that never finished.
+  setTimeout(() => { if (!win.isDestroyed()) win.destroy(); }, 10000);
+  const query = { fixes: JSON.stringify(list) };
+  if (isDev) {
+    win.loadURL(`http://localhost:5173/adaptation.html?${new URLSearchParams(query)}`);
+  } else {
+    win.loadFile(getResourcePath('renderer', 'adaptation.html'), { query });
+  }
+});
 
 // ─── Auto Updater ──────────────────────────────────────────────────────────────
 // Reads releases from the main proffesionalprogrammer/minedash repo (public
@@ -416,17 +516,15 @@ app.whenReady().then(async () => {
   // from the log file alone — if the toast misfires you can grep this line to
   // see which version actually got loaded vs. what's on the releases feed.
   log(`[Electron] MineDash ${app.getVersion()} starting`);
+  createSplash();
   startBackend();
-
-  try {
-    await waitForBackend();
-    log('[Electron] Backend is ready');
-  } catch (err) {
-    log('[Electron] WARNING:', err.message, '— showing window anyway');
-  }
-
   stampBackendOrigin();
-  await createWindow();
+
+  const backendReady = waitForBackend().then(
+    () => log('[Electron] Backend is ready'),
+    (err) => log('[Electron] WARNING:', err.message, '— showing window anyway'),
+  );
+  await createWindow(backendReady);
   setupAutoUpdater();
 
   app.on('activate', () => {

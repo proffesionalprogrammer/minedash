@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Quit MineDash entirely — used by the "Quit when the game closes" setting.
   quitApp: () => ipcRenderer.send('app-quit'),
 
+  // Mahoraga's wheel over the whole screen, shown when the crash auto-fix is
+  // about to relaunch the game. `fixes` is the list of repairs it made.
+  showAdaptation: (fixes) => ipcRenderer.send('show-adaptation', fixes),
+
   windowControls: {
     minimize:        () => ipcRenderer.send('window-minimize'),
     maximize:        () => ipcRenderer.send('window-maximize'),

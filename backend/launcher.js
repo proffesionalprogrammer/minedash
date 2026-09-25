@@ -48,6 +48,7 @@ const { findModUpdates } = require('./modrinth-updates');
 const modDeps = require('./mod-deps');
 const modCompat = require('./mod-compat');
 const modrinthResolve = require('./modrinth-resolve');
+const { prepareGamePause } = require('./game-window');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
 const AZURE_CLIENT_ID = ''; // ← fill in after registering the Azure app
@@ -1783,7 +1784,6 @@ function register(app) {
   app.get('/api/launcher/settings', async (req, res) => {
     res.json(await readSettings());
   });
-
   app.put('/api/launcher/settings', async (req, res) => {
     const incoming = req.body || {};
     const current = await readSettings();
@@ -3493,7 +3493,16 @@ function runHookCommand({ cmd, env, launchId, label }) {
   });
 }
 
-async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, quickPlayWorld, depAttempted, prepareOnly, modpackInstall, elybyLaunch }) {
+// Minecraft logs this just before it creates its window (1.13+: "Backend
+// library: LWJGL version …"; legacy: "LWJGL Version: …") — the cue for the
+// adaptation wheel.
+const GAME_WINDOW_LOG_RE = /Backend library: LWJGL|LWJGL Version:/i;
+// How long the game is paused while the wheel turns: the overlay window takes
+// ~0.3s to appear, adaptation.html fades out ~2.1s in, and the game window
+// shows ~0.1–0.3s after resuming (GL context creation).
+const ADAPT_HOLD_MS = 2000;
+
+async function runLaunch({ launchId, instance, account, accountsDoc, syncServer, settings, quickPlayHost, quickPlayWorld, depAttempted, prepareOnly, modpackInstall, elybyLaunch, adaptFixes }) {
   const { loader, version, id: instanceId } = instance;
   const profileRoot = instanceDir(instanceId);
   await fs.ensureDir(profileRoot);
@@ -3677,9 +3686,29 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   // Buffer game output so we can scan it for dep-crash signatures on close.
   // Capped at ~200 KB to keep memory steady on long sessions.
   let logBuffer = '';
+  // Set when this launch is the crash auto-fix's relaunch: the renderer turns
+  // Mahoraga's wheel (frontend/public/adaptation.html) as the game is about to
+  // open its window — not when the repair finishes, which is ~10s before the
+  // game shows. On Windows the game is paused right before it creates the
+  // window (game-window.js), so the window opens as the wheel finishes.
+  let adaptPending = Array.isArray(adaptFixes);
+  let adaptTimer = null;
+  let gamePause = null;
+  const fireAdapt = () => {
+    if (!adaptPending) return;
+    adaptPending = false;
+    clearTimeout(adaptTimer);
+    emit(launchId, 'adapting', { fixes: adaptFixes });
+  };
   const appendLogBuf = (s) => {
     logBuffer += s;
     if (logBuffer.length > 200_000) logBuffer = logBuffer.slice(-100_000);
+    if (adaptPending && GAME_WINDOW_LOG_RE.test(s)) {
+      // Spin once the game is actually paused; if the helper isn't there or
+      // doesn't answer quickly, spin anyway rather than lose the moment.
+      if (gamePause?.pause(fireAdapt)) adaptTimer = setTimeout(fireAdapt, 400);
+      else fireAdapt();
+    }
   };
 
   launcher.on('debug', (m) => {
@@ -3701,6 +3730,10 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     // install runs. So ignore mclc's close here — running dep-crash recovery or
     // emitting a second close would corrupt the prepare flow.
     if (prepareOnly) return;
+    // The game exited before its window came up — nothing to celebrate.
+    adaptPending = false;
+    clearTimeout(adaptTimer);
+    gamePause?.stop();
     const tracked = childMap.get(launchId);
     if (tracked) _untrackChild(tracked);
     childMap.delete(launchId);
@@ -3749,6 +3782,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
             launchId, instance, account, accountsDoc,
             syncServer: null, settings, quickPlayHost, quickPlayWorld,
             depAttempted: triedIds, elybyLaunch,
+            adaptFixes: actions.map(a => a.text),
           }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
           return;
         }
@@ -3837,6 +3871,13 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     childMap.set(launchId, child);
     _trackChild(child);
     emit(launchId, 'launched', {});
+    // Warm the pause helper up now so it's ready well before the window line.
+    if (adaptPending) {
+      gamePause = prepareGamePause(child.pid, {
+        holdMs: ADAPT_HOLD_MS,
+        log: (m) => emit(launchId, 'log', { message: m }),
+      });
+    }
   } catch (err) {
     activeLaunches.delete(launchId);
     // If the user cancelled, swallow whatever mclc threw and emit a clean
