@@ -3593,6 +3593,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
   } else if (loader === 'forge') {
     emit(launchId, 'status', { message: 'Downloading Forge installer…' });
     forgeInstaller = await downloadForgeInstaller(version, profileRoot, launchId);
+    await ensureForgeWrapper(profileRoot, launchId);
   } else if (loader === 'neoforge') {
     // MCLC's `opts.forge` path only knows about `net.minecraftforge:forge` libraries
     // — it silently mangles NeoForge's `net.neoforged:neoforge` JSON and the game
@@ -3643,7 +3644,10 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     },
   };
   if (versionCustom) opts.version.custom = versionCustom;
-  if (forgeInstaller) opts.forge = forgeInstaller;
+  if (forgeInstaller) {
+    opts.forge = forgeInstaller;
+    opts.overrides = { fw: FORGE_WRAPPER };
+  }
   // Tweaks → system native libraries. LWJGL3 (MC 1.13+) reads these system
   // properties to load a specific GLFW / OpenAL binary instead of the one mclc
   // extracted from the natives jar. Advanced opt-in (Settings → Minecraft →
@@ -4225,6 +4229,67 @@ async function downloadForgeInstaller(mcVersion, profileRoot, launchId) {
   if (!r.ok) throw new Error(`Forge installer download failed (${r.status}). URL: ${url}`);
   await fs.writeFile(dest, Buffer.from(await r.arrayBuffer()));
   return dest;
+}
+
+// ForgeWrapper is what lets mclc launch modern (1.13+) Forge — it becomes the
+// game's main class. We pass these to mclc as `overrides.fw` (same values as its
+// built-in defaults) so the pre-download below and mclc agree on the file.
+const FORGE_WRAPPER = {
+  baseUrl: 'https://github.com/ZekerZhayard/ForgeWrapper/releases/download/',
+  version: '1.6.0',
+  sh1: '035a51fe6439792a61507630d89382f621da0f1f',
+  size: 28679,
+};
+
+// Make sure the profile holds an intact ForgeWrapper jar before mclc runs. mclc
+// opens the output file before it knows the download worked, so one failed
+// GitHub fetch leaves a 0-byte jar — and its integrity re-check never fires
+// (it tests an un-awaited Promise), so every later launch dies with "Could not
+// find or load main class io.github.zekerzhayard.forgewrapper.installer.Main".
+// The jar ships inside MineDash (backend/vendor/forgewrapper/, MIT) because its
+// only host is a GitHub release asset, and release-assets.githubusercontent.com
+// times out outright on some networks. GitHub is only the fallback.
+// We verify the SHA1 either way and write temp-then-rename.
+const BUNDLED_FORGE_WRAPPER_DIR = path.join(__dirname, 'vendor', 'forgewrapper');
+
+async function ensureForgeWrapper(profileRoot, launchId) {
+  const { baseUrl, version, sh1 } = FORGE_WRAPPER;
+  const name = `ForgeWrapper-${version}.jar`;
+  const dest = path.join(profileRoot, 'libraries', 'io', 'github', 'zekerzhayard', 'ForgeWrapper', version, name);
+  if (await fs.pathExists(dest)) {
+    try { if (await fileSha1(dest) === sh1) return; } catch {}
+    emit(launchId, 'log', { message: `[minedash] ${name} is damaged — replacing it.\n` });
+  }
+  const install = async (buf) => {
+    const got = crypto.createHash('sha1').update(buf).digest('hex');
+    if (got !== sh1) throw new Error(`checksum mismatch (${buf.length} bytes)`);
+    await fs.ensureDir(path.dirname(dest));
+    const tmp = `${dest}.part`;
+    await fs.writeFile(tmp, buf);
+    await fs.move(tmp, dest, { overwrite: true });
+  };
+  // readFile (not copy) so this also works from inside app.asar.
+  try {
+    await install(await fs.readFile(path.join(BUNDLED_FORGE_WRAPPER_DIR, name)));
+    return;
+  } catch (err) {
+    emit(launchId, 'log', { message: `[minedash] Bundled ${name} unavailable (${err.message || err}) — downloading it.\n` });
+  }
+  const url = `${baseUrl}${version}/${name}`;
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await install(Buffer.from(await r.arrayBuffer()));
+      return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  // Don't leave a broken jar behind for mclc to trust on the next launch.
+  await fs.remove(dest).catch(() => {});
+  throw new Error(`Couldn't download ${name} from GitHub (${lastErr?.message || lastErr}). Check your connection and try again.`);
 }
 
 // Download the NeoForge installer JAR. NeoForge versions are derived from MC versions:
