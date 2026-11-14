@@ -226,8 +226,11 @@ export function useLaunchSession({ socket, settings, onProfilesChanged, onError 
           // Console auto-behaviour: a non-zero exit after a real launch is a
           // crash → surface the log if show-on-crash is on; an clean exit hides
           // the console if hide-on-exit is on. Cancelled stops touch neither.
+          // A crash the auto-fix couldn't repair comes with a plain-English
+          // reason — show it, since the status line is about to reset.
+          if (payload.crash?.message) onError?.(payload.crash.message);
           if (realExit) {
-            const crashed = typeof payload.code === 'number' && payload.code !== 0;
+            const crashed = (typeof payload.code === 'number' && payload.code !== 0) || !!payload.crash;
             if (crashed && eff.consoleShowOnCrash) setConsoleOpen(true);
             else if (eff.consoleHideOnExit) setConsoleOpen(false);
           }

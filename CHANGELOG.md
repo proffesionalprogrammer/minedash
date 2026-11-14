@@ -2,6 +2,22 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.4.2 — 2026-11-14
+
+### Added
+
+- **MineDash now fixes many more kinds of crashes by itself.** When the game or a server crashes, MineDash works out why and fixes it if it can do so safely, then starts it again:
+  - A mod that doesn't work with your Minecraft or loader version is swapped for one that does, trying test (beta) versions when no regular release works. A version that already crashed is never put back.
+  - If no version of a mod works with the newest NeoForge yet, MineDash keeps that instance on an older NeoForge build until the mod catches up. Instance settings shows this, with a **Use newest** button.
+  - Client-only mods are moved out of servers, mods made for a different loader are turned off, duplicate copies are removed, and damaged mod files are downloaded again.
+  - Broken config files are reset, with a backup kept.
+  - The right Java is installed when a mod needs a newer one, and memory is raised when the game runs out.
+- **Crashes MineDash can't fix are explained in plain English.** For example, a graphics driver crash, a port that's already in use, or a damaged world. MineDash never turns off a mod that may add blocks or items to your worlds; it tells you instead.
+
+### Fixed
+
+- **Changing a Forge or NeoForge server's RAM now takes effect.** The new amount wasn't being applied to these servers before.
+
 ## v1.4.1 — 2026-11-14
 
 ### Fixed

@@ -49,6 +49,7 @@ const { findModUpdates } = require('./modrinth-updates');
 const modDeps = require('./mod-deps');
 const modCompat = require('./mod-compat');
 const modrinthResolve = require('./modrinth-resolve');
+const crashFix = require('./crash-fix');
 const { prepareGamePause } = require('./game-window');
 
 // ─── CONFIG ─────────────────────────────────────────────────────────
@@ -1030,7 +1031,10 @@ function register(app) {
     const { displayName, java } = body;
     const hasRam = Object.prototype.hasOwnProperty.call(body, 'ram');
     const hasOverrides = Object.prototype.hasOwnProperty.call(body, 'overrides');
-    if (typeof displayName !== 'string' && typeof java !== 'string' && !hasRam && !hasOverrides) {
+    // loaderVersion: null releases a loader build the crash auto-fix held this
+    // instance at, so the next launch uses the newest build again.
+    const clearLoaderPin = Object.prototype.hasOwnProperty.call(body, 'loaderVersion') && body.loaderVersion === null;
+    if (typeof displayName !== 'string' && typeof java !== 'string' && !hasRam && !hasOverrides && !clearLoaderPin) {
       return res.status(400).json({ error: 'Nothing to update — pass displayName, java, ram and/or overrides' });
     }
     let name = null;
@@ -1101,6 +1105,7 @@ function register(app) {
       if (ramChoice === null) delete inst.ram;
       else inst.ram = ramChoice;
     }
+    if (clearLoaderPin) delete inst.loaderVersion;
     if (overrideSet || overrideUnset) {
       const cur = (inst.overrides && typeof inst.overrides === 'object') ? { ...inst.overrides } : {};
       if (overrideUnset) for (const k of overrideUnset) delete cur[k];
@@ -3625,7 +3630,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     // version JSON under `versions/neoforge-<x>/` and launch it like Fabric: as a
     // custom version (opts.version.custom), without setting opts.forge.
     emit(launchId, 'status', { message: 'Downloading NeoForge installer…' });
-    const installerPath = await downloadNeoForgeInstaller(version, profileRoot, launchId);
+    const installerPath = await downloadNeoForgeInstaller(version, profileRoot, launchId, instance?.loaderVersion || null);
     emit(launchId, 'status', { message: 'Installing NeoForge (this may take a minute)…' });
     versionCustom = await installNeoForgeClient(installerPath, profileRoot, javaPath, launchId);
     // MCLC's getLaunchOptions only processes arguments.game; it ignores
@@ -3781,8 +3786,33 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
     // mod through the validated resolver. It never adds a second copy of a
     // mod that's already there — which is what the old installer did, so the
     // game crashed the same way again after "fixing" it.
+    // Everything else that crashes — a mixin that no longer fits, a mod
+    // throwing during setup, a jar for another loader, duplicates, corrupt
+    // jars/configs, the wrong Java, out of memory — goes through crash-fix
+    // (backend/crash-fix.js), which only makes changes that can't cost the
+    // player anything and explains the rest.
+    let crashReport = null;
+    let instanceNow = instance;
+    const relaunchCount = [...triedIds].filter(k => k.startsWith('relaunch|')).length;
+    const relaunch = (actions) => {
+      triedIds.add(`relaunch|${relaunchCount}`);
+      emit(launchId, 'status', { message: `Fixed: ${actions.map(a => a.text).join('; ')}. Restarting…` });
+      activeLaunches.delete(launchId);
+      // Restart with the same launchId so the UI stays on this session.
+      // Pass syncServer:null — re-syncing from the server would wipe the
+      // client-only deps we just installed. `triedIds` rides along so a
+      // problem the fix didn't cure is never "fixed" twice in a loop.
+      runLaunch({
+        launchId, instance: instanceNow, account, accountsDoc,
+        syncServer: null, settings, quickPlayHost, quickPlayWorld,
+        depAttempted: triedIds, elybyLaunch,
+        adaptFixes: actions.map(a => a.text),
+      }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
+    };
     try {
-      if (hasDependencyCrashFn && hasDependencyCrashFn(logBuffer)) {
+      if (relaunchCount >= 6) {
+        if (crashFix.endedInCrash(code, logBuffer)) crashReport = 'The game kept crashing after several automatic fixes, so MineDash stopped trying. See the log for the last error.';
+      } else if (hasDependencyCrashFn && hasDependencyCrashFn(logBuffer)) {
         const logMissing = (parseMissingModIdsFn ? parseMissingModIdsFn(logBuffer) : []);
         emit(launchId, 'status', { message: 'Minecraft refused to load these mods — looking for a fix…' });
         const actions = await modCompat.repairMods({
@@ -3795,26 +3825,66 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
           log: (msg) => emit(launchId, 'log', { message: msg }),
           hooks: launcherModHooks(profileRoot),
         });
-        if (actions.length === 0) {
-          emit(launchId, 'status', { message: "Couldn't fix the mod problem automatically — see the log for what's wrong." });
-        } else {
-          emit(launchId, 'status', { message: `Fixed: ${actions.map(a => a.text).join('; ')}. Restarting…` });
-          activeLaunches.delete(launchId);
-          // Restart with the same launchId so the UI stays on this session.
-          // Pass syncServer:null — re-syncing from the server would wipe the
-          // client-only deps we just installed. `triedIds` rides along so a
-          // problem the fix didn't cure is never "fixed" twice in a loop.
-          runLaunch({
-            launchId, instance, account, accountsDoc,
-            syncServer: null, settings, quickPlayHost, quickPlayWorld,
-            depAttempted: triedIds, elybyLaunch,
-            adaptFixes: actions.map(a => a.text),
-          }).catch(err => emit(launchId, 'error', { message: err.message || String(err) }));
-          return;
+        if (actions.length) { relaunch(actions); return; }
+        // Say what the loader objected to, in its own words.
+        const why = (logBuffer.match(/^.*(?:Mod \S+ (?:requires|is incompatible with|needs)|Incompatible mods found|requires (?:any )?version).*$/m) || [])[0];
+        crashReport = `Minecraft refused to load the mods and MineDash couldn't find a fix${why ? `: ${why.replace(/^\[[^\]]*\]\s*(?:\[[^\]]*\]\s*)*:?\s*/, '').trim()}` : ' — see the log for details'}.`;
+      }
+      if (relaunchCount < 6 && crashFix.endedInCrash(code, logBuffer)) {
+        const findings = crashFix.diagnose(logBuffer, { side: 'client' });
+        if (findings.length) {
+          emit(launchId, 'status', { message: 'The game crashed — working out why…' });
+          const neoBuild = loader === 'neoforge' && typeof versionCustom === 'string' ? versionCustom.replace(/^neoforge-/, '') : null;
+          const { actions, report } = await crashFix.fixCrash(findings, {
+            modsDir: path.join(profileRoot, 'mods'),
+            root: profileRoot,
+            backupDir: path.join(profileRoot, '.minedash-update-backup'),
+            cacheDir: path.join(profileRoot, '.minedash-update-cache'),
+            loader, side: 'client', gameVersion: version,
+            api: MODRINTH_LOOKUP_API, headers: MODRINTH_LOOKUP_HEADERS,
+            tried: triedIds,
+            log: (msg) => emit(launchId, 'log', { message: msg }),
+            hooks: {
+              ...launcherModHooks(profileRoot),
+              onDisabled: async () => {},
+              versionOfJar: async (p) => {
+                try { return await modrinthResolve.versionForSha1(await fileSha1(p), { api: MODRINTH_LOOKUP_API, headers: MODRINTH_LOOKUP_HEADERS }); } catch { return null; }
+              },
+              javaMajor: () => javaPool.getJavaVersionForPath(javaPath),
+              useJava: async (major) => {
+                instanceNow = (await patchInstance(instance.id, { java: `jdk-${major}` })) || { ...instanceNow, java: `jdk-${major}` };
+                return true; // resolveLauncherJava downloads it on the relaunch
+              },
+              raiseRam: async () => {
+                const totalGb = Math.floor(require('os').totalmem() / (1024 ** 3));
+                const cap = Math.max(2, Math.floor(totalGb * 0.6));
+                const next = Math.min(ramGb + 2, cap);
+                if (next <= ramGb) return null;
+                instanceNow = (await patchInstance(instance.id, { ram: next })) || { ...instanceNow, ram: next };
+                return `${next} GB`;
+              },
+              pinLoader: neoBuild ? async (cutoffMs) => {
+                const build = await neoforgeBuildBefore(version, cutoffMs, neoBuild);
+                if (!build) return null;
+                instanceNow = (await patchInstance(instance.id, { loaderVersion: build })) || { ...instanceNow, loaderVersion: build };
+                return build;
+              } : undefined,
+              unpinLoader: async () => {
+                instanceNow = (await patchInstance(instance.id, { loaderVersion: null })) || { ...instanceNow, loaderVersion: undefined };
+              },
+            },
+          });
+          if (actions.length) { relaunch(actions); return; }
+          if (report.length) crashReport = report.join(' ');
         }
+        if (!crashReport) crashReport = "The game crashed and MineDash couldn't tell what caused it. See the log for the error.";
       }
     } catch (err) {
-      emit(launchId, 'log', { message: `[Auto-install ERR] ${err.message || err}` });
+      emit(launchId, 'log', { message: `[Auto-fix ERR] ${err.message || err}\n` });
+    }
+    if (crashReport) {
+      emit(launchId, 'log', { message: `[auto-fix] ${crashReport}\n` });
+      emit(launchId, 'status', { message: crashReport });
     }
     // Post-exit command — runs after the game has actually exited (not on cancel
     // or a dep-crash retry, both of which returned above). Best-effort: a failure
@@ -3827,7 +3897,7 @@ async function runLaunch({ launchId, instance, account, accountsDoc, syncServer,
         emit(launchId, 'log', { message: `[post-exit command] failed: ${err.message || err}\n` });
       }
     }
-    emit(launchId, 'close', { code });
+    emit(launchId, 'close', crashReport ? { code, crash: { message: crashReport } } : { code });
     activeLaunches.delete(launchId);
   });
 
@@ -4316,16 +4386,84 @@ async function ensureForgeWrapper(profileRoot, launchId) {
   throw new Error(`Couldn't download ${name} from GitHub (${lastErr?.message || lastErr}). Check your connection and try again.`);
 }
 
+// Every NeoForge release directory on the maven (oldest first).
+async function neoforgeMavenDirs() {
+  const listR = await fetch('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge');
+  if (!listR.ok) throw new Error(`NeoForge maven returned ${listR.status}`);
+  return (await listR.json()).files || [];
+}
+
+// When a NeoForge build was published (ms), from its files' upload times.
+const neoforgeDateCache = new Map();
+async function neoforgeBuildDate(build) {
+  if (neoforgeDateCache.has(build)) return neoforgeDateCache.get(build);
+  let t = null;
+  try {
+    const r = await fetch(`https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge/${encodeURIComponent(build)}`);
+    if (r.ok) {
+      const times = ((await r.json()).files || []).map(f => f.lastModifiedTime).filter(Number.isFinite);
+      if (times.length) t = Math.min(...times) * 1000;
+    }
+  } catch {}
+  neoforgeDateCache.set(build, t);
+  return t;
+}
+
+// The newest NeoForge build for `mcVersion` published before `cutoffMs` and
+// older than `currentBuild` — what the crash auto-fix holds an instance at
+// when the newest build broke a mod. Builds are numbered in release order, so
+// a binary search over the build list finds it in a handful of lookups.
+async function neoforgeBuildBefore(mcVersion, cutoffMs, currentBuild) {
+  const prefix = mcv.mcToNeoforgePrefix(mcVersion);
+  if (!prefix) return null;
+  const buildNum = (name) => parseInt(name.slice(prefix.length), 10);
+  const builds = (await neoforgeMavenDirs())
+    .filter(f => f.type === 'DIRECTORY' && f.name.startsWith(prefix) && Number.isFinite(buildNum(f.name)))
+    .map(f => f.name)
+    .sort((a, b) => buildNum(a) - buildNum(b));
+  const cur = currentBuild ? buildNum(currentBuild) : Infinity;
+  const older = builds.filter(b => buildNum(b) < cur);
+  let lo = 0, hi = older.length - 1, best = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const t = await neoforgeBuildDate(older[mid]);
+    if (t == null) { hi = mid - 1; continue; }
+    if (t <= cutoffMs) { best = older[mid]; lo = mid + 1; } else hi = mid - 1;
+  }
+  return best;
+}
+
+// Update fields on an instance's registry entry; returns the updated entry.
+async function patchInstance(instanceId, patch) {
+  const reg = await readProfileRegistry();
+  const inst = reg.instances.find(i => i.id === instanceId);
+  if (!inst) return null;
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined || v === null) delete inst[k]; else inst[k] = v;
+  }
+  await writeProfileRegistry(reg);
+  return inst;
+}
+
 // Download the NeoForge installer JAR. NeoForge versions are derived from MC versions:
 // MC 1.21.1 → NeoForge 21.1.x (latest with that prefix), MC 1.20 → 20.0.x, etc.
-async function downloadNeoForgeInstaller(mcVersion, profileRoot, launchId) {
+async function downloadNeoForgeInstaller(mcVersion, profileRoot, launchId, pinned = null) {
   // MC 1.21.1 → "21.1.", MC 26.3 → "26.3.0.", MC 26.1.1 → "26.1.1."
   const neoPrefix = mcv.mcToNeoforgePrefix(mcVersion);
   if (!neoPrefix) throw new Error(`Unsupported MC version for NeoForge: ${mcVersion}`);
 
-  const listR = await fetch('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge');
-  if (!listR.ok) throw new Error(`NeoForge maven returned ${listR.status}`);
-  const files = (await listR.json()).files || [];
+  // A build the crash auto-fix held this instance at (instance.loaderVersion):
+  // use it as long as it's a build for this Minecraft version. The installer
+  // is cached, so a pinned instance launches offline like any other.
+  if (pinned && String(pinned).startsWith(neoPrefix)) {
+    const cachedPin = path.join(profileRoot, 'forge-installers', `neoforge-${pinned}-installer.jar`);
+    if (await fs.pathExists(cachedPin)) {
+      emit(launchId, 'log', { message: `[neoforge] Using NeoForge ${pinned} — held back by the crash auto-fix (newer builds broke a mod). Reset it in the instance's settings.\n` });
+      return cachedPin;
+    }
+  }
+
+  const files = await neoforgeMavenDirs();
   // Prefer stable releases over betas (e.g. "21.1.50" beats "21.1.49-beta"), then
   // newest semver. The naive split-by-dot-and-Number-cast trick produces NaN for
   // any segment containing a dash (every beta does), which makes Array.sort
@@ -4349,8 +4487,9 @@ async function downloadNeoForgeInstaller(mcVersion, profileRoot, launchId) {
       }
       return 0;
     });
-  const neoVer = matching[0];
+  const neoVer = (pinned && matching.includes(pinned)) ? pinned : matching[0];
   if (!neoVer) throw new Error(`No NeoForge build for Minecraft ${mcVersion}`);
+  if (neoVer === pinned) emit(launchId, 'log', { message: `[neoforge] Using NeoForge ${pinned} — held back by the crash auto-fix (newer builds broke a mod). Reset it in the instance's settings.\n` });
 
   const cacheDir = path.join(profileRoot, 'forge-installers');
   await fs.ensureDir(cacheDir);
@@ -4736,4 +4875,6 @@ module.exports = {
   init, register, runLaunch, isBusy, readSettings, readSettingsSync,
   // Pure helpers exported for the launch-args snapshot test (backend/test/).
   buildElyByAgentArgs, assertAgentArgsGate, hyphenateUuid, offlineUuid,
+  // Used by the crash auto-fix test.
+  neoforgeBuildBefore,
 };

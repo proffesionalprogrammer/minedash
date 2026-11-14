@@ -385,7 +385,10 @@ const {
 //      that's exactly what broke for the user (Java 25 on Forge 1.20.1).
 //   3. null — caller should trigger ensureManagedJava() to download it.
 function resolveJavaForServer(serverConfig) {
-  const requiredMajor = requiredJavaMajor(serverConfig?.version);
+  // `javaMajor` is set by the crash auto-fix when a mod needs a newer Java
+  // than the Minecraft version does (UnsupportedClassVersionError).
+  const base = requiredJavaMajor(serverConfig?.version);
+  const requiredMajor = Number.isInteger(serverConfig?.javaMajor) && serverConfig.javaMajor > base ? serverConfig.javaMajor : base;
   const managed = findManagedJava(requiredMajor);
   if (managed) return { path: managed, major: requiredMajor, source: 'managed' };
   const sys = getJavaPath();
@@ -2062,6 +2065,20 @@ const { stripMcCodes, parseMissingModIds, hasDependencyCrash } = require('./dep-
 // (shared with the launcher's crash auto-fix). Read its header before touching
 // it: a mod ID is not a Modrinth slug.
 const modrinthResolve = require('./modrinth-resolve');
+const crashFix = require('./crash-fix');
+
+// Forge/NeoForge servers start through run.bat/run.sh, which read the heap from
+// user_jvm_args.txt (written once at install) — so a RAM change has to land
+// there too. Replaces any -Xms/-Xmx lines, keeps everything else.
+function applyServerRamToJvmArgs(serverPath, minRam, maxRam) {
+  const argsPath = path.join(serverPath, 'user_jvm_args.txt');
+  try {
+    if (!fs.existsSync(argsPath)) return;
+    const kept = fs.readFileSync(argsPath, 'utf8').split(/\r?\n/).filter(l => !/^\s*-Xm[sx]\S*\s*$/.test(l));
+    while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
+    fs.writeFileSync(argsPath, `${kept.join('\n')}\n-Xms${minRam}\n-Xmx${maxRam}\n`);
+  } catch (_) { /* best effort — the next install rewrites it anyway */ }
+}
 const { pickBestModrinthVersion } = modrinthResolve;
 // MODRINTH_API / MODRINTH_HEADERS are declared further down; read at call time.
 const findModrinthCandidates = (modId, loader, gameVersion) =>
@@ -2269,10 +2286,15 @@ function startProcess(id, serverConfig, serverPath) {
     }
   }
 
+  // This run's output only. activeLogs[id] carries across restarts, so an old
+  // crash report in it must not make a later clean stop look like a crash.
+  let runLogText = '';
   const appendLog = (text) => {
     if (!activeLogs[id]) activeLogs[id] = [];
     activeLogs[id].push(text);
     if (activeLogs[id].length > 500) activeLogs[id].shift();
+    runLogText += text;
+    if (runLogText.length > 400000) runLogText = runLogText.slice(-300000);
     io.emit(`console_${id}`, text);
 
     const joinMatch = text.match(/:\s+([a-zA-Z0-9_]{3,16})\s+joined the game/);
@@ -2516,11 +2538,92 @@ function startProcess(id, serverConfig, serverPath) {
     }
     // ──────────────────────────────────────────────────────────────────────
 
+    // ── Everything else that crashes (backend/crash-fix.js) ────────────────
+    // A mod whose mixins no longer fit, a mod throwing during setup, a
+    // client-only mod on the server, a jar for another loader, duplicates,
+    // corrupt jars/configs, the wrong Java, out of memory. Only fixes that
+    // can't cost a world anything; the rest becomes a plain-English banner.
+    let crashBannerSent = false;
+    if (crashFix.endedInCrash(code, runLogText)) {
+      if (!depInstallHistory[id]) depInstallHistory[id] = new Set();
+      const tried = depInstallHistory[id];
+      const relaunches = [...tried].filter(k => k.startsWith('relaunch|')).length;
+      try {
+        const findings = relaunches < 6 ? crashFix.diagnose(runLogText, { side: 'server' }) : [];
+        if (findings.length) {
+          const loader = SERVER_MOD_LOADERS[serverConfig.type] || serverConfig.type;
+          const { actions, report } = await crashFix.fixCrash(findings, {
+            modsDir: path.join(serverPath, 'mods'),
+            root: serverPath,
+            backupDir: path.join(serverPath, '.minedash-update-backup'),
+            cacheDir: path.join(serverPath, '.minedash-update-cache'),
+            loader, side: 'server', gameVersion: serverConfig.version,
+            api: MODRINTH_API, headers: MODRINTH_HEADERS,
+            tried,
+            log: (msg) => appendLog(`[MineDash] ${msg}`),
+            hooks: {
+              ...serverModHooks(serverPath),
+              onDisabled: async () => {},
+              versionOfJar: async (p) => {
+                try { return await modrinthResolve.versionForSha1(await fileSha1(p), { api: MODRINTH_API, headers: MODRINTH_HEADERS }); } catch (_) { return null; }
+              },
+              useJava: async (major) => {
+                try {
+                  serverJavaPaths[id] = await ensureManagedJavaSingleFlight(major, () => {});
+                  serverConfig.javaMajor = major;
+                  const all = await getServers();
+                  const s = all.find(x => x.id === id);
+                  if (s) { s.javaMajor = major; await saveServers(all); }
+                  return true;
+                } catch (err) {
+                  appendLog(`[MineDash] Couldn't install Java ${major}: ${err.message}\n`);
+                  return false;
+                }
+              },
+              raiseRam: async () => {
+                const toGb = (s) => { const m = /^(\d+)\s*([GgMm])?/.exec(String(s || '')); if (!m) return null; return (m[2] || 'G').toUpperCase() === 'M' ? Math.round(+m[1] / 1024) : +m[1]; };
+                const cur = toGb(serverConfig.maxRam) || 4;
+                const cap = Math.max(2, Math.floor((os.totalmem() / (1024 ** 3)) * 0.6));
+                const next = Math.min(cur + 2, cap);
+                if (next <= cur) return null;
+                serverConfig.minRam = serverConfig.maxRam = `${next}G`;
+                const all = await getServers();
+                const s = all.find(x => x.id === id);
+                if (s) { s.minRam = s.maxRam = `${next}G`; await saveServers(all); }
+                applyServerRamToJvmArgs(serverPath, `${next}G`, `${next}G`);
+                return `${next} GB`;
+              },
+              stashClientMod: async (file) => {
+                const stash = clientModsStashDir(serverPath);
+                await fs.ensureDir(stash);
+                await fs.move(path.join(serverPath, 'mods', file), path.join(stash, file), { overwrite: true });
+                return true;
+              },
+            },
+          });
+          if (actions.length) {
+            tried.add(`relaunch|${relaunches}`);
+            appendLog(`[MineDash] Fixed: ${actions.map(a => a.text).join('; ')}\n`);
+            appendLog('[MineDash] Restarting server...\n');
+            setTimeout(() => { if (!activeProcesses[id]) startProcess(id, serverConfig, serverPath); }, 3000);
+            return;
+          }
+          if (report.length) {
+            appendLog(`[MineDash] ${report.join(' ')}\n`);
+            io.emit(`crash_detected_${id}`, { type: 'autofix', message: report.join(' '), tab: SERVER_MOD_LOADERS[serverConfig.type] ? 'mods' : null });
+            crashBannerSent = true;
+          }
+        }
+      } catch (err) {
+        appendLog(`[MineDash] Crash auto-fix failed: ${err.message}\n`);
+      }
+    }
+
     // Stop auto-backup interval when server exits
     stopAutoBackupInterval(id);
 
     // ── Plain-English crash detection (only if dep installer didn't handle it) ─
-    if (code !== 0 && !hasDependencyCrash(logText)) {
+    if (!crashBannerSent && code !== 0 && !hasDependencyCrash(logText)) {
       const crash = detectCrash(logText, path.join(serverPath, 'mods'));
       if (crash) {
         io.emit(`crash_detected_${id}`, crash);
@@ -4189,6 +4292,8 @@ app.put('/api/servers/:id/general', async (req, res) => {
   if (customUrl !== undefined) servers[index].customUrl = customUrl;
   if (minRam) servers[index].minRam = minRam;
   if (maxRam) servers[index].maxRam = maxRam;
+  // Forge/NeoForge read the heap from user_jvm_args.txt, not our spawn args.
+  if (minRam || maxRam) applyServerRamToJvmArgs(path.join(INSTANCES_DIR, id), servers[index].minRam, servers[index].maxRam);
   // Server-side Ely.by skins toggle (applied on next start via authlib-injector).
   if (typeof elybySkins === 'boolean') servers[index].elybySkins = elybySkins;
 

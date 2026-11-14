@@ -362,7 +362,7 @@ async function repairMods({
     const proj = await hooks.projectFor?.(file);
     if (!proj?.projectId) return false;
     let versions = await resolve.projectVersions(proj.projectId, loader, gameVersion, { api, headers });
-    versions = versions.filter(v => v.id !== proj.version?.id);
+    versions = versions.filter(v => v.id !== proj.version?.id && !tried.has(`badver|${v.id}`));
     if (newerOnly && proj.version) versions = versions.filter(v => dateOf(v) > dateOf(proj.version));
     if (!versions.length) return false;
     const found = await firstCompatibleVersion({
@@ -422,7 +422,15 @@ async function repairMods({
       const candidates = await resolve.findModrinthCandidates(lookupId, loader, gameVersion, { api, headers });
       let done = false;
       for (const { project } of candidates) {
-        const versions = releasesFirst(await resolve.projectVersions(project.id, loader, gameVersion, { api, headers }));
+        // A version that already crashed this game (crash-fix marks it
+        // `badver|<id>`) is never installed again — reinstalling Sodium 0.9.2
+        // after it failed its mixins on NeoForge 26.3.0.103 just crashed again.
+        const all = await resolve.projectVersions(project.id, loader, gameVersion, { api, headers });
+        const usable = all.filter(v => !tried.has(`badver|${v.id}`));
+        // If every release crashed, the newest pre-release is the way forward.
+        const versions = usable.some(v => v.version_type === 'release') || !usable.length
+          ? releasesFirst(usable)
+          : [...usable].sort((a, b) => dateOf(b) - dateOf(a));
         if (!versions.length) continue;
         const found = await firstCompatibleVersion({
           modsDir, loader, side, file: null, versions, cacheDir, headers, maxDownloads: 3,

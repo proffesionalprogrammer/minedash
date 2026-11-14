@@ -105,6 +105,12 @@ export default function InstanceSettingsPanel({ inst, settings, patch, onError, 
     try { await patch({ ram: custom ? ram : null }); } catch (err) { onError?.(err.message); }
     setSavingRam(false);
   };
+  const [releasingPin, setReleasingPin] = useState(false);
+  const releasePin = async () => {
+    setReleasingPin(true);
+    try { await patch({ loaderVersion: null }); } catch (err) { onError?.(err.message); }
+    setReleasingPin(false);
+  };
   const saveOverrides = async () => {
     // Send every overridable key: a value for on-sections, null to clear off ones.
     const body = {};
@@ -175,6 +181,19 @@ export default function InstanceSettingsPanel({ inst, settings, patch, onError, 
           </motion.button>
         </div>
       </Field>
+
+      {/* Loader build held back by the crash auto-fix */}
+      {inst.loaderVersion && (
+        <Field label="Mod loader build" icon={Wrench}>
+          <div className="flex items-center gap-3 px-4 py-3 bg-[var(--c-surface-2)] border border-[var(--c-border)] rounded-2xl">
+            <p className="flex-1 min-w-0 text-xs text-[var(--c-text-secondary)] font-medium">
+              Held at <span className="font-bold text-[var(--c-text-primary)] tabular-nums">{inst.loader === 'neoforge' ? 'NeoForge' : inst.loader} {inst.loaderVersion}</span> by
+              the crash auto-fix, because newer builds broke one of your mods. Switch back once that mod has an update.
+            </p>
+            <SecondaryButton label="Use newest" busy={releasingPin} onClick={releasePin} />
+          </div>
+        </Field>
+      )}
 
       {/* Memory */}
       <Field label="Memory" icon={Cpu}
