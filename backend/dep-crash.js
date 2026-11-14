@@ -64,7 +64,7 @@ function parseMissingModIds(logText) {
 // each other!") is what a declared `breaks` or a wrong dependency version
 // produces — the Sodium/Iris case — and mod-compat.repairMods handles those.
 function hasDependencyCrash(logText) {
-  return /Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed/i.test(logText);
+  return /Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed|Incompatibilities between mods|Mod S+ is incompatible with S+|Mod S+ requires S+ S+ or above/i.test(logText);
 }
 
 // The loader's own error report from a dependency crash — from the first
@@ -74,7 +74,7 @@ function hasDependencyCrash(logText) {
 // Fabric prints its "Immediate reason" lines before "Incompatible mods found!".
 function loaderErrorSection(logText) {
   const tail = stripMcCodes(String(logText || '').slice(-40000));
-  const m = /Immediate reason|Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed/i.exec(tail);
+  const m = /Immediate reason|Missing or unsupported mandatory dep|LoadingFailedException|Actual version:\s*'\[MISSING\]'|Incompatible mods found|Some of your mods are incompatible|Mod resolution failed|Incompatibilities between mods|Mod S+ is incompatible with S+|Mod S+ requires S+ S+ or above/i.exec(tail);
   return m ? tail.slice(m.index) : '';
 }
 

@@ -151,7 +151,9 @@ function diagnose(logText, { side = 'client' } = {}) {
 
   if (/OutOfMemoryError: (?:Java heap space|GC overhead limit exceeded)/i.test(section)) findings.push({ kind: 'oom' });
 
-  if (/zip END header not found|ZipException(?!: ZipFile closed)|Invalid or corrupt jarfile|error in opening zip file|zip file is empty|Invalid CEN header|is not a valid (?:mod )?(?:file|jar)/i.test(section)) {
+  // `java.util.zip.ZipException`, not the `ensureOpenOrZipException(` stack
+  // frame, and not "ZipFile closed" (NeoForge closing jars after a failed start).
+  if (/zip END header not found|java\.util\.zip\.ZipException(?!: ZipFile closed)|Invalid or corrupt jarfile|error in opening zip file|zip file is empty|Invalid CEN header|is not a valid (?:mod )?(?:file|jar)/i.test(section)) {
     findings.push({ kind: 'corrupt-jar' });
   }
 

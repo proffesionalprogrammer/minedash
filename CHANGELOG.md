@@ -2,6 +2,13 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.4.3 — 2026-11-14
+
+### Fixed
+
+- **The crash auto-fix now recognises newer NeoForge's "these mods are incompatible" error.** For example, "Mod sodium is incompatible with iris below 1.11.8". MineDash used to miss this and only said it couldn't tell what caused the crash. Now it fixes the conflict, for example by rolling back the update that caused it.
+- **No more false "damaged mod file" alarms** after a failed NeoForge start.
+
 ## v1.4.2 — 2026-11-14
 
 ### Added
