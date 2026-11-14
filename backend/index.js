@@ -356,6 +356,7 @@ function getJavaPath() {
 // servers and launcher instances draw from the same DATA_DIR/runtimes/.
 const javaPool = require('./java-pool');
 javaPool.init(RUNTIMES_DIR);
+const mcv = require('./mc-version');
 
 // Reads what each jar in a mods/ folder declares (mod IDs + mandatory deps) so
 // nothing that another installed mod requires can be stripped as "client-only".
@@ -903,7 +904,13 @@ app.get('/api/debug/pids', (req, res) => {
 async function getServers() {
   try {
     const data = await fs.readFile(SERVERS_FILE, 'utf8');
-    return JSON.parse(data);
+    const servers = JSON.parse(data);
+    // Older builds turned NeoForge 26.x into a nonexistent "1.26.x" — repair
+    // it on read (persisted by the next saveServers).
+    if (Array.isArray(servers)) {
+      for (const s of servers) if (s && s.version) s.version = mcv.normalizeMcVersion(s.version);
+    }
+    return servers;
   } catch (error) {
     if (error.code === 'ENOENT') {
       await fs.writeFile(SERVERS_FILE, JSON.stringify([]));
@@ -1095,10 +1102,13 @@ async function installNeoForge(id, serverConfig, serverPath, appendLog) {
     appendLog(`[MineDash] Fetching latest NeoForge installer for ${serverConfig.version}...\n`);
     const metaRes = await axios.get('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge', { family: 4, timeout: 60000 });
     
-    // MC 1.21.1 -> Prefix 21.1.
-    const parts = serverConfig.version.split('.');
-    const nfPrefix = `${parts[1]}.${parts[2] || '0'}.`;
-    
+    // MC 1.21.1 -> prefix "21.1.", MC 26.3 -> "26.3.0.", MC 26.1.1 -> "26.1.1."
+    const nfPrefix = mcv.mcToNeoforgePrefix(serverConfig.version);
+    if (!nfPrefix) {
+      appendLog(`[MineDash] Error: NeoForge doesn't support Minecraft ${serverConfig.version}\n`);
+      return false;
+    }
+
     let targetVersion = null;
     const files = metaRes.data.files || [];
     // Sort reverse to get latest
@@ -1190,9 +1200,9 @@ async function fetchVersionsForType(type, opts = {}) {
         .reverse(); // newest first
     } else if (type === 'fabric') {
       const res = await axios.get('https://meta.fabricmc.net/v2/versions/game');
-      // Only stable versions starting with 1. (excludes snapshot numbering like 26.x)
+      // Stable releases only — both 1.x and the yearly 26.x numbering.
       versions = res.data
-        .filter(v => v.stable && v.version.startsWith('1.'))
+        .filter(v => v.stable && mcv.isReleaseVersion(v.version))
         .map(v => v.version);
     } else if (type === 'forge') {
       const res = await axios.get('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json');
@@ -1200,20 +1210,12 @@ async function fetchVersionsForType(type, opts = {}) {
       const versionSet = new Set();
       for (const key of Object.keys(promos)) {
         const mcVer = key.split('-')[0];
-        // Only include proper MC versions (1.x.x format)
-        if (mcVer && /^1\.\d+(\.\d+)?$/.test(mcVer)) {
+        // Only include proper MC release versions (1.x.y or 26.x.y)
+        if (mcv.isReleaseVersion(mcVer)) {
           versionSet.add(mcVer);
         }
       }
-      versions = Array.from(versionSet).sort((a, b) => {
-        const pa = a.split('.').map(Number);
-        const pb = b.split('.').map(Number);
-        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-          const diff = (pb[i] || 0) - (pa[i] || 0);
-          if (diff !== 0) return diff;
-        }
-        return 0;
-      });
+      versions = Array.from(versionSet).sort(mcv.compareVersionsDesc);
     } else if (type === 'neoforge') {
       // maven.neoforged.net publishes AAAA records, but its IPv6 endpoints time out
       // from many residential networks. Force IPv4 so the request doesn't hang.
@@ -1222,28 +1224,12 @@ async function fetchVersionsForType(type, opts = {}) {
       const versionSet = new Set();
       for (const f of files) {
         if (f.type === 'DIRECTORY') {
-          // NeoForge version like 21.1.77 maps to MC 1.21.1
-          // NeoForge started at MC 1.20.x so major must be >= 20
-          const parts = f.name.split('.');
-          if (parts.length >= 2) {
-            const major = parseInt(parts[0]);
-            const minor = parseInt(parts[1]);
-            if (!isNaN(major) && !isNaN(minor) && major >= 20) {
-              const mcVer = minor === 0 ? `1.${major}` : `1.${major}.${minor}`;
-              versionSet.add(mcVer);
-            }
-          }
+          // 21.1.77 → MC 1.21.1; 26.3.0.103 → MC 26.3 (see mc-version.js)
+          const mcVer = mcv.neoforgeToMc(f.name);
+          if (mcVer) versionSet.add(mcVer);
         }
       }
-      versions = Array.from(versionSet).sort((a, b) => {
-        const pa = a.split('.').map(Number);
-        const pb = b.split('.').map(Number);
-        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-          const diff = (pb[i] || 0) - (pa[i] || 0);
-          if (diff !== 0) return diff;
-        }
-        return 0;
-      });
+      versions = Array.from(versionSet).sort(mcv.compareVersionsDesc);
     }
   } catch (err) {
     console.error(`Failed to fetch versions for ${type}:`, err.message);

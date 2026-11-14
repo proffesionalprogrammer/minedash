@@ -39,6 +39,7 @@ const { ensureAuthlibInjector, fetchPrefetchMeta } = require('./authlib-injector
 // (not passed through init opts) so the forked launch worker — which loads
 // this module without index.js — gets the same pool. Initialised in init().
 const javaPool = require('./java-pool');
+const mcv = require('./mc-version');
 // Tiny dependency-free NBT reader used to surface a world's seed / game mode /
 // last-played from its level.dat (Worlds panel). See backend/nbt-lite.js.
 const nbtLite = require('./nbt-lite');
@@ -494,6 +495,27 @@ async function migrateProfileDirsToRegistry() {
     });
     changed = true;
   }
+  // Builds before 26.x support mapped NeoForge 26.3.0.x to the nonexistent
+  // Minecraft "1.26.3" — mods then all looked like the wrong version and the
+  // launch died with "Failed to find version 1.26.3". Repair those entries.
+  for (const inst of reg.instances) {
+    const fixed = mcv.normalizeMcVersion(inst.version);
+    if (fixed === inst.version) continue;
+    const oldVersion = inst.version;
+    // A default instance's id is its folder name, `${loader}-${version}`.
+    if (inst.id === defaultInstanceId(inst.loader, oldVersion)) {
+      const newId = defaultInstanceId(inst.loader, fixed);
+      if (!known.has(newId) && !await fs.pathExists(instanceDir(newId))) {
+        try {
+          if (await fs.pathExists(instanceDir(inst.id))) await fs.move(instanceDir(inst.id), instanceDir(newId));
+          inst.id = newId;
+        } catch { /* folder in use — keep the old id, still fix the version */ }
+      }
+    }
+    inst.version = fixed;
+    if (typeof inst.displayName === 'string') inst.displayName = inst.displayName.split(oldVersion).join(fixed);
+    changed = true;
+  }
   if (changed) await writeProfileRegistry(reg);
 }
 
@@ -606,7 +628,9 @@ async function writeAccounts(data) {
 async function readSettings() {
   try {
     const d = await fs.readJson(settingsFile());
-    return { ...DEFAULT_SETTINGS, ...d };
+    const s = { ...DEFAULT_SETTINGS, ...d };
+    s.lastVersion = mcv.normalizeMcVersion(s.lastVersion);
+    return s;
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
 // Sync twin of readSettings. index.js needs the removeClientMods flag inside
@@ -1998,7 +2022,7 @@ function register(app) {
       const gameVersions = Array.isArray(chosen.game_versions) ? chosen.game_versions : [];
       let mcVersion = null;
       for (let i = gameVersions.length - 1; i >= 0; i--) {
-        if (/^1\.\d+(\.\d+)?$/.test(gameVersions[i])) { mcVersion = gameVersions[i]; break; }
+        if (mcv.isReleaseVersion(gameVersions[i])) { mcVersion = gameVersions[i]; break; }
       }
       if (!mcVersion) mcVersion = gameVersions[gameVersions.length - 1];
       if (!mcVersion) return res.status(400).json({ error: 'Modpack version does not declare a Minecraft version' });
@@ -4295,11 +4319,9 @@ async function ensureForgeWrapper(profileRoot, launchId) {
 // Download the NeoForge installer JAR. NeoForge versions are derived from MC versions:
 // MC 1.21.1 → NeoForge 21.1.x (latest with that prefix), MC 1.20 → 20.0.x, etc.
 async function downloadNeoForgeInstaller(mcVersion, profileRoot, launchId) {
-  const m = mcVersion.match(/^1\.(\d+)(?:\.(\d+))?$/);
-  if (!m) throw new Error(`Unsupported MC version for NeoForge: ${mcVersion}`);
-  const major = m[1];
-  const minor = m[2] || '0';
-  const neoPrefix = `${major}.${minor}`;
+  // MC 1.21.1 → "21.1.", MC 26.3 → "26.3.0.", MC 26.1.1 → "26.1.1."
+  const neoPrefix = mcv.mcToNeoforgePrefix(mcVersion);
+  if (!neoPrefix) throw new Error(`Unsupported MC version for NeoForge: ${mcVersion}`);
 
   const listR = await fetch('https://maven.neoforged.net/api/maven/details/releases/net/neoforged/neoforge');
   if (!listR.ok) throw new Error(`NeoForge maven returned ${listR.status}`);
@@ -4314,7 +4336,7 @@ async function downloadNeoForgeInstaller(mcVersion, profileRoot, launchId) {
     .map(seg => parseInt(seg, 10))   // "49-beta" → 49 (good enough for ordering)
     .map(n => Number.isFinite(n) ? n : 0);
   const matching = files
-    .filter(f => f.type === 'DIRECTORY' && f.name.startsWith(neoPrefix + '.'))
+    .filter(f => f.type === 'DIRECTORY' && f.name.startsWith(neoPrefix))
     .map(f => f.name)
     .sort((a, b) => {
       const stableDelta = (isStable(b) ? 1 : 0) - (isStable(a) ? 1 : 0);

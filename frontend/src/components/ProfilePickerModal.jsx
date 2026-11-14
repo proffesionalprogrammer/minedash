@@ -6,6 +6,7 @@ import {
 import Tooltip from './Tooltip';
 import ModalPortal from './ModalPortal';
 import { TITLEBAR_OFFSET } from '../lib/titlebar';
+import { isReleaseVersion } from '../lib/mcVersion';
 
 // CurseForge-style modal: "Install <project> — pick a profile to install into"
 // Used for Mod / Resource Pack / Shader / Data Pack installs from the Browse
@@ -120,7 +121,7 @@ function suggestedNewProfile(hit, type, preferredVersions = [], preferredLoaders
     version = supportedPreferred[supportedPreferred.length - 1];
   } else {
     for (let i = hitVersions.length - 1; i >= 0; i--) {
-      if (/^1\.\d+(\.\d+)?$/.test(hitVersions[i])) { version = hitVersions[i]; break; }
+      if (isReleaseVersion(hitVersions[i])) { version = hitVersions[i]; break; }
     }
     if (!version) version = hitVersions[hitVersions.length - 1] || null;
   }

@@ -13,6 +13,7 @@ import Select from './Select';
 import ProfilePickerModal from './ProfilePickerModal';
 import Tooltip from './Tooltip';
 import LoaderGlyph from './LoaderGlyph';
+import { isReleaseVersion } from '../lib/mcVersion';
 
 // Same TYPES list as LauncherContent — modpacks lead here because the whole
 // point of Browse is "I want to install a pack without picking a loader+version
@@ -114,13 +115,13 @@ function primaryLoader(loaders, categories) {
 
 // Pick the highest "real" Minecraft version from the hit's versions array.
 // Modrinth lists every supported version including snapshots — for the chip
-// we want the latest release ("1.21.1") rather than the highest entry overall
-// which might be a "26.1.2" pre-release tag or a snapshot like "23w14a".
+// we want the latest release ("1.21.1", "26.3") rather than the highest entry
+// overall, which might be a "26.4-snapshot-2" or a snapshot like "23w14a".
 function primaryGameVersion(versions) {
   if (!Array.isArray(versions) || versions.length === 0) return null;
   for (let i = versions.length - 1; i >= 0; i--) {
     const v = versions[i];
-    if (/^1\.\d+(\.\d+)?$/.test(v)) return v;
+    if (isReleaseVersion(v)) return v;
   }
   return versions[versions.length - 1];
 }
@@ -273,7 +274,7 @@ export default function BrowseSection({ onError, modpackInstalls, onProfilesChan
         setAllCategories(Array.isArray(cats) ? cats : []);
         // Only show release-shaped versions in the rail — snapshots clutter
         // the list and almost no one filters by them.
-        setAllMcVersions(Array.isArray(vers) ? vers.filter(v => /^1\.\d+(\.\d+)?$/.test(v)) : []);
+        setAllMcVersions(Array.isArray(vers) ? vers.filter(isReleaseVersion) : []);
       } catch {}
     })();
     return () => { cancelled = true; };

@@ -2,6 +2,14 @@
 
 All notable changes to MineDash are listed here. The version-specific section for whichever release you're running is shown in the "What's new" popup the first time MineDash starts after an update.
 
+## v1.4.1 — 2026-11-14
+
+### Fixed
+
+- **Minecraft 26.x now shows up for Fabric and Forge.** Since Minecraft switched to year-based version numbers (26.1, 26.2, 26.3…), the Fabric and Forge version lists only showed versions up to 1.21.11. Every 26.x release is now listed for servers and launcher instances.
+- **NeoForge on Minecraft 26.x works properly.** NeoForge 26.x was shown as a nonexistent "1.26.x" version, so no mods could be found for it, installed mods like Iris were flagged as the wrong version, and the game failed to launch. NeoForge 26.x now uses the real Minecraft version, and existing instances fix themselves automatically. If mods went missing from one of them, reinstall those mods.
+- **Forge instances failing to launch with "Could not find main class".** A part of Forge that MineDash downloaded could end up broken on some networks, which stopped that instance from launching again. MineDash now ships it built in.
+
 ## v1.4.0 — 2026-09-26
 
 ### Added

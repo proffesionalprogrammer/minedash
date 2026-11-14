@@ -44,6 +44,9 @@ function requiredJavaMajor(mcVersion) {
     return 17;
   }
 
+  // Yearly numbering (26.1, 26.3, 26.4-snapshot-2, …) — all Java 25.
+  if (/^(2[6-9]|[3-9]\d)\.\d/.test(v)) return 25;
+
   // Parse "1.MAJOR(.MINOR)" — pre/rc tags share the surrounding release bucket.
   const m = v.match(/^1\.(\d+)(?:\.(\d+))?/);
   if (!m) return RECOMMENDED_JAVA_MAJOR;
